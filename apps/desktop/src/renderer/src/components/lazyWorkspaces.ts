@@ -1,12 +1,16 @@
-import type { ComponentProps } from 'react';
+import { createElement, type ComponentProps } from 'react';
 import { lazyPanel, lazyRetainedPanel } from '../lib/lazyPanel';
 import { surfaceLoading } from './DeferredSurfaceLoading.shared';
+import { DeferredSurfaceLoading } from './DeferredSurfaceLoading';
+import { PanelLoading } from './LoadingIndicator';
+
+const settingsLoading = surfaceLoading('设置', { presentation: 'page', standalone: true });
 
 export const SettingsDialog = lazyPanel<
   ComponentProps<typeof import('./SettingsDialog').SettingsDialog>
 >(
   () => import('./SettingsDialog').then((m) => ({ default: m.SettingsDialog })),
-  surfaceLoading('设置', { presentation: 'page', standalone: true }),
+  (props) => (props.nativeWindow ? createElement(PanelLoading) : settingsLoading(props)),
 );
 export const DataMaintenanceDialog = lazyPanel<
   ComponentProps<typeof import('./settings/DataMaintenanceDialog').DataMaintenanceDialog>
@@ -73,6 +77,21 @@ export const RoamingBackfillPanel = lazyPanel<
 export const AgentLabView = lazyPanel<
   ComponentProps<typeof import('../views/AgentLabView').AgentLabView>
 >(() => import('../views/AgentLabView').then((m) => ({ default: m.AgentLabView })), 'inline');
+export const CloneCreationDialog = lazyPanel<
+  ComponentProps<typeof import('../views/agentlab/CloneCreationDialog').CloneCreationDialog>
+>(
+  () =>
+    import('../views/agentlab/CloneCreationDialog').then((m) => ({
+      default: m.CloneCreationDialog,
+    })),
+  ({ request, onClose }) =>
+    createElement(DeferredSurfaceLoading, {
+      title: request.kind === 'group' ? '新建克隆体群聊' : '新建好友克隆',
+      centered: true,
+      width: 520,
+      onClose,
+    }),
+);
 export const AssistantConversationPane = lazyRetainedPanel<
   ComponentProps<
     typeof import('../views/agentlab/AssistantConversationPane').AssistantConversationPane

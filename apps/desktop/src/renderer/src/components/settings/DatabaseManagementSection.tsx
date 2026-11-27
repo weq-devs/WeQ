@@ -5,6 +5,7 @@ import { DatabaseRepairSection } from './DatabaseRepairSection';
 import { AccountBasicsSection } from './AccountBasicsSection';
 import { Card, Row, SectionHeader } from './controls';
 import { BeforeLoginSettingsContext, OPEN_ACCOUNT_SETTINGS_HINT } from './controls.shared';
+import { SETTINGS_PAGE_LABELS } from './navigation';
 import type { MaintenanceTool } from './DataMaintenanceSection';
 import '../../styles/settings-database.css';
 
@@ -12,7 +13,10 @@ export function DatabaseManagementSection({ onOpen }: { onOpen: (tool: Maintenan
   const beforeLogin = useContext(BeforeLoginSettingsContext);
   return (
     <div className="weq-set weq-database-management">
-      <SectionHeader title="QQ 数据库管理" page="database-management" />
+      <SectionHeader
+        title={SETTINGS_PAGE_LABELS['database-management']}
+        page="database-management"
+      />
       <Card title="数据库浏览" icon={<Database size={15} />} settingId="database-manager">
         <Row
           label="库、表与记录"

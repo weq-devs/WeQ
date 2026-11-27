@@ -1,3 +1,4 @@
+import { assertQqFileWriteAllowed } from '@weq/db';
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, realpathSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileExtension, sanitizeSegment } from '../../common/path_sanitize';
@@ -18,6 +19,7 @@ export function prepareDirectOutput(
   const parent = policy.filePath ? dirname(policy.filePath) : policy.directory;
   if (!parent || !lstatSync(parent).isDirectory()) throw new Error('保存目录不可用，请重新选择。');
   const root = realpathSync(parent);
+  assertQqFileWriteAllowed(policy.filePath ?? root);
   if (policy.filePath) {
     const selected = basename(policy.filePath);
     for (let n = 0; ; n++) {

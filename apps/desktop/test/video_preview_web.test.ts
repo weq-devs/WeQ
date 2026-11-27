@@ -16,15 +16,20 @@ vi.mock('../src/main/context/app_context', () => {
     },
     services: {
       fileSearch: { findFile: async () => ({ source: null }) },
+      fileResource: { resolveSentFile: async () => null },
       msgs: {
         getRawElements: async (id: bigint) => ({
           kind: 'group',
-          elements: [{ kind: 'video', fileToken: id === 1n ? 'progressive.webm' : 'tail.mp4' }],
+          elements:
+            id === 3n
+              ? [{ kind: 'file', fileName: 'clip.mov', fileToken: 'clip.mov' }]
+              : [{ kind: 'video', fileToken: id === 1n ? 'progressive.webm' : 'tail.mp4' }],
         }),
       },
       mediaUrl: {
         resolveVideoUrl: async (_kind: string, _group: number, element: { fileToken: string }) =>
           `https://fixture.invalid/${element.fileToken}`,
+        resolveFileUrl: async () => 'https://fixture.invalid/clip.mov',
       },
     },
   };
@@ -72,12 +77,13 @@ it('Web 在收到上游响应头之前断连，也取消宿主媒体请求', asy
 });
 
 it.runIf(!!process.env.WEQ_PLAYWRIGHT_IMPORT)(
-  '真实浏览器边收边播，并能播放 moov 在尾部的 MP4 与拖动进度',
+  '真实浏览器边收边播，并能跳转尾置 moov 的 MP4 和 MOV 附件',
   async () => {
     const run = promisify(execFile);
     for (const [name, codec] of [
       ['progressive.webm', 'libvpx'],
       ['tail.mp4', 'libx264'],
+      ['clip.mov', 'libx264'],
     ])
       await run('ffmpeg', [
         '-loglevel',
@@ -127,7 +133,12 @@ it.runIf(!!process.env.WEQ_PLAYWRIGHT_IMPORT)(
       const start = match ? Number(match[1]) : 0;
       const end = match?.[2] ? Math.min(Number(match[2]), bytes.length - 1) : bytes.length - 1;
       const headers = new Headers({
-        'Content-Type': name.endsWith('mp4') ? 'video/mp4' : 'video/webm',
+        'Content-Type':
+          name === 'clip.mov'
+            ? 'application/octet-stream'
+            : name === 'tail.mp4'
+              ? 'video/mp4'
+              : 'video/webm',
         'Content-Length': String(end - start + 1),
         'Accept-Ranges': 'bytes',
       });
@@ -165,7 +176,7 @@ it.runIf(!!process.env.WEQ_PLAYWRIGHT_IMPORT)(
       [join(__dirname, 'browser/run-video-preview-streaming.mjs'), base],
       { env: process.env, timeout: 45_000 },
     );
-    expect(JSON.parse(stdout)).toMatchObject({ played: true, sought: true, width: 320 });
+    expect(JSON.parse(stdout)).toMatchObject({ played: true, sought: true, movSought: true });
     expect(completed).toBe(false);
     expect(ranges.length).toBeGreaterThan(0);
     expect(ranges.some((range) => /^bytes=[1-9]/.test(range))).toBe(true);

@@ -36,26 +36,23 @@ export function ReplySuggestionsSection() {
           />
           <Row
             settingId="suggestions-mode"
+            settingFallback={
+              s?.suggestionMode === 'manual'
+                ? 'suggestions-after-self suggestions-advanced'
+                : undefined
+            }
             label="模式"
             control={
-              <span
-                data-setting-fallback={
-                  s?.suggestionMode === 'manual'
-                    ? 'suggestions-after-self suggestions-advanced'
-                    : undefined
-                }
-              >
-                <SegmentedControl
-                  label="推荐回复模式"
-                  value={s ? (s.suggestionMode ?? 'auto') : null}
-                  disabled={disabled}
-                  onChange={(suggestionMode) => void patch({ suggestionMode })}
-                  options={[
-                    { value: 'auto', label: '自动' },
-                    { value: 'manual', label: '手动' },
-                  ]}
-                />
-              </span>
+              <SegmentedControl
+                label="推荐回复模式"
+                value={s ? (s.suggestionMode ?? 'auto') : null}
+                disabled={disabled}
+                onChange={(suggestionMode) => void patch({ suggestionMode })}
+                options={[
+                  { value: 'auto', label: '自动' },
+                  { value: 'manual', label: '手动' },
+                ]}
+              />
             }
           />
         </>

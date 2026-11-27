@@ -6,6 +6,7 @@ import { GrayTipPokeMessage } from '../src/renderer/src/components/GrayTipPokeMe
 import { GrayTipGroupMessage } from '../src/renderer/src/components/GrayTipGroupMessage';
 import { GrayTipXmlMessage } from '../src/renderer/src/components/GrayTipXmlMessage';
 import { GrayTipRevokeMessage } from '../src/renderer/src/components/GrayTipRevokeMessage';
+import { FileTransferTipScopeContext } from '../src/renderer/src/state/messageContext';
 import { ReplyJumpContext } from '../src/renderer/src/state/messageContext';
 import { GrayTipLine } from '../src/renderer/src/im-template/template/messageRow';
 import { GrayTipNamesContext, grayTipProfileTarget } from '../src/renderer/src/lib/grayTipProfile';
@@ -18,10 +19,12 @@ import { resolve } from 'node:path';
 vi.mock('../src/renderer/src/components/FaceEmoji', () => ({
   FaceEmoji: () => h('span', { role: 'img', 'aria-label': '表情' }, '表情'),
 }));
+const fileTransferTipQuery = vi.hoisted(() => vi.fn());
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
     new Proxy(() => undefined, {
       get: (_target, key) => {
+        if (key === 'fileTransferTipOriginal') return { useQuery: fileTransferTipQuery };
         if (key === 'useQuery') return () => ({ data: undefined, isLoading: false });
         if (key === 'useMutation') return () => ({ mutate() {}, isLoading: false });
         return proxy();
@@ -298,6 +301,50 @@ it.each(['63954', '9007199254740993'])('贴表情灰条按 msgseq=%s 跳转到�
   expect(jump).toHaveBeenCalledTimes(1);
   expect(jump).toHaveBeenCalledWith({ seq });
   expect(bubble).not.toHaveBeenCalled();
+});
+
+it('文件灰条显示接收方，点击文件名沿精确消息身份跳转', () => {
+  const source = demo.conversations.find((item) => item.type === 'direct')!;
+  const conversation = { ...source, otherUser: { ...source.otherUser, displayName: '小林' } };
+  const scope = {
+    kind: 'c2c' as const,
+    conv: conversation.id,
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: 'account-a',
+  };
+  const jump = vi.fn();
+  const msgId = '9132756432187654321';
+  fileTransferTipQuery.mockReturnValue({ data: { msgId, msgSeq: '22', direction: 'self' } });
+  const f = mount(
+    h(
+      FileTransferTipScopeContext.Provider,
+      { value: scope },
+      h(
+        ReplyJumpContext.Provider,
+        { value: jump },
+        h(GrayTipLine, {
+          gt: {
+            kind: 'grayTipFileRecv',
+            el: {
+              type: 'grayTipFileRecv',
+              data: { fileName: '文件.zip', fileSize: 1024, fileToken: 'transfer-a' },
+            },
+          },
+          conversation,
+          message: { ...message, conversationId: conversation.id, msgId: '52', msgSeq: '24' },
+        }),
+      ),
+    ),
+  );
+  expect(fileTransferTipQuery).toHaveBeenCalledWith(
+    { ...scope, tipId: '52', tipSeq: 24 },
+    expect.anything(),
+  );
+  expect(f.host.textContent).toContain('小林接收了你发送的文件');
+  const link = f.host.querySelector<HTMLButtonElement>('button[title="跳转到原文件消息"]');
+  expect(link?.textContent).toBe('文件.zip');
+  act(() => link!.click());
+  expect(jump).toHaveBeenCalledWith({ msgId, seq: '22' });
 });
 
 it.each(['', '0', '-1', '1.5', '12oops', '1e3'])(

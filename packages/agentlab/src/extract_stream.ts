@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { AgentLabEndpoint, AgentLabModelOutput } from './types';
 import {
   apiErrorMessage,
+  apiErrorExcerpt,
   ApiHttpError,
   fetchApi,
   isApiCancellation,
@@ -105,7 +106,7 @@ export function requestChatCompletionStream(
           throw new ApiHttpError(
             '/chat/completions',
             response.status,
-            (await response.text()).slice(0, 300),
+            apiErrorExcerpt(await response.text()),
           );
         if (!response.body) throw new Error('模型服务未返回响应正文');
         reader = response.body.getReader();

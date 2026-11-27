@@ -16,9 +16,11 @@ function fixture() {
     sql = fixtureDb(path);
   for (const table of ['group_msg_table', 'c2c_msg_table']) {
     sql.exec(
-      `CREATE TABLE ${table} ("40001" INTEGER, "40021" TEXT, "40027" TEXT, "40035" INTEGER, "40800" BLOB, "999991" BLOB, "future""column" TEXT)`,
+      `CREATE TABLE ${table} ("40001" INTEGER, "40002" INTEGER DEFAULT 0, "40021" TEXT, "40027" TEXT, "40035" INTEGER, "40800" BLOB, "999991" BLOB, "future""column" TEXT)`,
     );
-    const insert = sql.prepare(`INSERT INTO ${table} VALUES (?, ?, ?, ?, ?, ?, ?)`);
+    const insert = sql.prepare(
+      `INSERT INTO ${table} ("40001", "40021", "40027", "40035", "40800", "999991", "future""column") VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
     insert.run(1, 'peer', '777', 50, null, Buffer.from([255, 0, 254]), '未知列');
     insert.run(1, 'other', '888', 51, null, Buffer.from([1]), '不应导出');
     insert.run(2, 'peer', '777', 50, null, Buffer.from([2]), '未选消息');
@@ -45,4 +47,17 @@ it('私聊与服务号分别用自己的分区字段；空精确集合不退化�
   expect(service).toHaveLength(1);
   expect(service[0]?.columns['40035']).toBe(50n);
   expect(await c2c.exportSourceRows({ uid: 'peer' }, [])).toEqual([]);
+});
+
+it('编辑精确命中原始行，正文已变化时保留新值', async () => {
+  const { group, sql } = fixture();
+  sql.prepare('UPDATE group_msg_table SET "40800"=? WHERE "40001"=1').run(Buffer.from([0]));
+  const [picked] = await group.exportSourceRows('777', ['1']);
+  const before = { rowId: BigInt(picked!.rowId), body: Uint8Array.of(0) };
+  expect(await group.updateMsgBody(1n, Uint8Array.of(1), before)).toBe(1);
+  expect(await group.updateMsgBody(1n, Uint8Array.of(2), before)).toBe(0);
+  const [changed] = await group.exportSourceRows('777', ['1']);
+  const [untouched] = await group.exportSourceRows('888', ['1']);
+  expect(changed?.columns['40800']).toEqual(Uint8Array.of(1));
+  expect(untouched?.columns['40800']).toEqual(Uint8Array.of(0));
 });

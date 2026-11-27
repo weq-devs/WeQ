@@ -27,6 +27,7 @@ vi.mock('../src/renderer/src/trpc/client', async () => {
   }
   return {
     trpc: {
+      taskArchive: { detail: { useQuery: () => ({ data: undefined }) } },
       backgroundTasks: { details: query('details'), logs: query('logs') },
       dbRepair: { maintenance: { useQuery: () => ({ data: null }) } },
     },
@@ -98,6 +99,8 @@ function mount(
               entry: { ...entry, task: { ...entry.task, id, updatedAt } },
               scope,
               refresh: async () => {},
+              managementActions: [],
+              archived: false,
             }),
           ),
         ),

@@ -143,8 +143,16 @@
 :where(html[data-weq-layout='single'])
   .weq-web-shell
   .weq-qq-action-form
-  :is(input, .weq-select-trigger, textarea) {
+  :is(
+    input:where(:not([type='checkbox'], [type='radio'], [type='range'])),
+    .weq-select-trigger,
+    textarea
+  ) {
   font-size: 16px;
+  min-height: 44px;
+}
+
+:where(html[data-weq-layout='single']) .weq-web-shell .weq-qq-action-options label {
   min-height: 44px;
 }
 

@@ -1,5 +1,6 @@
 import type { ModelDownloadProgress } from '@weq/service';
-import { backgroundTasks, runBackgroundTask } from './background_tasks';
+import { archiveCompletedTask, backgroundTasks, runBackgroundTask } from './background_tasks';
+import { getAppContext } from './context/app_context';
 import { transferBehavior } from '@weq/service/network-scope';
 
 interface ModelStore {
@@ -20,6 +21,7 @@ export function trackModelDownload(store: ModelStore, id: string, label: string)
     pending.set(store, downloads);
   }
   if (downloads.has(id)) return downloads.get(id)!;
+  let downloadTaskId: string;
   const work = runBackgroundTask(
     {
       kind: 'model',
@@ -27,6 +29,7 @@ export function trackModelDownload(store: ModelStore, id: string, label: string)
       display: { action: '下载模型', subject: label, context: id },
     },
     async (taskId) => {
+      downloadTaskId = taskId;
       const progress = (p: ModelDownloadProgress) => {
         if (p.id !== id) return;
         if (p.paused) {
@@ -61,7 +64,12 @@ export function trackModelDownload(store: ModelStore, id: string, label: string)
       }
     },
     () => ({ note: '模型已下载' }),
-  ).finally(() => downloads.delete(id));
+  )
+    .then((result) => {
+      archiveCompletedTask(getAppContext().platform?.appDataRoot?.(), downloadTaskId);
+      return result;
+    })
+    .finally(() => downloads.delete(id));
   downloads.set(id, work);
   return work;
 }

@@ -7674,7 +7674,7 @@ html[data-theme='dark'] .weq-report-root {
  *   - 顶上一行会跟着焦点帧变化的小注；
  *   - 悬停/拖动时的抓取光标；
  *   - 帧图内部的极缓 Ken Burns；
- *   - 焦点帧与悬停帧的浮起、边框与影。
+ *   - 焦点帧浮起，悬停帧只强调边框、阴影与帧内图片。
  */
 
 .weq-qz-reel {
@@ -7756,9 +7756,18 @@ html[data-theme='dark'] .weq-report-root {
 }
 
 .weq-qz-frame[data-hover='yes'] {
-  transform: translateY(-2px) scale(1.02);
   border-color: color-mix(in srgb, var(--rp-qz) 42%, var(--rp-hair));
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .weq-qz-frame > img {
+    transition: scale 460ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .weq-qz-frame[data-hover='yes'] > img {
+    scale: 1.04;
+  }
 }
 
 /* 焦点帧 —— 正在经过画廊中央的那一格，比悬停再高半级。 */

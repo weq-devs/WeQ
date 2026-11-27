@@ -1,30 +1,30 @@
-import { useToast } from '../components/Toast.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
-import { taskNotificationSource } from './notificationNavigation.shared';
-import { taskNotificationKey, taskNotificationPresented } from './taskNotificationPresentation';
+import { accountBinding } from './clientPreferences';
 
-/** 轻量保存先反馈受理，后续轮询沿用同一横幅；不会覆盖更早到达的结果。 */
-export function notifyTaskCreated(id: string, title: string) {
-  const source = taskNotificationSource(id);
-  const menu = useWorkspaceMenu.getState();
-  const scope = source.binding
-    ? JSON.stringify([source.binding.expectedAccountUin, source.binding.expectedAccountConfigId])
-    : menu.taskScope;
-  if (!scope || taskNotificationPresented('progress', source)) return;
-  const taskId = `export:${id}`;
-  const task = menu.taskScope === scope ? menu.taskItems.find((item) => item.id === taskId) : null;
-  if (task && (task.activity !== 'running' || task.waiting)) return;
-  const toast = useToast.getState();
-  const key = taskNotificationKey(scope, taskId);
-  if (toast.toasts.some((item) => item.key === key)) return;
-  toast.push({
-    key,
-    event: 'progress',
-    title: task?.notificationName ?? (title.length > 100 ? '资源保存任务' : title),
-    loading: true,
-    durationKind: 'long',
-    // 首次任务快照尚未就绪时有界等待，实际进度到达后由共用通知接管。
-    ttl: 15_000,
-    source,
-  });
+const recentStarts = new Map<string, number>();
+const START_LIMIT = 128;
+const START_TTL = 60_000;
+
+/** 受理与首份任务快照可能交错，完成提醒仍取自真实结果。 */
+export function rememberTaskCreated(id: string) {
+  const binding = accountBinding();
+  const scope = binding
+    ? JSON.stringify([binding.expectedAccountUin, binding.expectedAccountConfigId])
+    : useWorkspaceMenu.getState().taskScope;
+  if (!scope) return;
+  recentStarts.set(JSON.stringify([scope, `export:${id}`]), Date.now());
+  if (recentStarts.size > START_LIMIT) recentStarts.delete(recentStarts.keys().next().value!);
+}
+
+export function takeTaskStarts(scope: string, ids: readonly string[]) {
+  const started = new Set<string>();
+  const now = Date.now();
+  for (const id of ids) {
+    const key = JSON.stringify([scope, id]);
+    const at = recentStarts.get(key);
+    if (at === undefined) continue;
+    recentStarts.delete(key);
+    if (now - at < START_TTL) started.add(id);
+  }
+  return started;
 }

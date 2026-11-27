@@ -19,9 +19,14 @@ import {
   createPageSnapshotStorage,
   PAGE_SNAPSHOT_MAX_BYTES,
   PAGE_SNAPSHOT_MAX_ENTRIES,
+  pageSnapshots,
   pageValue,
 } from '../src/renderer/src/lib/pageSnapshots';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
+import {
+  revealTimelineMessage,
+  TIMELINE_MESSAGE_LOCATED,
+} from '../src/renderer/src/lib/timelineViewport';
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -162,6 +167,7 @@ it('磁盘快照支持 Set、空值和重建，按账号/数据源隔离且忽�
     act(() => write(new Set(['source-b'])));
     render('account-a:source-a', 'a');
     expect(host.textContent).toBe('one,two');
+    pageSnapshots.flush();
     expect(localStorage.length).toBe(3);
     expect(
       Array.from({ length: localStorage.length }, (_, i) =>
@@ -171,6 +177,30 @@ it('磁盘快照支持 Set、空值和重建，按账号/数据源隔离且忽�
   } finally {
     act(() => root.unmount());
   }
+});
+
+it('普通快照先供页面恢复，空闲合并写入，重置不会让待写快照复活', () => {
+  const storage = new Storage();
+  const snapshots = createPageSnapshotStorage(() => storage);
+  const writes = vi.spyOn(storage, 'setItem');
+  const scan = vi.spyOn(storage, 'key');
+  const key = JSON.stringify(['account', 'page']);
+  snapshots.write('existing', 'keep');
+  scan.mockClear();
+  writes.mockClear();
+  snapshots.scheduleWrite(key, 'old');
+  snapshots.scheduleWrite(key, 'latest');
+  expect(snapshots.read(key, pageValue.string)).toBe('latest');
+  expect(writes).not.toHaveBeenCalled();
+  snapshots.flush();
+  expect(writes).toHaveBeenCalledOnce();
+  expect(scan).not.toHaveBeenCalled();
+  expect(snapshots.read(key, pageValue.string)).toBe('latest');
+  snapshots.scheduleWrite(key, 'late');
+  snapshots.resetScope('account');
+  snapshots.flush();
+  expect(snapshots.read(key, pageValue.string)).toBeUndefined();
+  expect(snapshots.read('existing', pageValue.string)).toBe('keep');
 });
 
 it('坏快照和不匹配的类型不覆盖原件；写入容量有界且草稿不被页面缓存淘汰', () => {
@@ -361,6 +391,68 @@ it('用户中断等待中的滚动恢复后，迟到图片加载不能再次套�
     expect(scroll.scrollTop).toBe(35);
   } finally {
     act(() => root.unmount());
+  }
+});
+
+it.each([true, false])('切回消息页后显式定位优先（显式=%s）', async (explicit) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const scroll = () => host.querySelector<HTMLElement>('.message-scroll')!;
+  const render = (activeKey: string, messageId?: string) =>
+    act(() =>
+      root.render(
+        h(
+          PageSnapshots,
+          { scope: 'account' },
+          h(
+            RetainedTabs,
+            { snapshotKey: 'main', activeKey },
+            activeKey === 'messages'
+              ? h(
+                  'div',
+                  {
+                    className: 'message-scroll',
+                    ref: (node: HTMLDivElement | null) => {
+                      if (node)
+                        Object.defineProperty(node, 'scrollHeight', {
+                          configurable: true,
+                          value: messageId ? 1000 : 0,
+                        });
+                    },
+                  },
+                  messageId &&
+                    h('div', { className: 'message-line', 'data-message-id': messageId }),
+                )
+              : h('div'),
+          ),
+        ),
+      ),
+    );
+  try {
+    render('messages', 'old');
+    scroll().scrollTop = 120;
+    scroll().dispatchEvent(new Event('scroll', { bubbles: true }));
+    render('contacts');
+    render('messages');
+    render('messages', 'notification-target');
+    if (!explicit)
+      scroll().addEventListener(TIMELINE_MESSAGE_LOCATED, (event) => event.stopPropagation(), {
+        once: true,
+      });
+    const target = scroll().querySelector<HTMLElement>('[data-message-id]')!;
+    target.scrollIntoView = () => {
+      scroll().scrollTop = 640;
+    };
+    expect(revealTimelineMessage(scroll(), 'notification-target', true)).toBe(true);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(scroll().scrollTop).toBe(explicit ? 640 : 120);
+    expect(target.classList.contains('weq-reply-target-flash')).toBe(true);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
   }
 });
 

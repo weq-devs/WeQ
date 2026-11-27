@@ -199,7 +199,11 @@ describe('标题栏全局搜索', () => {
         persistent: true,
         query: '导出',
         onQueryChange: vi.fn(),
-        results: createElement('button', { role: 'option', onClick: select }, '导出'),
+        results: createElement(
+          'button',
+          { role: 'option', 'data-search-hit-key': 'fixture', onClick: select },
+          '导出',
+        ),
       }),
     );
     try {

@@ -20,6 +20,13 @@ export class ApiHttpError extends Error {
   }
 }
 
+export function apiErrorExcerpt(text: string): string {
+  return text
+    .replace(/data:image\/[\w.+-]+;base64,[A-Za-z0-9+/_=-]*/gi, '[图片数据]')
+    .trim()
+    .slice(0, 300);
+}
+
 function count(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
@@ -52,10 +59,10 @@ export function isApiCancellation(error: unknown, signal?: AbortSignal | null): 
 export function apiErrorMessage(raw: unknown): string | null {
   if (!raw || typeof raw !== 'object' || !('error' in raw) || !raw.error) return null;
   const error = raw.error;
-  if (typeof error === 'string') return error.slice(0, 300);
+  if (typeof error === 'string') return apiErrorExcerpt(error);
   if (typeof error === 'object')
     return 'message' in error && typeof error.message === 'string' && error.message.trim()
-      ? error.message.slice(0, 300)
+      ? apiErrorExcerpt(error.message)
       : '模型服务返回错误';
   return null;
 }
@@ -239,7 +246,7 @@ async function requestApiJsonWithinDeadline<T>(
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       init.signal?.throwIfAborted();
-      const detail = text.trim().slice(0, 300);
+      const detail = apiErrorExcerpt(text);
       try {
         usage.report(JSON.parse(text));
       } catch {}

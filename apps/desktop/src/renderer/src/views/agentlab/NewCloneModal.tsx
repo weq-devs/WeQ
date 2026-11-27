@@ -6,7 +6,7 @@
  * 多选时逐个好友各起一个克隆任务；名称、额外提示在多个目标下只作为公共配置，
  * 展示名仍以好友昵称为准（可在任务列表里再改）。
  *
- * 点「开始克隆」只负责收集配置并交给父级（AgentLabView）发起构建——
+ * 点「开始克隆」只负责收集配置并交给父级发起构建——
  * 父级关闭配置弹窗，任务 store 自动打开统一任务列表，构建在后台继续。
  *
  * 语料来源：group = 私聊为主、不足时群补采风格；private = 纯私聊、不回退。
@@ -79,7 +79,7 @@ export function NewCloneModal({
   buddies: BuddyOption[];
   /** 从会话列表多选好友进入时，预先勾上的 uid。 */
   initialSelectedUids?: string[];
-  flatModels: FlatModels;
+  flatModels?: FlatModels;
   onClose: () => void;
   /** 收集完配置后交给父级发起构建（多选时每个好友一条）。 */
   onStart: (args: StartCloneArgs) => void;

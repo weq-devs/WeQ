@@ -65,7 +65,7 @@ describe('当前运行中的后台服务', () => {
     state.sse = true;
     expect(backgroundServicesRunning()).toEqual([
       { id: 'mcp', label: 'MCP 服务器' },
-      { id: 'assistant', label: 'QQ 公众号推送' },
+      { id: 'assistant', label: '公众号本地推送' },
       { id: 'sse', label: 'SSE 消息推送' },
     ]);
   });

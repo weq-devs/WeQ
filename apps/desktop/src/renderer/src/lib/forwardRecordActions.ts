@@ -163,7 +163,13 @@ export function forwardMessage(win: ForwardWindowState, entry: ForwardEntry): Me
     qqElements: record.elements,
     createdAt: sendTimeMs > 0 ? new Date(sendTimeMs).toISOString() : '',
     decoration: record.decoration,
-    forwardSnapshot: { carrierId: win.rootMsgId, kind: win.kind, conv: win.conv, resId: win.resId },
+    forwardSnapshot: {
+      carrierId: win.rootMsgId,
+      kind: win.kind,
+      conv: win.conv,
+      resId: win.resId,
+      ...(entry.reply?.targetId ? { replyTargetId: entry.reply.targetId } : {}),
+    },
   };
 }
 

@@ -337,6 +337,16 @@ function bundlePath(el: RenderElement): string | undefined {
   return (el.data as { exportPath?: string }).exportPath;
 }
 
+function mediaBoxStyle(width: number, height: number, maxWidth: number, maxHeight: number): string {
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0)
+    return '';
+  const displayWidth = Math.max(
+    1,
+    Math.round(Math.min(width, maxWidth, (maxHeight * width) / height)),
+  );
+  return ` style="width:min(${displayWidth}px,100%);aspect-ratio:auto ${width}/${height}"`;
+}
+
 /**
  * Render one built-in system-emoji (faceElement) face.
  *   - Unicode-glyph faces (faceId is a code point) → the glyph as text.
@@ -418,13 +428,14 @@ function renderElement(
           ? `<small class="cap">${escapeHtml(el.data.fileName)}</small>`
           : '';
       const img = p
-        ? `<img class="${cls}" loading="lazy" src="${escapeHtml(p)}" alt="${isEmoji ? '表情' : '图片'}">`
+        ? `<img class="${cls}"${mediaBoxStyle(el.data.imgWidth, el.data.imgHeight, isEmoji ? 90 : 240, isEmoji ? 90 : 280)} loading="lazy" src="${escapeHtml(p)}" alt="${isEmoji ? '表情' : '图片'}">`
         : `<span class="ph">${isEmoji ? '[表情]' : '[图片]'}</span>`;
       return cap ? `<span class="pic-wrap">${img}${cap}</span>` : img;
     }
     case 'video': {
       const p = bundlePath(el);
-      if (p) return `<video class="media" controls preload="none" src="${escapeHtml(p)}"></video>`;
+      if (p)
+        return `<video class="media"${mediaBoxStyle(el.data.videoWidth, el.data.videoHeight, 240, 280)} controls preload="none" src="${escapeHtml(p)}"></video>`;
       return '<span class="ph">[视频]</span>';
     }
     case 'ptt': {

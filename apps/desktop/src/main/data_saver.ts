@@ -7,10 +7,81 @@ import {
 import { getAppContext } from './context/app_context';
 import { dataSaverSession, updateTransferPolicy } from '@weq/service/transfer-policy';
 import { transferActivity, type TransferActivity } from '@weq/service/managed-download';
-import { backgroundTasks } from './background_tasks';
+import { archiveCompletedTask, backgroundTasks } from './background_tasks';
 import { onSettingsChanged } from '@weq/service/settings-changes';
 import { unfinishedDataSaverTasks } from '../shared/data_saver_tasks';
 import { forgetTaskOnPage, holdTaskOnPage } from './task_page';
+import { z } from 'zod/v3';
+import { networkScope } from '@weq/service/network-scope';
+import { recordAccountTask } from './account_task_receipts';
+import type { BackgroundTaskScope } from '../shared/background_task';
+
+const originalRequest = z.object({
+  type: z.literal('chat-original'),
+  token: z.string().min(1).max(8192),
+  originalUrl: z
+    .string()
+    .regex(/^\/(?!\/)[^?#]*$/)
+    .optional(),
+  ext: z
+    .string()
+    .regex(/^\.[a-z0-9]+$/i)
+    .optional(),
+  rkeyTypes: z.array(z.number().int()).optional(),
+});
+
+export function retryOriginalDownload(id: string, scope: BackgroundTaskScope, raw: unknown) {
+  const parsed = originalRequest.parse(raw);
+  const { account, services, platform } = getAppContext();
+  const record = services?.accountConfig.getRecord();
+  if (!services || record?.uin !== scope.uin || record.configId !== scope.configId)
+    throw new Error('请回到原账号和数据源继续。');
+  const task = backgroundTasks.snapshot().find((row) => row.id === id);
+  if (!task || task.status === 'running') throw new Error('原图任务正在处理或已经失效。');
+  backgroundTasks.resume(id);
+  backgroundTasks.setActions(id, []);
+  const save = recordAccountTask(id, scope, parsed);
+  const completed = () =>
+    backgroundTasks.snapshot().some((task) => task.id === id && task.status === 'completed');
+  const work = networkScope.run(
+    { restricted: false, ...networkScope.getStore(), override: true, intent: 'interactive' },
+    () =>
+      services.mediaDownload.download(parsed.token, {
+        originalUrl: parsed.originalUrl,
+        ext: parsed.ext,
+        rkeyTypes: parsed.rkeyTypes,
+        reportActivity: true,
+        activityTaskId: id,
+      }),
+  );
+  void work
+    .then((path) => {
+      if (completed()) return;
+      if (getAppContext().account !== account) throw new Error('账号或数据源已切换。');
+      if (!path) throw new Error('未取到原图，请检查 QQ 在线状态后重试。');
+      backgroundTasks.resume(id);
+      backgroundTasks.finish(id, 'completed', { note: '原图已缓存' });
+      backgroundTasks.setActions(id, []);
+      archiveCompletedTask(platform?.appDataRoot?.(), id);
+    })
+    .catch((error) => {
+      if (completed()) return;
+      backgroundTasks.resume(id);
+      backgroundTasks.finish(id, 'failed', {
+        note: error instanceof Error ? error.message : String(error),
+      });
+      backgroundTasks.setActions(id, [
+        { id: 'retry', label: '继续下载原图', run: () => retryOriginalDownload(id, scope, raw) },
+      ]);
+    })
+    .finally(() => {
+      try {
+        save();
+      } catch (error) {
+        console.warn('[原图] 任务回执保存失败', error);
+      }
+    });
+}
 
 const windowTasks = new Map<string, number | null>();
 const taskSources = new Map<string, NonNullable<ReturnType<typeof getAppContext>['services']>>();
@@ -111,6 +182,7 @@ export function startTransferPolicy() {
       void refreshTransferPolicy().catch(() => undefined);
     });
     const ids = new Map<string, string>();
+    const receipts = new Map<string, ReturnType<typeof recordAccountTask>>();
     transferActivity.on('state', (state: TransferActivity) => {
       let id = ids.get(state.id);
       if (!id) {
@@ -118,12 +190,32 @@ export function startTransferPolicy() {
           const taskId = ids.get(state.id);
           if (taskId) backgroundTasks.setForeground(taskId, false);
         });
-        id = backgroundTasks.start({
+        const resume = state.transfer.activityResume;
+        const config = resume ? getAppContext().services?.accountConfig.getRecord() : undefined;
+        const scope = config?.configId ? { uin: config.uin, configId: config.configId } : undefined;
+        const taskInput = {
           kind: 'resource',
           name: state.name,
           display: { action: '下载资源', subject: state.name },
           foreground,
-        });
+          scope,
+        } as const;
+        if (resume && scope) {
+          id = resume.id;
+          if (!backgroundTasks.snapshot().some((task) => task.id === id)) {
+            const now = Date.now();
+            backgroundTasks.project(
+              { ...taskInput, id, status: 'running', actions: [], startedAt: now, updatedAt: now },
+              [],
+            );
+          }
+          receipts.set(state.id, recordAccountTask(id, scope, resume.request));
+        } else id = backgroundTasks.start(taskInput);
+        try {
+          receipts.get(state.id)?.();
+        } catch (error) {
+          console.warn('[原图] 任务回执保存失败', error);
+        }
         ids.set(state.id, id);
       }
       if (state.done || state.error || state.cancelled) {
@@ -133,7 +225,28 @@ export function startTransferPolicy() {
           state.cancelled ? 'cancelled' : state.error ? 'failed' : 'completed',
           { note: state.error },
         );
-        backgroundTasks.setActions(id, []);
+        const resume = state.transfer.activityResume;
+        const scope = backgroundTasks.snapshot().find((task) => task.id === id)?.scope;
+        backgroundTasks.setActions(
+          id,
+          resume && scope && (state.error || state.cancelled)
+            ? [
+                {
+                  id: 'retry',
+                  label: '继续下载原图',
+                  run: () => retryOriginalDownload(id!, scope, resume.request),
+                },
+              ]
+            : [],
+        );
+        if (state.done && resume && scope && originalRequest.safeParse(resume.request).success)
+          archiveCompletedTask(getAppContext().platform?.appDataRoot?.(), id);
+        try {
+          receipts.get(state.id)?.();
+        } catch (error) {
+          console.warn('[原图] 任务回执保存失败', error);
+        }
+        receipts.delete(state.id);
         ids.delete(state.id);
         forgetTaskOnPage(state.id);
       } else if (state.paused) {
@@ -143,6 +256,11 @@ export function startTransferPolicy() {
         backgroundTasks.setActions(id, [
           { id: 'continue', label: '继续下载', run: () => state.transfer.continue() },
         ]);
+        try {
+          receipts.get(state.id)?.();
+        } catch (error) {
+          console.warn('[原图] 任务回执保存失败', error);
+        }
       } else {
         backgroundTasks.resume(id);
         backgroundTasks.update(id, {

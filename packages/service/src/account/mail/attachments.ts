@@ -23,6 +23,15 @@ export interface MailAttachmentSource {
   download?: string;
 }
 
+function sourceKey(source: MailAttachmentSource) {
+  const identity = source.fileId || source.key;
+  return identity
+    ? createHash('sha256')
+        .update(JSON.stringify([source.mailId ?? null, source.big, identity]))
+        .digest('hex')
+    : undefined;
+}
+
 /** 仅账号服务持有远程 key/code/签名 URL，前端使用随机附件令牌。 */
 export class MailAttachmentRegistry {
   private readonly entries = new Map<string, MailAttachmentSource>();
@@ -53,17 +62,10 @@ export class MailAttachmentRegistry {
     }
     const id = randomUUID();
     this.entries.set(id, source);
+    const key = sourceKey(source);
     return {
       id,
-      ...(source.fileId || source.key
-        ? {
-            sourceKey: createHash('sha256')
-              .update(
-                JSON.stringify([source.mailId ?? null, source.big, source.fileId || source.key]),
-              )
-              .digest('hex'),
-          }
-        : {}),
+      ...(key ? { sourceKey: key } : {}),
       name: source.name,
       size: source.size,
       big: source.big,
@@ -103,6 +105,12 @@ export class MailAttachmentRegistry {
     const value = this.entries.get(id);
     if (!value?.available) throw new MailFailure('business', '附件已失效，请重新选择。');
     return value;
+  }
+
+  exportReference(id: string) {
+    const { mailId, name, size, big } = this.get(id);
+    const key = sourceKey(this.get(id));
+    return mailId && key ? { mailId, sourceKey: key, name, size, big } : undefined;
   }
 
   sendParams(ids: readonly string[]): { normal: MailObject[]; big: MailObject[] } {

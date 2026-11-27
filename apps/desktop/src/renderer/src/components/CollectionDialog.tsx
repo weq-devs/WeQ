@@ -1,3 +1,4 @@
+import { useTabPanelMotion } from '../hooks/useTabPanelMotion';
 import { accountGatewayPath } from '../lib/accountGateway';
 import { filterByName } from '../lib/nameSearch';
 import { ToolbarLabel } from './CompactToolbar';
@@ -60,6 +61,7 @@ import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalU
 import { CollectionContent } from './CollectionContent';
 import { collectionContentText } from './CollectionContent.shared';
 import { CollectionImage } from './CollectionImage';
+import { useDataSaver } from '../lib/dataSaver';
 import { IS_WEB } from '../lib/target.shared';
 import { CollectionExportDialog } from '../views/export/CollectionExportDialog';
 import { EmptyState } from './EmptyState';
@@ -307,26 +309,30 @@ function kindIcon(kind: string, size = 13): ReactElement {
 
 /** A thumbnail that hides itself if the collector CDN 404s / times out. */
 function Thumb({ pic, alt }: { pic: PicWire; alt: string }): ReactElement {
+  const deferred = useDataSaver(
+    (state) => state.enabled && state.behavior.dataSaverImageLoading !== 'original',
+  );
+  const [failedSrc, setFailedSrc] = useState('');
   const src = collectionImageUrl(pic.uri);
+  const failed = failedSrc === src;
   return (
     <button
       type="button"
-      className="weq-col-thumb"
+      className={`weq-col-thumb${failed && !deferred ? ' is-broken' : ''}`}
       onClick={() =>
         openMediaPreview({ items: [{ key: src, kind: 'image', src: src, title: alt }] })
       }
-      title="查看大图"
+      title={failed && deferred ? '加载图片' : '查看大图'}
     >
       <CollectionImage
         originalSrc={pic.uri}
         alt={alt}
         loading="lazy"
-        onError={(e) => {
-          (e.currentTarget.closest('.weq-col-thumb') as HTMLElement | null)?.classList.add(
-            'is-broken',
-          );
-        }}
+        style={failed ? { visibility: 'hidden', position: 'absolute', inset: 0 } : undefined}
+        onError={() => setFailedSrc(src)}
+        onLoad={() => setFailedSrc('')}
       />
+      {failed && deferred ? <span>加载图片</span> : null}
     </button>
   );
 }
@@ -637,6 +643,7 @@ export function CollectionDialog({
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = usePageState('collection:query', '', pageValue.string);
   const [kind, setKind] = usePageState('collection:kind', 'all', pageValue.string);
+  const { panel: kindPanel, rememberScroll: rememberKindScroll } = useTabPanelMotion(kind, true);
   const [page, setPage] = useState(0);
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<CollectionItemWire | null>(null);
@@ -1299,7 +1306,10 @@ export function CollectionDialog({
                 role="tab"
                 aria-selected={kind === k.id}
                 className={`weq-collection-chip${kind === k.id ? ' is-active' : ''}`}
-                onClick={() => setKind(k.id)}
+                onClick={() => {
+                  rememberKindScroll();
+                  setKind(k.id);
+                }}
               >
                 {k.label}
                 <span className="weq-collection-chip-n">
@@ -1315,7 +1325,7 @@ export function CollectionDialog({
             onClose={() => setExportSelection(null)}
           />
         ) : null}
-        <div className="weq-collection-body">
+        <div ref={kindPanel} className="weq-collection-body">
           {selected ? (
             <section className="weq-col-detail">
               <div className="weq-col-detail-meta">

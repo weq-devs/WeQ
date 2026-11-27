@@ -8,7 +8,7 @@ import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { IS_WEB } from '../lib/target.shared';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast.shared';
-import { notifyTaskCreated } from '../lib/taskNotifications';
+import { rememberTaskCreated } from '../lib/taskNotifications';
 import '../styles/market-image-save.css';
 
 export function MarketImageSave({
@@ -39,7 +39,7 @@ export function MarketImageSave({
         ...selected,
         savePolicy: policy,
       });
-      if (save.isCurrent()) notifyTaskCreated(taskId, '正在保存表情');
+      if (save.isCurrent()) rememberTaskCreated(taskId);
     } catch (error) {
       if (save.isCurrent())
         pushToast({

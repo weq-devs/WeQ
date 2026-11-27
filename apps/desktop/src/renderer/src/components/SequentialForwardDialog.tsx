@@ -1,28 +1,23 @@
+import { usePreferenceState } from '../lib/clientPreferences';
 import { NumericText } from './NumericText';
 import { useMemo, useRef, useState } from 'react';
-import { Eye, Forward, X } from 'lucide-react';
+import { Forward, X } from 'lucide-react';
 import { Modal } from './Dialog';
 import { MergeForwardTargets } from './mergeForward/MergeForwardTargets';
 import type { MfTarget } from './mergeForward/model';
-import type { Conversation, Message, User } from '../im-template/template/types';
+import type { Message, User } from '../im-template/template/types';
 import {
-  composeMessageRenderers,
-  type MessageRenderer,
-} from '../im-template/template/messageRenderers';
-import {
-  DEFAULT_FORWARD_OPTIONS,
+  validateForwardOptions,
+  type ForwardOptions,
   estimateForwardDuration,
   formatForwardDuration,
   forwardMessageContent,
-  partitionForwardMessages,
 } from '../lib/sequentialForward';
-import { startSequentialForward } from './SequentialForwardTask';
-import { GapMessagesModal } from './compose/GapMessagesModal';
-import { qqMessageRenderer } from './QqMessageContent.shared';
+import { startSequentialForward, type SequentialForwardSend } from './SequentialForwardTask';
+import type { ForwardChatKind } from '../lib/sequentialForwardReply';
 import { trpc } from '../trpc/client';
 import '../styles/sequential-forward.css';
 
-const previewRenderers = composeMessageRenderers({ prepend: [qqMessageRenderer] });
 const unknownUser: User = {
   id: '',
   identityLabel: 'QQ',
@@ -35,40 +30,42 @@ const unknownUser: User = {
 export function SequentialForwardDialog({
   messages,
   targets,
+  sourceKind,
+  includeExcerpt,
   onSend,
   onClose,
   onOpenTarget,
   user = unknownUser,
-  conversation,
-  renderers = previewRenderers,
 }: {
   messages: readonly Message[];
   targets: MfTarget[];
-  onSend: (message: Message, target: MfTarget, signal: AbortSignal) => Promise<void>;
+  sourceKind?: ForwardChatKind;
+  includeExcerpt?: boolean;
+  onSend: SequentialForwardSend;
   onClose: () => void;
   onOpenTarget: (target: MfTarget) => void;
   user?: User;
-  conversation?: Conversation;
-  renderers?: MessageRenderer[];
 }) {
   const accountConfig = trpc.account.getAccountConfig.useQuery();
   const [selected, setSelected] = useState(new Set<string>());
-  const [options, setOptions] = useState(DEFAULT_FORWARD_OPTIONS);
+  const [savedOptions, saveOptions] = usePreferenceState('forwardOptions');
+  const [draftOptions, setDraftOptions] = useState<ForwardOptions | null>(null);
+  const options = draftOptions ?? savedOptions;
+  function setOptions(next: ForwardOptions) {
+    try {
+      validateForwardOptions(next);
+    } catch {
+      setDraftOptions(next);
+      return;
+    }
+    setDraftOptions(null);
+    saveOptions(next);
+  }
   const [error, setError] = useState('');
   const submitted = useRef(false);
   const [started, setStarted] = useState(false);
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [previewCount, setPreviewCount] = useState(50);
   const picked = targets.filter((target) => selected.has(target.id));
-  const prepared = useMemo(() => {
-    const { sendable, ignored } = partitionForwardMessages(messages);
-    return {
-      sendable,
-      ignored,
-      reasons: new Map(ignored.map(({ message, reason }) => [message, reason])),
-    };
-  }, [messages]);
-  const content = useMemo(() => prepared.sendable.map(forwardMessageContent), [prepared]);
+  const content = useMemo(() => messages.map(forwardMessageContent), [messages]);
   let estimate = '';
   let invalid = '';
   try {
@@ -80,20 +77,18 @@ export function SequentialForwardDialog({
   } catch (cause) {
     invalid = cause instanceof Error ? cause.message : String(cause);
   }
-  const send = (confirmed = false) => {
-    if (submitted.current || invalid || !picked.length || !prepared.sendable.length) return;
-    if (prepared.ignored.length && !confirmed) {
-      setReviewOpen(true);
-      return;
-    }
+  const send = () => {
+    if (submitted.current || invalid || !picked.length || !messages.length) return;
     try {
       if (!accountConfig.data?.configId || accountConfig.data.uin !== user.identityValue)
         throw new Error('账号配置尚未就绪，请重新打开转发窗口');
       submitted.current = true;
       startSequentialForward({
         scope: { uin: accountConfig.data.uin, configId: accountConfig.data.configId },
-        messages: prepared.sendable,
+        messages,
         targets: picked,
+        sourceKind,
+        includeExcerpt,
         options: { ...options },
         onSend,
         onOpenTarget,
@@ -105,219 +100,159 @@ export function SequentialForwardDialog({
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   };
-  const previewConversation: Conversation = conversation ?? {
-    id: messages[0]?.conversationId ?? 'forward-preview',
-    type: 'merged',
-    mergedKind: 'hidden',
-    title: '将跳过的消息',
-    avatarUrl: null,
-    otherUser: null,
-    group: null,
-    members: [],
-    updatedAt: '',
-    lastMessage: null,
-  };
   return (
-    <Modal
-      onClose={onClose}
-      dismissOnOutside={false}
-      labelledBy={reviewOpen ? 'weq-gap-messages-title' : 'weq-forward-title'}
-      width={520}
-    >
-      <div className={`weq-sequential-forward${reviewOpen ? ' weq-forward-review' : ''}`}>
-        {!reviewOpen ? (
-          <header>
-            <strong id="weq-forward-title">
-              {messages.length === 1 ? (
-                '转发消息'
-              ) : (
-                <NumericText>{`逐条转发 · ${messages.length} 条`}</NumericText>
-              )}
-            </strong>
-            <button type="button" title="关闭" aria-label="关闭" onClick={onClose}>
-              <X size={17} />
-            </button>
-          </header>
-        ) : null}
-        {reviewOpen ? (
-          <div className="weq-forward-ignored">
-            <GapMessagesModal
-              conversation={previewConversation}
-              user={user}
-              renderers={renderers}
-              messages={prepared.ignored.slice(-previewCount).map(({ message }) => message)}
-              loading={false}
-              loadingMore={false}
-              error={null}
-              moreFailed={false}
-              hasMore={previewCount < prepared.ignored.length}
-              totalCount={prepared.ignored.length}
-              notice={`以下 ${prepared.ignored.length} 条消息无法等价重发，将整条跳过；其余 ${prepared.sendable.length} 条按原顺序发送。`}
-              title="预览将跳过的消息"
-              backLabel="返回转发设置"
-              messageNotice={(message) => prepared.reasons.get(message)}
-              onLoadMore={() => setPreviewCount((value) => value + 50)}
-              onClose={() => setReviewOpen(false)}
-              preview
-              embedded
-            />
-          </div>
-        ) : (
-          <div className="weq-forward-config">
-            <fieldset disabled={started}>
-              {prepared.sendable.length ? (
-                <MergeForwardTargets targets={targets} selected={selected} onChange={setSelected} />
-              ) : null}
-              {prepared.ignored.length ? (
-                <button
-                  type="button"
-                  className="weq-forward-ignored-summary"
-                  onClick={() => setReviewOpen(true)}
-                >
-                  <Eye size={14} />
-                  查看将跳过的{' '}
-                  {<span className="weq-number weq-number-inherit">{prepared.ignored.length}</span>}{' '}
-                  条消息
-                </button>
-              ) : null}
-              <div className="weq-forward-options">
-                {prepared.sendable.length > 1 ? (
-                  <>
+    <Modal onClose={onClose} dismissOnOutside={false} labelledBy="weq-forward-title" width={520}>
+      <div className="weq-sequential-forward">
+        <header>
+          <strong id="weq-forward-title">
+            {messages.length === 1 ? (
+              '转发消息'
+            ) : (
+              <NumericText>{`逐条转发 · ${messages.length} 条`}</NumericText>
+            )}
+          </strong>
+          <button type="button" title="关闭" aria-label="关闭" onClick={onClose}>
+            <X size={17} />
+          </button>
+        </header>
+        <div className="weq-forward-config">
+          <fieldset disabled={started}>
+            <MergeForwardTargets targets={targets} selected={selected} onChange={setSelected} />
+            <div className="weq-forward-options">
+              {messages.length > 1 ? (
+                <>
+                  <label>
+                    间隔方式
+                    <SegmentedControl
+                      label="间隔方式"
+                      value={options.mode}
+                      onChange={(mode) => setOptions({ ...options, mode })}
+                      options={[
+                        { value: 'fixed', label: '固定间隔' },
+                        { value: 'text', label: '按文本长度' },
+                        { value: 'original', label: '原消息间隔' },
+                      ]}
+                    />
+                  </label>
+                  {options.mode === 'text' ? (
                     <label>
-                      间隔方式
-                      <SegmentedControl
-                        label="间隔方式"
-                        value={options.mode}
-                        onChange={(mode) => setOptions({ ...options, mode })}
-                        options={[
-                          { value: 'fixed', label: '固定间隔' },
-                          { value: 'text', label: '按文本长度' },
-                          { value: 'original', label: '原消息间隔' },
-                        ]}
-                      />
-                    </label>
-                    {options.mode === 'text' ? (
-                      <label>
-                        非文本消息耗时（秒）
-                        <input
-                          type="number"
-                          min={0}
-                          max={3600}
-                          step={0.001}
-                          value={Number.isFinite(options.nonTextMs) ? options.nonTextMs / 1000 : ''}
-                          onChange={(event) =>
-                            setOptions({
-                              ...options,
-                              nonTextMs: Math.round(event.target.valueAsNumber * 1000),
-                            })
-                          }
-                        />
-                      </label>
-                    ) : null}
-                    {options.mode !== 'original' ? (
-                      <label>
-                        {options.mode === 'fixed' ? '间隔（秒）' : '每字间隔（秒）'}
-                        <input
-                          type="number"
-                          min={0}
-                          max={3600}
-                          step={0.001}
-                          value={
-                            Number.isFinite(
-                              options.mode === 'fixed'
-                                ? options.intervalMs
-                                : options.msPerCharacter,
-                            )
-                              ? options.mode === 'fixed'
-                                ? options.intervalMs / 1000
-                                : options.msPerCharacter / 1000
-                              : ''
-                          }
-                          onChange={(event) =>
-                            setOptions({
-                              ...options,
-                              [options.mode === 'fixed' ? 'intervalMs' : 'msPerCharacter']:
-                                Math.round(event.target.valueAsNumber * 1000),
-                            })
-                          }
-                        />
-                      </label>
-                    ) : null}
-                    <label>
-                      随机抖动 ± 秒
+                      非文本消息耗时（秒）
                       <input
                         type="number"
                         min={0}
                         max={3600}
                         step={0.001}
-                        value={Number.isFinite(options.jitterMs) ? options.jitterMs / 1000 : ''}
+                        value={Number.isFinite(options.nonTextMs) ? options.nonTextMs / 1000 : ''}
                         onChange={(event) =>
                           setOptions({
                             ...options,
-                            jitterMs: Math.round(event.target.valueAsNumber * 1000),
+                            nonTextMs: Math.round(event.target.valueAsNumber * 1000),
                           })
                         }
                       />
                     </label>
-                    {options.mode !== 'fixed' ? (
-                      <label>
-                        每条消息的最大间隔（秒，-1 为不限）
-                        <input
-                          type="number"
-                          min={-1}
-                          max={3600}
-                          step={0.001}
-                          value={
-                            Number.isFinite(options.maxIntervalMs)
-                              ? options.maxIntervalMs === -1
+                  ) : null}
+                  {options.mode !== 'original' ? (
+                    <label>
+                      {options.mode === 'fixed' ? '间隔（秒）' : '每字间隔（秒）'}
+                      <input
+                        type="number"
+                        min={0}
+                        max={3600}
+                        step={0.001}
+                        value={
+                          Number.isFinite(
+                            options.mode === 'fixed' ? options.intervalMs : options.msPerCharacter,
+                          )
+                            ? options.mode === 'fixed'
+                              ? options.intervalMs / 1000
+                              : options.msPerCharacter / 1000
+                            : ''
+                        }
+                        onChange={(event) =>
+                          setOptions({
+                            ...options,
+                            [options.mode === 'fixed' ? 'intervalMs' : 'msPerCharacter']:
+                              Math.round(event.target.valueAsNumber * 1000),
+                          })
+                        }
+                      />
+                    </label>
+                  ) : null}
+                  <label>
+                    随机抖动 ± 秒
+                    <input
+                      type="number"
+                      min={0}
+                      max={3600}
+                      step={0.001}
+                      value={Number.isFinite(options.jitterMs) ? options.jitterMs / 1000 : ''}
+                      onChange={(event) =>
+                        setOptions({
+                          ...options,
+                          jitterMs: Math.round(event.target.valueAsNumber * 1000),
+                        })
+                      }
+                    />
+                  </label>
+                  {options.mode !== 'fixed' ? (
+                    <label>
+                      每条消息的最大间隔（秒，-1 为不限）
+                      <input
+                        type="number"
+                        min={-1}
+                        max={3600}
+                        step={0.001}
+                        value={
+                          Number.isFinite(options.maxIntervalMs)
+                            ? options.maxIntervalMs === -1
+                              ? -1
+                              : options.maxIntervalMs / 1000
+                            : ''
+                        }
+                        onChange={(event) =>
+                          setOptions({
+                            ...options,
+                            maxIntervalMs:
+                              event.target.valueAsNumber === -1
                                 ? -1
-                                : options.maxIntervalMs / 1000
-                              : ''
-                          }
-                          onChange={(event) =>
-                            setOptions({
-                              ...options,
-                              maxIntervalMs:
-                                event.target.valueAsNumber === -1
-                                  ? -1
-                                  : event.target.valueAsNumber < 0
-                                    ? Number.NaN
-                                    : Math.round(event.target.valueAsNumber * 1000),
-                            })
-                          }
-                        />
-                      </label>
-                    ) : null}
-                  </>
-                ) : null}
-                <label>
-                  单条最大尝试次数
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={Number.isFinite(options.maxAttempts) ? options.maxAttempts : ''}
-                    onChange={(event) =>
-                      setOptions({ ...options, maxAttempts: event.target.valueAsNumber })
-                    }
-                  />
-                </label>
-                <label>
-                  失败后
-                  <SegmentedControl
-                    label="失败后"
-                    value={options.failure}
-                    onChange={(failure) => setOptions({ ...options, failure })}
-                    options={[
-                      { value: 'abort', label: '中止' },
-                      { value: 'skip', label: '忽略并继续' },
-                    ]}
-                  />
-                </label>
-              </div>
-            </fieldset>
-          </div>
-        )}
+                                : event.target.valueAsNumber < 0
+                                  ? Number.NaN
+                                  : Math.round(event.target.valueAsNumber * 1000),
+                          })
+                        }
+                      />
+                    </label>
+                  ) : null}
+                </>
+              ) : null}
+              <label>
+                单条最大尝试次数
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={Number.isFinite(options.maxAttempts) ? options.maxAttempts : ''}
+                  onChange={(event) =>
+                    setOptions({ ...options, maxAttempts: event.target.valueAsNumber })
+                  }
+                />
+              </label>
+              <label>
+                失败后
+                <SegmentedControl
+                  label="失败后"
+                  value={options.failure}
+                  onChange={(failure) => setOptions({ ...options, failure })}
+                  options={[
+                    { value: 'abort', label: '中止' },
+                    { value: 'skip', label: '忽略并继续' },
+                  ]}
+                />
+              </label>
+            </div>
+          </fieldset>
+        </div>
         {error || invalid ? <p role="alert">{error || invalid}</p> : null}
         <footer>
           <span
@@ -331,24 +266,21 @@ export function SequentialForwardDialog({
             type="button"
             className="weq-action-primary"
             data-weq-dialog-confirm
-            data-forward-confirm-ignore={reviewOpen || undefined}
-            disabled={
-              started || Boolean(invalid) || picked.length === 0 || prepared.sendable.length === 0
-            }
+            disabled={started || Boolean(invalid) || picked.length === 0 || messages.length === 0}
             title={
               started
                 ? '正在转发，请稍后'
                 : invalid ||
-                  (!prepared.sendable.length
+                  (!messages.length
                     ? '没有可转发的消息'
                     : !picked.length
                       ? '请选择至少一个目标会话'
                       : '发送所选消息')
             }
-            onClick={() => send(reviewOpen)}
+            onClick={send}
           >
             <Forward size={16} />
-            {reviewOpen ? '跳过并发送' : '发送'}
+            发送
           </button>
         </footer>
       </div>

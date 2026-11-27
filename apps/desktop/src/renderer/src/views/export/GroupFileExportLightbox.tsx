@@ -1,3 +1,4 @@
+import { usePreferenceState } from '../../lib/clientPreferences';
 /**
  * 群文件导出灯箱 —— 复用聊天页「群文件」卡片的浏览体验：
  *
@@ -30,6 +31,7 @@ import {
   FolderOpen,
 } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
+import '../../styles/group-media.css';
 import '../../styles/resource-export.css';
 import { OverlayLayer } from '../../components/OverlayLayer';
 import { client } from '../../trpc/client';
@@ -104,12 +106,9 @@ export function GroupFileExportLightbox({
   onClose: () => void;
   onConfirm: (result: GroupFileExportResult) => void;
 }): ReactElement {
-  const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
-  const [archive, setArchive] = useState<ResourceArchiveOptions>({
-    metadataFormat: 'json',
-    profile: 'full',
-    incrementalSupport: true,
-  });
+  const [includeIntegrityReport, setIncludeIntegrityReport] =
+    usePreferenceState('exportIntegrityReport');
+  const [archive, setArchive] = usePreferenceState('groupFileExportArchive');
   const pushToast = useToast((s) => s.push);
   const [crumbs, setCrumbs] = useState<Crumb[]>([ROOT]);
   const [listing, setListing] = useState<GroupFileListing | null>(null);

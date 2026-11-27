@@ -195,9 +195,11 @@ it('更多页换词保留分类，返回新总览顶部；清空和切号退出�
       await vi.advanceTimersByTimeAsync(250);
     });
     expect(document.querySelector('.weq-search-more-body')!.textContent).toContain('新词');
-    expect(rpc.more).toHaveBeenLastCalledWith(
-      expect.objectContaining({ category: 'contact', keyword: '新词', offset: 0 }),
-    );
+    expect(rpc.more.mock.lastCall?.[0]).toMatchObject({
+      category: 'contact',
+      keyword: '新词',
+      offset: 0,
+    });
     act(() => document.querySelector<HTMLButtonElement>('[aria-label="返回搜索总览"]')!.click());
     expect(document.querySelector('.weq-search-dropdown')!.scrollTop).toBe(0);
     act(() => document.querySelector<HTMLButtonElement>('.weq-search-more')!.click());
@@ -236,9 +238,7 @@ it('来源变化重取当前分类，不适用的分类返回总览', async () =
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250);
     });
-    expect(rpc.more).toHaveBeenLastCalledWith(
-      expect.objectContaining({ sources: ['qq', 'clone'], offset: 0 }),
-    );
+    expect(rpc.more.mock.lastCall?.[0]).toMatchObject({ sources: ['qq', 'clone'], offset: 0 });
     f.render('10001', ['assistant']);
     expect(document.querySelector('.weq-search-more-body')).toBeNull();
     expect(document.querySelector('[aria-label="搜索来源"]')).not.toBeNull();

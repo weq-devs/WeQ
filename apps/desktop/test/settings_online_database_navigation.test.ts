@@ -7,10 +7,10 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 import { resetCards } from '../src/shared/settings_reset';
 
-it('QQ 在线能力归能力，数据库监听和读取归 QQ 数据库管理', () => {
-  expect(SETTINGS_PAGE_LABELS.account).toBe('QQ 在线能力');
-  expect(settingsGroupFor('account').id).toBe('capabilities');
-  expect(settingsGroupFor('database-management').sections).not.toContain('account');
+it('能力档位与数据库管理都归 QQ，档位在首位', () => {
+  expect(SETTINGS_PAGE_LABELS.account).toBe('能力档位');
+  expect(settingsGroupFor('account').id).toBe('qq');
+  expect(settingsGroupFor('database-management').sections[0]).toBe('account');
 });
 
 it.each([
@@ -35,15 +35,14 @@ it.each(['realtime', 'database-read'] as const)('旧账号页单组恢复 %s 仍
   ]);
 });
 
-it('在线能力页恢复涵盖代理和提醒，旧入口仍限于各自范围', () => {
+it('档位页恢复涵盖档位和提醒，旧代理入口复用档位恢复', () => {
   expect(resetCards({ page: 'account' }).map(([, card]) => card)).toEqual([
     'attach',
-    'qq-client-sync',
     'qq-status-reminders',
   ]);
   const proxyCards = resetCards({ page: 'qq-proxy' });
-  expect(proxyCards.map(([, card]) => card)).toEqual(['qq-client-sync']);
-  expect(resetCards({ page: 'account', card: 'qq-client-sync' })).toEqual(proxyCards);
+  expect(proxyCards.map(([, card]) => card)).toEqual(['attach']);
+  expect(resetCards({ page: 'account', card: 'attach' })).toEqual(proxyCards);
   expect(resetCards({ page: 'qq-status-reminders' }).map(([, card]) => card)).toEqual([
     'qq-status-reminders',
   ]);

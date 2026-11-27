@@ -23,10 +23,14 @@ import {
   X,
 } from 'lucide-react';
 import { MAX_INTENT_CONTEXT_MESSAGES } from '@weq/service/intent-context';
-import type { Message } from '../im-template/template/types';
+import type { Message, User } from '../im-template/template/types';
+import { useMessageBatchReview } from '../hooks/useMessageBatchReview';
+import type { MessageBatchAction } from '../lib/messageBatchAction';
+import { MessageBatchActionDialog } from './MessageBatchActionDialog';
 import {
   MessageContextMenu,
   type MessageContextMenuState,
+  type MessageDetailsSelection,
 } from '../im-template/template/messageContextMenu';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
 import { MessageTimeDivider } from '../im-template/template/messageTime';
@@ -55,6 +59,7 @@ import {
   forwardIntentInput,
   forwardIntentText,
   forwardMessage,
+  forwardRecordTarget,
   forwardTextClipboard,
   isForwardContinuation,
   type ForwardEntry,
@@ -66,7 +71,7 @@ import { MessageSelectionMark } from './MessageSelectionMark';
 import { MessageMediaRevealAction } from './MessageMediaRevealAction';
 import { useMediaSave } from './MediaSaveControls.shared';
 import { MessageFavoriteEmojiAction } from './qq-actions/MessageFavoriteEmojiAction';
-import { MessageDecorationCard } from './MessageDecorationCard';
+import { MessageDetails } from './lazyMainPanels';
 import { MessageMenuButton } from './MessageMenuButton';
 import { useToast } from './Toast.shared';
 import { ForwardSelectionAnalysis } from './ForwardSelectionAnalysis';
@@ -90,6 +95,14 @@ type CopyFormat = 'text' | 'rich' | 'json';
 type IntentRun = { key: string; pending: ReadonlySet<string>; single?: string };
 const EMPTY_INTENTS = new Map<string, IntentAnalysis>();
 const noAnalysis = () => {};
+const previewUser: User = {
+  id: '',
+  identityLabel: 'QQ',
+  identityValue: '',
+  username: '',
+  displayName: '未知用户',
+  avatarUrl: null,
+};
 
 export function ForwardRecordList({
   win,
@@ -110,11 +123,17 @@ export function ForwardRecordList({
   const [mode, setMode] = useState(false);
   const [ids, setIds] = useState<ReadonlySet<string>>(() => new Set());
   const [menu, setMenu] = useState<OpenMenu | null>(null);
-  const [tools, setTools] = useState<{ kind: 'forward' | 'copy'; x: number; y: number } | null>(
-    null,
-  );
+  const [tools, setTools] = useState<{
+    kind: 'forward' | 'copy';
+    anchor: HTMLButtonElement;
+    x: number;
+    y: number;
+  } | null>(null);
   const [report, setReport] = useState<ForwardEntry[] | null>(null);
-  const [decoration, setDecoration] = useState<Message['decoration']>();
+  const [details, setDetails] = useState<{
+    selection: MessageDetailsSelection;
+    entry: ForwardEntry;
+  }>();
   const [merging, setMerging] = useState(false);
   const mergePending = useRef(false);
   const press = useRef<{
@@ -169,6 +188,30 @@ export function ForwardRecordList({
     [intentEnabled, status, runningIntent, results, win.kind, win.id],
   );
 
+  const review = useMessageBatchReview(`${win.id}:${intentKey}:${mode}`);
+  const entriesById = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries]);
+  async function reviewEntries(action: MessageBatchAction) {
+    const accepted = await review.ask(action, messages(picked()), {
+      assess:
+        action === 'intent'
+          ? (message) => {
+              const entry = entriesById.get(message.id);
+              if (!entry || grayTipOf(message)) return undefined;
+              if (!forwardIntentText(entry)) return { label: '没有可分析内容的消息' };
+              return results.has(message.id)
+                ? { label: '已有分析结果', include: false, detail: '开启后重新分析' }
+                : null;
+            }
+          : undefined,
+    });
+    return (
+      accepted?.flatMap((message) => {
+        const entry = entriesById.get(message.id);
+        return entry ? [entry] : [];
+      }) ?? []
+    );
+  }
+
   const orderedIds = useMemo(() => entries.map(({ id }) => id), [entries]);
   const closeMenu = useCallback(() => setMenu(null), []);
   const closeTools = useCallback(() => setTools(null), []);
@@ -186,7 +229,8 @@ export function ForwardRecordList({
     setTools(null);
   }, []);
   dismissRef.current = () => {
-    if (menu) closeMenu();
+    if (review.review) review.finish(null);
+    else if (menu) closeMenu();
     else if (tools) closeTools();
     else if (mode) exit();
     else return false;
@@ -321,7 +365,7 @@ export function ForwardRecordList({
   }
 
   async function copySelected(format: CopyFormat) {
-    const selected = picked();
+    const selected = await reviewEntries(format);
     const rows = messages(selected);
     if (!rows.length) return;
     try {
@@ -381,8 +425,9 @@ export function ForwardRecordList({
 
   async function copySelectedImage() {
     const source = bodyRef.current;
-    const selection = picked();
-    if (!source || !selection.length || messageImage.busy) return;
+    if (!source || messageImage.busy) return;
+    const selection = await reviewEntries('image');
+    if (!selection.length) return;
     try {
       const incomplete = await messageImage.copy(source, selection.length, (start, end) =>
         selection.slice(start, end).map((entry) => (
@@ -486,7 +531,7 @@ export function ForwardRecordList({
 
   function openTools(kind: 'forward' | 'copy', button: HTMLButtonElement) {
     const rect = button.getBoundingClientRect();
-    setTools({ kind, x: rect.right, y: rect.top - 4 });
+    setTools({ kind, anchor: button, x: rect.right, y: rect.top - 4 });
   }
 
   const media = menu?.state.mediaTarget;
@@ -604,7 +649,11 @@ export function ForwardRecordList({
             <SelectionAction
               label="意图感知"
               disabled={!ids.size || !!runningIntent}
-              run={() => void analyze(picked())}
+              run={() =>
+                void reviewEntries('intent').then((rows) => {
+                  if (rows.length) void analyze(rows);
+                })
+              }
             >
               <BrainCircuit size={17} />
             </SelectionAction>
@@ -612,7 +661,11 @@ export function ForwardRecordList({
           <SelectionAction
             label="分析所选消息"
             disabled={!ids.size}
-            run={() => setReport(picked())}
+            run={() =>
+              void reviewEntries('analysis').then((rows) => {
+                if (rows.length) setReport(rows);
+              })
+            }
           >
             <BarChart3 size={17} />
           </SelectionAction>
@@ -620,7 +673,11 @@ export function ForwardRecordList({
             <SelectionAction
               label="导出所选消息"
               disabled={!ids.size}
-              run={() => exportRows(picked())}
+              run={() =>
+                void reviewEntries('export').then((rows) => {
+                  if (rows.length) exportRows(rows);
+                })
+              }
             >
               <Download size={17} />
             </SelectionAction>
@@ -668,6 +725,7 @@ export function ForwardRecordList({
           x={tools.x}
           y={tools.y}
           dropdown="above"
+          scrollAnchor={tools.anchor}
           onClose={closeTools}
           label={tools.kind === 'copy' ? '复制格式' : '转发方式'}
           actions={
@@ -745,10 +803,7 @@ export function ForwardRecordList({
                 }
               : undefined
           }
-          onViewDecoration={(message) => {
-            closeMenu();
-            setDecoration(message.decoration);
-          }}
+          onViewDetails={(selection) => setDetails({ selection, entry: menu.entry })}
           onSaveMedia={
             save
               ? () => {
@@ -800,9 +855,32 @@ export function ForwardRecordList({
           }
         />
       )}
-      {decoration && (
-        <MessageDecorationCard decoration={decoration} onClose={() => setDecoration(undefined)} />
-      )}
+      {details ? (
+        <MessageDetails
+          key={details.entry.id}
+          selection={details.selection}
+          snapshot={details.entry.record}
+          isSender={details.entry.record.isSender}
+          forwardRecord={{
+            target: forwardRecordTarget(details.entry),
+            children: details.entry.record.subMsgs,
+            reply: details.entry.reply && { senderName: details.entry.reply.senderName },
+          }}
+          onClose={() => setDetails(undefined)}
+        />
+      ) : null}
+      {review.review ? (
+        <MessageBatchActionDialog
+          {...review.review}
+          user={previewUser}
+          renderMessage={(message) => {
+            const entry = entriesById.get(message.id);
+            return entry ? renderRow(entry) : null;
+          }}
+          onClose={() => review.finish(null)}
+          onContinue={review.finish}
+        />
+      ) : null}
       {report && <ForwardSelectionAnalysis entries={report} onClose={closeReport} />}
     </IntentSenseContext.Provider>
   );

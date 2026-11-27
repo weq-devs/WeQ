@@ -357,7 +357,7 @@ export interface MfTarget {
   groupAssistant?: boolean;
 }
 
-export type ForwardedConversationTarget = MfTarget & { messageId?: string };
+export type ForwardedConversationTarget = MfTarget & { messageId?: string; seq?: string };
 
 let idSeq = 0;
 

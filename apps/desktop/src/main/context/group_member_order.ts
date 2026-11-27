@@ -1,3 +1,4 @@
+import { z } from 'zod/v3';
 import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { formatUnixTime } from '@weq/time';
 import { profileTimeSeconds } from '@weqbot/protocol/profile-values';
@@ -6,6 +7,7 @@ import type { ContactMetricRows } from '@weq/service';
 import { holdTaskOnPage } from '../task_page';
 import {
   GROUP_MEMBER_SORTS,
+  GROUP_MEMBER_ONLINE_SORTS,
   compareGroupMemberValues,
   groupMemberCollator,
   displayGroupMemberName,
@@ -22,8 +24,10 @@ import {
   birthRangeText,
 } from '../../shared/contactBirth';
 import { groupMemberToWire } from '../ipc/serde';
-import { backgroundTasks, taskError } from '../background_tasks';
-import type { AccountServices } from './app_context';
+import { archiveCompletedTask, backgroundTasks, taskError } from '../background_tasks';
+import { recordAccountTask } from '../account_task_receipts';
+import { albumAccessState } from '../account_resource_exports';
+import { getAppContext, type AccountServices } from './app_context';
 
 type CachedProfile = Awaited<ReturnType<AccountServices['profile']['profilesByUids']>>[number];
 type MemberProfile = Pick<CachedProfile, 'uid' | 'nick' | 'remark'> &
@@ -161,7 +165,7 @@ export async function listOrderedGroupMembers(
     sort: GroupMemberSort;
     descending: boolean;
     prioritizeAdmins: boolean;
-    limit: number;
+    limit: number | 'all';
     offset: number;
   },
 ) {
@@ -225,12 +229,16 @@ export async function listOrderedGroupMembers(
       a.member.uid.localeCompare(b.member.uid),
   );
   return {
-    members: ordered.slice(offset, offset + limit).map(({ member, name, birth, value }) => ({
-      member: groupMemberToWire(member),
-      displayName: name,
-      isBot: profiles.get(member.uid)?.isBot || undefined,
-      sortDetail: orderDetail(sort, value, birth),
-    })),
+    members: ordered
+      .slice(offset, limit === 'all' ? undefined : offset + limit)
+      .map(({ member, name, birth, value }) => ({
+        member: groupMemberToWire(member),
+        displayName: name,
+        remark: profiles.get(member.uid)?.remark,
+        nick: member.nick.trim() || profiles.get(member.uid)?.nick,
+        isBot: profiles.get(member.uid)?.isBot || undefined,
+        sortDetail: orderDetail(sort, value, birth),
+      })),
     ownerUid: detail?.ownerUid,
     total: ordered.length,
     preparing: times?.done === false,
@@ -238,6 +246,44 @@ export async function listOrderedGroupMembers(
 }
 
 const pendingTasks = new WeakMap<AccountServices, Map<string, string>>();
+const groupMemberOrderRequest = z.object({
+  groupCode: z.string().regex(/^[1-9]\d{0,9}$/),
+  sort: z.enum(GROUP_MEMBER_ONLINE_SORTS),
+});
+
+export function retryGroupMemberOrderTask(
+  id: string,
+  scope: { uin: string; configId?: string },
+  raw: unknown,
+) {
+  const { groupCode, sort } = groupMemberOrderRequest.parse(raw);
+  const { account, services } = getAppContext();
+  const configId = scope.configId;
+  const checkAccount = () => {
+    const current = getAppContext();
+    const record = current.services?.accountConfig.getRecord();
+    if (
+      current.account !== account ||
+      current.services !== services ||
+      record?.uin !== scope.uin ||
+      record.configId !== configId
+    )
+      throw new Error('账号或数据源已切换，请返回原账号后继续');
+  };
+  if (!services || !configId) throw new Error('原数据源未打开');
+  checkAccount();
+  const access = albumAccessState(services);
+  if (!access.qqOnline || !access.attachEnabled) throw new Error('请先连接 QQ 再补取成员资料');
+  startGroupMemberOrderTask(
+    services,
+    { ...scope, configId },
+    groupCode,
+    sort,
+    checkAccount,
+    undefined,
+    id,
+  );
+}
 
 export function startGroupMemberOrderTask(
   services: AccountServices,
@@ -246,6 +292,7 @@ export function startGroupMemberOrderTask(
   sort: GroupMemberOnlineSort,
   checkAccount: () => void,
   pageId?: string,
+  existingId?: string,
 ) {
   const directory = services.contactDirectory;
   if (!directory) throw new Error('好友/群信息缓存尚未就绪');
@@ -253,21 +300,43 @@ export function startGroupMemberOrderTask(
   pendingTasks.set(services, tasks);
   const key = `${groupCode}:${sort}`;
   const running = tasks.get(key);
-  if (running) return running;
+  if (running) {
+    if (existingId && running !== existingId) throw new Error('该群资料正在读取，请等待完成');
+    return running;
+  }
   const foreground = holdTaskOnPage(pageId, `member-sort:${scope.configId}:${key}`, () => {
     if (tasks.get(key) === taskId) backgroundTasks.setForeground(taskId, false);
   });
-  const taskId = backgroundTasks.start({
-    name: `读取群 ${groupCode} 成员的${GROUP_MEMBER_SORTS[sort]}`,
-    kind: 'contacts',
-    scope,
-    foreground,
-    statusLabel: '读取成员名单',
-  });
+  const taskId =
+    existingId ??
+    backgroundTasks.start({
+      name: `读取群 ${groupCode} 成员的${GROUP_MEMBER_SORTS[sort]}`,
+      kind: 'contacts',
+      scope,
+      foreground,
+      statusLabel: '读取成员名单',
+    });
+  const request = { groupCode, sort };
+  const archiveRoot = getAppContext().platform?.appDataRoot?.();
+  const save = recordAccountTask(taskId, scope, request);
+  const retry = {
+    id: 'retry',
+    label: '继续补取',
+    run: () => retryGroupMemberOrderTask(taskId, scope, request),
+  };
   tasks.set(key, taskId);
+  backgroundTasks.resume(taskId);
+  backgroundTasks.update(taskId, {
+    progress: undefined,
+    statusLabel: '读取成员名单',
+    note: undefined,
+    details: [],
+  });
+  backgroundTasks.setActions(taskId, []);
   void (async () => {
     try {
       checkAccount();
+      save();
       const roster = await activeRoster(services, groupCode);
       const friendUids =
         sort === 'addedAt'
@@ -336,16 +405,27 @@ export function startGroupMemberOrderTask(
         );
       }
       checkAccount();
-      backgroundTasks.finish(taskId, failed && failed === needed.length ? 'failed' : 'completed', {
+      await directory.cache.flush();
+      checkAccount();
+      backgroundTasks.finish(taskId, failed ? 'failed' : 'completed', {
+        statusLabel: failed && done > failed ? '部分资料未取得' : undefined,
         note: needed.length
           ? `已取得 ${done - failed}/${needed.length} 位成员的资料`
           : '暂无需要补取的资料',
         details: [...errors],
       });
+      if (failed) backgroundTasks.setActions(taskId, [retry]);
+      else archiveCompletedTask(archiveRoot, taskId);
     } catch (error) {
       backgroundTasks.finish(taskId, 'failed', { note: taskError(error) });
+      backgroundTasks.setActions(taskId, [retry]);
     } finally {
       tasks.delete(key);
+      try {
+        save();
+      } catch (error) {
+        console.warn('[群成员] 任务回执保存失败', error);
+      }
     }
   })();
   return taskId;

@@ -29,7 +29,7 @@ const state = vi.hoisted(() => ({
   accepted: vi.fn(),
 }));
 vi.mock('../src/renderer/src/lib/taskNotifications', () => ({
-  notifyTaskCreated: state.accepted,
+  rememberTaskCreated: state.accepted,
 }));
 vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
   useDevelopmentDressTools: () => state.developmentTools,
@@ -144,7 +144,7 @@ it('桌面偏好传给后端，由真实产物决定原生选择器格式', asyn
     browserDownload: false,
   });
   expect(state.prepare).not.toHaveBeenCalled();
-  expect(state.accepted).toHaveBeenCalledWith('fixture', '正在保存装扮');
+  expect(state.accepted).toHaveBeenCalledWith('fixture');
   expect(state.toast).not.toHaveBeenCalled();
 });
 it('只保留一个保存按钮，不覆盖默认偏好；取消不冒称成功', async () => {

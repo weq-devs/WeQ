@@ -17,6 +17,16 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: {
+    backgroundTasks: {
+      onTaskPage: {
+        subscribe: (_: unknown, handler: { onData(id: string): void }) => {
+          handler.onData('media-preview-page');
+          return { unsubscribe() {} };
+        },
+      },
+    },
+  },
   trpc: {
     useUtils: () => ({}),
     account: {
@@ -57,6 +67,14 @@ async function mount(data: Record<string, unknown>) {
     await vi.dynamicImportSettled();
   });
 }
+async function openLoadedImage() {
+  const image = host.querySelector('img')!;
+  await act(async () => image.dispatchEvent(new Event('load')));
+  await act(async () => {
+    image.click();
+    await vi.dynamicImportSettled();
+  });
+}
 function preview() {
   return document.querySelector<HTMLImageElement>('.weq-lightbox-image')!;
 }
@@ -72,19 +90,13 @@ it('上传未完成时直接打开本地 Blob，不等待本机路径或服务�
     localPreviewUrl: 'blob:pending-image',
   });
   expect(host.querySelector('img')!.src).toBe('blob:pending-image');
-  await act(async () => {
-    host.querySelector('img')!.click();
-    await vi.dynamicImportSettled();
-  });
+  await openLoadedImage();
   expect(preview().src).toBe('blob:pending-image');
 });
 
 it('原图尚未就绪时回退到气泡缩略图', async () => {
   await mount({ fileName: 'image.png', fileToken: 'synthetic-token' });
-  await act(async () => {
-    host.querySelector('img')!.click();
-    await vi.dynamicImportSettled();
-  });
+  await openLoadedImage();
   const cached = new URL(preview().src).searchParams;
   expect(cached.get('v')).toBe('original');
   expect(cached.get('localOnly')).toBe('1');
@@ -103,23 +115,23 @@ it('原图尚未就绪时回退到气泡缩略图', async () => {
   expect(preview().src).toBe(thumbnail);
 });
 
-it('缩略图在点击过程中失败，保留原按钮和独立的原图预览', async () => {
+it('缩略图失败后保留原按钮和焦点，重试成功后可以打开原图预览', async () => {
   await mount({
     fileName: 'image.png',
     fileToken: 'slow-thumbnail',
     imgWidth: 200,
     imgHeight: 100,
   });
-  const trigger = host.querySelector<HTMLButtonElement>('[aria-label="查看图片：image.png"]')!;
+  const trigger = host.querySelector<HTMLButtonElement>('[aria-label="加载图片"]')!;
   trigger.focus();
   act(() => host.querySelector('img')!.dispatchEvent(new Event('error')));
   act(() => host.querySelector('img')!.dispatchEvent(new Event('error')));
   expect(trigger.isConnected).toBe(true);
   expect(document.activeElement).toBe(trigger);
-  await act(async () => {
-    trigger.click();
-    await vi.dynamicImportSettled();
-  });
+  expect(trigger.getAttribute('aria-label')).toBe('重试加载图片');
+  await act(async () => trigger.click());
+  expect(preview()).toBeNull();
+  await openLoadedImage();
   const source = new URL(preview().src);
   expect(source.searchParams.get('token')).toBe('slow-thumbnail');
   expect(source.searchParams.get('intent')).toBe('interactive');
@@ -130,10 +142,7 @@ it('缩略图在点击过程中失败，保留原按钮和独立的原图预览'
 it('发送完成或切换会话释放附件时，已打开的预览保留 Blob 到关闭', async () => {
   const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
   await mount({ fileName: 'image.png', localPreviewUrl: 'blob:pending-image' });
-  await act(async () => {
-    host.querySelector('img')!.click();
-    await vi.dynamicImportSettled();
-  });
+  await openLoadedImage();
   releaseAttachment(attachment('blob:pending-image'));
   expect(revoke).not.toHaveBeenCalled();
   expect(preview().src).toBe('blob:pending-image');
@@ -147,14 +156,8 @@ it('发送完成或切换会话释放附件时，已打开的预览保留 Blob �
 it('重复打开不会多占引用，换图后释放旧预览但不释放仍属于附件的地址', async () => {
   const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
   await mount({ localPreviewUrl: 'blob:pending-image' });
-  await act(async () => {
-    host.querySelector('img')!.click();
-    await vi.dynamicImportSettled();
-  });
-  await act(async () => {
-    host.querySelector('img')!.click();
-    await vi.dynamicImportSettled();
-  });
+  await openLoadedImage();
+  await openLoadedImage();
   releaseAttachment(attachment('blob:pending-image'));
   await act(async () => {
     openMediaPreview({
@@ -172,12 +175,9 @@ it('重复打开不会多占引用，换图后释放旧预览但不释放仍属�
   expect(revoke).toHaveBeenCalledWith('blob:next-image');
 });
 
-it('尚未加载的本机路径失败后灯箱独立回退，不要求气泡先收到失败事件', async () => {
+it('灯箱加载本机路径失败时独立回退，不要求气泡先收到失败事件', async () => {
   await mount({ fileName: 'image.png', localPath: '/synthetic/pending/image.png' });
-  await act(async () => {
-    host.querySelector('img')!.click();
-    await vi.dynamicImportSettled();
-  });
+  await openLoadedImage();
   expect(preview().src).toContain('localfile');
   await act(async () => {
     preview().dispatchEvent(new Event('error'));
@@ -200,7 +200,7 @@ it('占位图片失败后换成真实消息时重新取图，不继承旧的缺�
       await vi.dynamicImportSettled();
     });
   }
-  expect(host.querySelector('.qq-media-missing')?.getAttribute('aria-label')).toBe('未找到该图片');
+  expect(host.querySelector('button[aria-label="重试加载图片"]')).not.toBeNull();
   await mount({ fileName: 'image.png', fileToken: 'ready-token' });
   expect(host.querySelector('.qq-media-missing')).toBeNull();
   expect(new URL(host.querySelector('img')!.src).searchParams.get('token')).toBe('ready-token');
@@ -209,11 +209,9 @@ it('占位图片失败后换成真实消息时重新取图，不继承旧的缺�
 it('预览根组件卸载时归还待释放的 Blob，不留下资源引用', async () => {
   const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
   await mount({ localPreviewUrl: 'blob:unmount-image' });
-  await act(async () => {
-    host.querySelector('img')!.click();
-    await vi.dynamicImportSettled();
-  });
+  await openLoadedImage();
   releaseAttachment(attachment('blob:unmount-image'));
+  expect(revoke).not.toHaveBeenCalled();
   await act(async () => {
     root.render(null);
     await vi.dynamicImportSettled();

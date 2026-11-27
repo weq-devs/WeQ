@@ -41,6 +41,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   return {
     trpc: {
       account: endpoints,
+      bootstrap: { getSettings: { useQuery: () => ({ data: undefined }) } },
       useUtils: () => ({ account: new Proxy({}, { get: () => ({ invalidate: f.invalidate }) }) }),
     },
     client: { account: { onGroupChatEvent: { subscribe: () => ({ unsubscribe: vi.fn() }) } } },

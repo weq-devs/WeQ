@@ -74,6 +74,13 @@ export interface OnlineTranscribeRequest {
 }
 
 /** 一次在线转写的产出：成功的 `fileName → text` + 需要本地补全的文件名。 */
+export function toOnlineVoiceRequest(ref: MediaRef): OnlineTranscribeRequest | null {
+  const voice = ref.online;
+  if (!voice?.md5 || !ref.fileToken || !voice.senderUin || !voice.peerUin || voice.peerUin === '0')
+    return null;
+  return { ...voice, fileName: ref.fileName, msgId: ref.msgId, uuid: ref.fileToken };
+}
+
 export interface OnlineTranscribeOutcome {
   /** 在线拿到文本的语音（键 = fileName）。 */
   texts: Record<string, string>;
@@ -313,7 +320,7 @@ export async function decodeFoundVoices(
 export async function transcribeFoundVoices(
   scan: MediaScanResult,
   bundleDir: string,
-  transcribe: TranscribeVoiceFn,
+  transcribe: TranscribeVoiceFn | undefined,
   onProgress?: StageProgress,
   concurrency = 2,
   onTranscribed?: (ref: MediaRef, text: string) => Promise<void>,
@@ -327,6 +334,7 @@ export async function transcribeFoundVoices(
    * 的下载缓存按 token 存，重复调用不会重复下。返回 null 表示这条真取不到。
    */
   fetchSilk?: (ref: MediaRef) => Promise<string | null>,
+  priority: 'local' | 'qq' = 'qq',
 ): Promise<MediaStageResult> {
   // 本机有的 + 本机没有的都要看：后者里可能有「已经转过文字」的白拿结果。
   const voices = [...scan.found, ...scan.missing].filter((ref) => ref.kind === 'ptt');
@@ -340,8 +348,7 @@ export async function transcribeFoundVoices(
   }
 
   /** 在线那条腿只吃元数据（服务端自己去取图），本机有没有字节都一样能试。 */
-  const hasOnlineMeta = (ref: MediaRef): boolean =>
-    Boolean(ref.online?.md5 && ref.fileToken && ref.online.senderUin && ref.online.peerUin);
+  const hasOnlineMeta = (ref: MediaRef): boolean => toOnlineVoiceRequest(ref) !== null;
   /**
    * 这条语音还有没有指望：本机有本体 / 能在网上转 / 能现拉字节。
    *
@@ -399,93 +406,57 @@ export async function transcribeFoundVoices(
     onProgress?.(done, result.total);
   };
 
-  // ---- 1. 在线优先：能拼出完整请求的走 QQ 服务端 ----
-  let remaining = items;
-  if (online) {
-    const reqs: OnlineTranscribeRequest[] = [];
-    const refByFile = new Map<string, MediaRef>();
-    const localOnly: MediaRef[] = [];
-    for (const ref of items) {
-      const o = ref.online;
-      if (o?.md5 && ref.fileToken && o.senderUin && o.peerUin) {
-        refByFile.set(ref.fileName, ref);
-        reqs.push({
-          fileName: ref.fileName,
-          msgId: ref.msgId,
-          senderUin: o.senderUin,
-          peerUin: o.peerUin,
-          isGroup: o.isGroup,
-          uuid: ref.fileToken,
-          md5: o.md5,
-          duration: o.duration,
-          size: o.size,
-          format: o.format,
-          eventType: o.eventType,
-          fileId: o.fileId,
-        });
-      } else {
-        localOnly.push(ref);
-      }
-    }
-    if (reqs.length > 0) {
-      onLog?.(`在线转写：向 QQ 服务端请求 ${reqs.length} 条语音`);
-      let out: OnlineTranscribeOutcome;
-      try {
-        out = await online(reqs, onlineConcurrency, onLog);
-      } catch (e) {
-        onLog?.(
-          `在线转写不可用，全部回退本地模型：${e instanceof Error ? e.message : String(e)}`,
-          'warn',
-        );
-        out = { texts: {}, missing: reqs.map((r) => r.fileName) };
-      }
-      for (const [fileName, text] of Object.entries(out.texts)) {
-        const ref = refByFile.get(fileName);
-        if (ref) await succeed(ref, text, 'online');
-      }
-      const missing = new Set(out.missing);
-      for (const r of reqs) {
-        if (!(r.fileName in out.texts)) missing.add(r.fileName);
-      }
-      const seen = new Set<string>();
-      remaining = [];
-      for (const ref of [
-        ...localOnly,
-        ...[...missing].map((fileName) => refByFile.get(fileName)),
-      ]) {
-        if (!ref || seen.has(ref.fileName)) continue;
-        seen.add(ref.fileName);
-        remaining.push(ref);
-      }
-    } else {
-      remaining = localOnly;
-    }
-  }
-
-  // ---- 2. 本地模型补全（漏包 / 过期 / 缺字段） ----
-  /** 本地那条腿的输入：本机的 SILK，或者现取一份（拿不到就如实算失败）。 */
-  const silkFor = async (ref: MediaRef): Promise<string | null> => {
-    if (ref.path) return ref.path;
-    if (!fetchSilk) return null;
-    return fetchSilk(ref).catch(() => null);
-  };
-  await runWithConcurrency(remaining, concurrency, async (ref) => {
+  const recognizeOnline = async (candidates: MediaRef[]): Promise<MediaRef[]> => {
+    if (!online) return candidates;
+    const requests = candidates.flatMap((ref) => {
+      const request = toOnlineVoiceRequest(ref);
+      return request ? [request] : [];
+    });
+    if (!requests.length) return candidates;
+    onLog?.(`在线转写：向 QQ 服务端请求 ${requests.length} 条语音`);
+    let texts: Record<string, string>;
     try {
-      const silk = await silkFor(ref);
-      if (!silk) {
-        fail(ref, '本机没有这条语音的文件，也取不回来');
-        return;
-      }
-      const r = await transcribe(silk);
-      if (r.ok) {
-        await succeed(ref, r.text ?? '', 'local');
-      } else {
-        fail(ref, r.error ?? '转写失败');
-      }
-    } catch (e) {
-      fail(ref, e instanceof Error ? e.message : String(e));
+      ({ texts } = await online(requests, onlineConcurrency, onLog));
+    } catch (error) {
+      onLog?.(`在线转写不可用：${error instanceof Error ? error.message : String(error)}`, 'warn');
+      return candidates;
     }
-  });
+    const remaining = [];
+    for (const ref of candidates) {
+      const text = Object.hasOwn(texts, ref.fileName) ? texts[ref.fileName] : undefined;
+      if (text !== undefined) await succeed(ref, text, 'online');
+      else remaining.push(ref);
+    }
+    return remaining;
+  };
+
+  const localErrors = new Map<MediaRef, string>();
+  const recognizeLocal = async (candidates: MediaRef[]): Promise<MediaRef[]> => {
+    if (!transcribe) return candidates;
+    await runWithConcurrency(candidates, concurrency, async (ref) => {
+      try {
+        const silk = ref.path ?? (await fetchSilk?.(ref).catch(() => null));
+        if (!silk) {
+          localErrors.set(ref, '本机没有这条语音的文件，也取不回来');
+          return;
+        }
+        const result = await transcribe(silk);
+        if (result.ok) await succeed(ref, result.text ?? '', 'local');
+        else localErrors.set(ref, result.error ?? '本地转写失败');
+      } catch (error) {
+        localErrors.set(ref, error instanceof Error ? error.message : String(error));
+      }
+    });
+    return candidates.filter((ref) => localErrors.has(ref));
+  };
+
+  const remaining =
+    priority === 'local'
+      ? await recognizeOnline(await recognizeLocal(items))
+      : await recognizeLocal(await recognizeOnline(items));
+  for (const ref of remaining) {
+    fail(ref, localErrors.get(ref) ?? (online ? 'QQ 在线转写未返回结果' : '本地语音转写不可用'));
+  }
 
   await flush();
   return result;

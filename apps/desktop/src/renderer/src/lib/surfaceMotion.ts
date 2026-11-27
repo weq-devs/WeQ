@@ -18,6 +18,8 @@ export const surfaceMotionTiming = {
   switch: 120,
   /** 面板、浮层、列表行进场。 */
   enter: 160,
+  /** 关闭后短暂收尾，交互由调用方立即释放。 */
+  exit: 120,
   /** 整页进场。 */
   page: 220,
   easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
@@ -37,12 +39,12 @@ export function prefersReducedMotion(element: Element | null | undefined): boole
 export function fadeInSurface(
   element: Element | null | undefined,
   { from = 0.86, duration = surfaceMotionTiming.switch }: { from?: number; duration?: number } = {},
-): void {
-  const target = element instanceof HTMLElement ? element : null;
-  if (!target || typeof target.animate !== 'function' || prefersReducedMotion(target)) return;
-  const animation = target.animate([{ opacity: from }, { opacity: 1 }], {
+): Animation | undefined {
+  if (!element || typeof element.animate !== 'function' || prefersReducedMotion(element)) return;
+  const animation = element.animate([{ opacity: from }, { opacity: 1 }], {
     duration,
     easing: 'ease-out',
   });
   void animation.finished.catch(() => {});
+  return animation;
 }

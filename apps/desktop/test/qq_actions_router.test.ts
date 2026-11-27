@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { mkdtemp, rm, writeFile, readFile, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -23,13 +24,15 @@ import { createQQActionsRouter, type QQActionServices } from '../src/main/ipc/ro
 import { backgroundTasks } from '../src/main/background_tasks';
 import { albumVideoPublished } from '../src/main/account_task_receipts';
 
+const platform = vi.hoisted(() => ({ appDataRoot: vi.fn() }));
 vi.mock('../src/main/account_task_receipts', async (original) => ({
   ...(await original<typeof import('../src/main/account_task_receipts')>()),
   recordAccountTask: () => vi.fn(),
 }));
-vi.mock('../src/main/context/app_context', async (original) => ({
-  ...(await original<typeof import('../src/main/context/app_context')>()),
+vi.mock('../src/main/context/app_context', () => ({
+  accountEventBus: new EventEmitter(),
   getAppContext: () => ({ account: null, services: null }),
+  requirePlatform: () => platform,
 }));
 
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
@@ -381,6 +384,8 @@ describe('收藏包导入路由', () => {
       { trustPath: vi.fn(), untrustPath: vi.fn() },
     );
     f.s.favoriteEmojiImport = manager;
+    const root = await mkdtemp(join(tmpdir(), 'weq-favorite-import-'));
+    platform.appDataRoot.mockReturnValue(root);
     try {
       const view = await manager.prepare(archive.archive, () => {});
       await f.caller.favoriteImportStart({
@@ -421,6 +426,8 @@ describe('收藏包导入路由', () => {
     } finally {
       release();
       await manager.dispose();
+      platform.appDataRoot.mockReset();
+      await rm(root, { recursive: true, force: true });
     }
   });
 });
@@ -958,6 +965,48 @@ describe('主动操作的账号与参数边界', () => {
       f.caller.request({ ...binding, kind: 'group', token: r!.token, approve: true }),
     ).rejects.toThrow('过期');
   });
+  it.each([true, false])(
+    '群申请缓存到期后只审批同一条仍待处理的申请（匹配 %s）',
+    async (matches) => {
+      const now = vi.spyOn(Date, 'now').mockReturnValue(100_000);
+      try {
+        const f = fixture();
+        const [row] = await f.caller.requests({ ...binding, kind: 'group' });
+        const {
+          requests: [original],
+        } = await f.s.groupNotify.fetchOnlineInbox();
+        expect(original).toBeDefined();
+        now.mockReturnValue(700_001);
+        const updated = {
+          ...original!,
+          target: matches ? original!.target : { ...original!.target, uid: 'u_other' },
+          operateTransInfo: new Uint8Array([9]),
+        };
+        f.s.groupNotify.fetchOnlineInbox.mockResolvedValueOnce({
+          requests: [updated],
+          readSequence: 50n,
+        });
+        const approve = f.caller.request({
+          ...binding,
+          kind: 'group',
+          token: row!.token,
+          approve: true,
+        });
+        if (matches) {
+          await expect(approve).resolves.toEqual({ state: 'accepted' });
+          expect(f.s.groupNotify.handleOnlineRequest.mock.calls).toEqual([[updated, true, '']]);
+          await expect(
+            f.caller.request({ ...binding, kind: 'group', token: row!.token, approve: true }),
+          ).rejects.toThrow();
+        } else {
+          await expect(approve).rejects.toThrow('已变化');
+          expect(f.s.groupNotify.handleOnlineRequest).not.toHaveBeenCalled();
+        }
+      } finally {
+        now.mockRestore();
+      }
+    },
+  );
   it('申请列表排除退群通知与自己发出的加群申请，并返回卡片匹配标识', async () => {
     const f = fixture();
     const {

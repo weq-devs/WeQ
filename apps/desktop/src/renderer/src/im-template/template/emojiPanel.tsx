@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { usePreferenceState } from '../../lib/clientPreferences';
 /**
  * 消息输入框表情面板。
  *
@@ -68,9 +69,6 @@ const MarketEmojiBrowserLightbox = lazy(() =>
 
 type TabId = 'face' | 'super' | 'unicode' | 'market' | 'fav' | 'kaomoji' | 'poke' | 'custom';
 
-// 在同一页面内跨面板开关和会话切换保留上次选择。
-let lastSelectedTab: TabId = 'face';
-
 const TABS: Array<{ id: TabId; label: string; icon: typeof Smile }> = [
   { id: 'face', label: '表情', icon: Smile },
   { id: 'super', label: '超级表情', icon: Sticker },
@@ -137,7 +135,7 @@ export function EmojiPanel({
   /** 纯文本会话不展示必须携带 QQ 媒体元素的表情来源。 */
   textOnly?: boolean;
 }) {
-  const [selectedTab, setSelectedTab] = useState(() => lastSelectedTab);
+  const [selectedTab, setSelectedTab] = usePreferenceState('emojiPanelTab');
   const [bounceFace, setBounceFace] = useState<EmojiItem | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const bounceReturnScroll = useRef(0);
@@ -162,7 +160,6 @@ export function EmojiPanel({
       bounceReturnScroll.current = 0;
       setFaceQuery('');
     }
-    lastSelectedTab = id;
     setSelectedTab(id);
     setBounceFace(null);
   }

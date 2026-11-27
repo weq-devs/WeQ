@@ -2,10 +2,14 @@ import { Fragment, useMemo, type HTMLAttributes } from 'react';
 import { Play } from 'lucide-react';
 import { ShimmerImage } from '../ShimmerImage';
 import { QqMessageContent } from '../QqMessageContent';
-import { useChatMediaItems, useChatMediaOpen } from '../ChatMediaGallery.shared';
+import {
+  MediaBrowseContext,
+  useChatMediaItems,
+  useChatMediaOpen,
+} from '../ChatMediaGallery.shared';
 import type { PreviewMedia } from '../mediaPreviewTypes';
 import type { RenderElement } from '../QqMessageContent.shared';
-import { conversationRecordTypeOf } from '@weq/service/message-filter';
+import { conversationRecordTypeOf, isChatVideoAttachment } from '@weq/service/message-filter';
 import type { ConversationRecordHit } from './types';
 import { RecordDayHeading } from './recordDays';
 
@@ -39,7 +43,10 @@ export function RecordMediaResults({
         {messages.flatMap((message) => {
           let mediaIndex = 0;
           return ((message.elements ?? []) as RenderElement[]).map((element, index) => {
-            const order = element.type === 'pic' || element.type === 'video' ? mediaIndex++ : -1;
+            const order =
+              element.type === 'pic' || element.type === 'video' || isChatVideoAttachment(element)
+                ? mediaIndex++
+                : -1;
             if (conversationRecordTypeOf(element) !== type) return null;
             const item = type === 'media' ? byMessage.get(message.msgId)?.get(order) : undefined;
             const key = `${message.msgId}:${index}`;
@@ -53,12 +60,15 @@ export function RecordMediaResults({
                   aria-label={item.title || (item.kind === 'video' ? '查看视频' : '查看图片')}
                   onClick={(event) => open?.(item.key, event.currentTarget.ownerDocument)}
                 >
-                  <ShimmerImage
-                    className="qq-media-image"
-                    src={item.kind === 'video' ? item.poster : item.src}
-                    alt=""
-                    loading="lazy"
-                  />
+                  {item.kind === 'image' || item.poster ? (
+                    <ShimmerImage
+                      suspendOffscreen
+                      mediaLoading
+                      className="qq-media-image"
+                      src={item.kind === 'video' ? item.poster : item.src}
+                      alt=""
+                    />
+                  ) : null}
                   {item.kind === 'video' ? (
                     <Play className="weq-record-media-play" size={16} aria-hidden />
                   ) : null}
@@ -74,12 +84,14 @@ export function RecordMediaResults({
                 tabIndex={0}
                 aria-label={type === 'emoji' ? '表情' : '图片'}
               >
-                <QqMessageContent
-                  elements={[element]}
-                  msgId={message.msgId}
-                  msgSeq={message.msgSeq}
-                  sendTimeMs={Number(message.sendTime) * 1000}
-                />
+                <MediaBrowseContext.Provider value>
+                  <QqMessageContent
+                    elements={[element]}
+                    msgId={message.msgId}
+                    msgSeq={message.msgSeq}
+                    sendTimeMs={Number(message.sendTime) * 1000}
+                  />
+                </MediaBrowseContext.Provider>
               </div>
             );
           });

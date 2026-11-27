@@ -825,15 +825,9 @@ html[data-weq-input='touch'] .weq-exp-dialog-close {
   color: var(--weq-fg-muted);
 }
 
-/* OCR 使用包装层，显式补齐原本由设置卡片直接子元素提供的行间距。 */
-.weq-exp-image-recognition {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.weq-exp-image-recognition > .weq-exp-block-hint {
-  margin: 0;
+/* 宽度不足时让路线选择换行，保留说明的阅读宽度。 */
+.weq-exp-recognition .weq-set-row-main {
+  flex: 1 1 14rem;
 }
 
 /* ===== 灯箱 · 补全选项（4.1 / 4.2 / 4.3 统一样式） ===== */
@@ -1176,14 +1170,6 @@ html[data-weq-input='touch'] .weq-exp-dialog-close {
 
 .weq-exp-chip.is-on b {
   color: var(--weq-fg-primary);
-}
-
-.weq-exp-range .weq-segmented {
-  display: flex;
-}
-
-.weq-exp-range .weq-segmented > button {
-  flex: 0 0 auto;
 }
 
 .weq-exp-range-summary {

@@ -68,3 +68,39 @@ it('无法识别进程身份时保留锁并明确报错，不会误放行清理�
   expect(mocks.dialog.showErrorBox).toHaveBeenCalledWith('无法核对清除状态', expect.any(String));
   expect(mocks.app.exit).toHaveBeenCalledWith(1);
 });
+
+it('PID 属于无权发信号的进程时仍核对身份，不是清理助手就清除过期锁', () => {
+  // PID 复用后可能命中系统进程：process.kill 抛 EPERM，但命令行仍可读取。
+  const kill = vi.spyOn(process, 'kill').mockImplementation(((pid: number, signal: number) => {
+    if (pid === process.pid && signal === 0) {
+      throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
+    }
+    return true;
+  }) as typeof process.kill);
+  try {
+    mocks.identify.mockReturnValue(false);
+    guardStorageCleanupStartup();
+    expect(mocks.identify).toHaveBeenCalledWith(
+      process.pid,
+      join(root, 'storageCleanupWorker.mjs'),
+    );
+    expect(existsSync(lockPath)).toBe(false);
+    expect(mocks.app.exit).not.toHaveBeenCalled();
+  } finally {
+    kill.mockRestore();
+  }
+});
+
+it('PID 不存在时清除过期锁并允许启动', () => {
+  const kill = vi.spyOn(process, 'kill').mockImplementation((() => {
+    throw Object.assign(new Error('no such process'), { code: 'ESRCH' });
+  }) as typeof process.kill);
+  try {
+    guardStorageCleanupStartup();
+    expect(mocks.identify).not.toHaveBeenCalled();
+    expect(existsSync(lockPath)).toBe(false);
+    expect(mocks.app.exit).not.toHaveBeenCalled();
+  } finally {
+    kill.mockRestore();
+  }
+});

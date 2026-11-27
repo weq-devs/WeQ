@@ -28,6 +28,27 @@ function fixture(mode: 'placeholder' | 'ocr' | 'vision' = 'vision') {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('共用 AI 图片处理', () => {
+  it('仅本地处理时复用描述，缺少缓存回落本地 OCR，禁止发图和视觉请求', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const { processor, deps } = fixture();
+    const input = {
+      feature: 'intent' as const,
+      text: '',
+      images: [image],
+      offlineOnly: true,
+      direct: true,
+      endpoint,
+    };
+    deps.cached.mockResolvedValueOnce('已有视觉描述');
+    expect((await processor.prepare(input)).outcomes[0]?.text).toBe('已有视觉描述');
+    const local = await processor.prepare(input);
+    expect(local.outcomes[0]).toMatchObject({ mode: 'ocr', text: 'OCR 文字' });
+    expect(local.directImages).toBeUndefined();
+    expect(deps.load).toHaveBeenCalledWith(image, undefined, true);
+    expect(deps.ocr).toHaveBeenCalledWith(image, undefined, undefined, true);
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it('训练图片将视觉增量接入调用方输出，缓存命中不伪造输出', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(
       async () =>

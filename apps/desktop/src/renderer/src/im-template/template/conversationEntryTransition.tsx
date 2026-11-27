@@ -12,6 +12,25 @@ type Props = {
   children: ReactNode;
 };
 const timing = { duration: surfaceMotionTiming.enter, easing: 'ease-out', fill: 'both' } as const;
+const MAX_SNAPSHOT_NODES = 1200;
+const MAX_SNAPSHOT_TEXT = 48 * 1024;
+const MAX_MEASURED_ROWS = 240;
+
+/** 大卡片直接让出过渡，避免在 React 提交前复制任意大小的旧正文。 */
+function fitsSnapshot(roots: readonly Element[]) {
+  let nodes = 0;
+  let text = 0;
+  for (const root of roots) {
+    const walker = root.ownerDocument.createTreeWalker(root);
+    for (let node: Node | null = root; node; node = walker.nextNode()) {
+      if (++nodes > MAX_SNAPSHOT_NODES) return false;
+      text += node.nodeValue?.length ?? 0;
+      if (node instanceof Element) for (const { value } of node.attributes) text += value.length;
+      if (text > MAX_SNAPSHOT_TEXT) return false;
+    }
+  }
+  return true;
+}
 
 // 位于按会话重挂载的媒体图库之外，才能在旧正文卸载前取到画面。
 export class ConversationEntryTransition extends Component<Props> {
@@ -28,25 +47,41 @@ export class ConversationEntryTransition extends Component<Props> {
       scope === previous.scope ||
       previous.waiting ||
       !scroll?.clientHeight ||
-      (!waiting && !allowsLayoutMotion(scroll))
+      (!waiting && (this.entering || !allowsLayoutMotion(scroll)))
     )
       return null;
+    const content = contentRef.current;
+    const windowed = Boolean(
+      content?.classList.contains('is-windowed') && content.parentNode === scroll,
+    );
+    const visible: Element[] = [];
+    if (windowed && content) {
+      if (content.children.length > MAX_MEASURED_ROWS) return null;
+      const bounds = scroll.getBoundingClientRect();
+      for (const row of content.children) {
+        if (!row.classList.contains('weq-virtual-timeline-row')) continue;
+        const rect = row.getBoundingClientRect();
+        if (rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom)
+          visible.push(row);
+      }
+    }
+    const children = [...scroll.children];
+    if (
+      !fitsSnapshot(
+        windowed ? [...children.filter((child) => child !== content), ...visible] : children,
+      )
+    )
+      return null;
+
     const frame = scroll.cloneNode(false) as HTMLDivElement;
     frame.removeAttribute('tabindex');
     frame.style.width = `${scroll.offsetWidth}px`;
     frame.style.height = `${scroll.offsetHeight}px`;
-    const bounds = scroll.getBoundingClientRect();
-    const content = contentRef.current;
-    for (const child of scroll.children) {
-      if (child === content && content.classList.contains('is-windowed')) {
+    for (const child of children) {
+      if (windowed && child === content) {
         // 保留虚拟列表的几何，但只复制视口里的实渲染行，不复制预挂载行和滚动预览。
         const timeline = content.cloneNode(false);
-        for (const row of content.children) {
-          if (!row.classList.contains('weq-virtual-timeline-row')) continue;
-          const rect = row.getBoundingClientRect();
-          if (rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom)
-            timeline.appendChild(row.cloneNode(true));
-        }
+        for (const row of visible) timeline.appendChild(row.cloneNode(true));
         frame.append(timeline);
       } else {
         frame.append(child.cloneNode(true));
@@ -91,9 +126,9 @@ export class ConversationEntryTransition extends Component<Props> {
         scroll.after(frame.layer);
         frame.frame.scrollTop = frame.scrollTop;
       }
-      if (!waiting) this.reveal(scroll);
+      if (!waiting && frame) this.reveal(scroll);
     } else if (previous.active && previous.waiting && !waiting) {
-      this.reveal(scroll);
+      if (this.previousFrame) this.reveal(scroll);
     }
   }
 
@@ -113,6 +148,7 @@ export class ConversationEntryTransition extends Component<Props> {
     const entering = scroll.animate([{ opacity: 0 }, { opacity: 1 }], timing);
     this.entering = entering;
     this.leaving = this.previousFrame?.layer.animate([{ opacity: 1 }, { opacity: 0 }], timing);
+    void this.leaving?.finished.catch(() => {});
     const finish = () => {
       if (this.entering === entering) this.stop();
     };

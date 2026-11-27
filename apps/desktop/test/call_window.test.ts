@@ -4,12 +4,15 @@ import { Window as HappyWindow } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { applicationToolPopupOptions } from '../src/main/tool_window';
 import { CallWindow } from '../src/renderer/src/components/CallWindow';
+import { CallWindowHost } from '../src/renderer/src/components/call/CallWindowHost';
+import { GroupCallWindowHost } from '../src/renderer/src/components/call/GroupCallWindowHost';
 import { useAppLock } from '../src/renderer/src/state/lock';
 
 type CallInfo = Parameters<typeof CallWindow>[0]['initial'];
 const mocks = vi.hoisted(() => ({
   web: false,
   hangup: vi.fn(),
+  leaveGroup: vi.fn(async () => {}),
   hangupError: null as null | (() => void),
   state: null as null | { onData: (call: CallInfo) => void },
   /** 摄像头开关。 */
@@ -39,6 +42,7 @@ vi.mock('../src/renderer/src/lib/target.shared', async (original) => ({
   },
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: { groupCall: { leave: { mutate: mocks.leaveGroup } } },
   trpc: {
     call: {
       hangup: {
@@ -64,6 +68,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
       resizeVideo: { useMutation: () => ({ mutate: mocks.resizeVideo, isPending: false }) },
       pushVideoFrame: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },
+      pushEncodedVideoFrame: { useMutation: () => ({ mutateAsync: vi.fn() }) },
       startRecording: {
         useMutation: () => ({ mutateAsync: mocks.startRecording, isLoading: false }),
       },
@@ -125,6 +130,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
   mocks.hangup.mockClear();
+  mocks.leaveGroup.mockClear();
   document.documentElement.removeAttribute('data-theme');
   document.documentElement.removeAttribute('style');
 });
@@ -147,7 +153,7 @@ it('Remote 页内通话不会被当成弹窗失败而自行挂断', async () => 
   }
 });
 
-function mount(strict = false) {
+function mount(strict = false, Call = CallWindow) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -155,9 +161,7 @@ function mount(strict = false) {
   const onClose = vi.fn();
   act(() =>
     root.render(
-      strict
-        ? h(StrictMode, null, h(CallWindow, { initial, onClose }))
-        : h(CallWindow, { initial, onClose }),
+      strict ? h(StrictMode, null, h(Call, { initial, onClose })) : h(Call, { initial, onClose }),
     ),
   );
   return {
@@ -287,6 +291,63 @@ it('手动关闭系统窗口会挂断并清理主界面的通话状态', async (
     popup.close();
   }
   expect(mocks.hangup).toHaveBeenCalledOnce();
+});
+
+it('通话界面加载期间在子窗显示等待，关闭子窗仍会挂断', async () => {
+  vi.useFakeTimers();
+  const popup = new HappyWindow();
+  const open = vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+  const app = mount(false, CallWindowHost);
+  try {
+    expect(open).toHaveBeenCalledOnce();
+    expect(popup.document.querySelector('[role="status"]')?.textContent).toContain('正在加载');
+    expect(document.body.textContent).not.toContain('正在加载');
+    Object.defineProperty(popup, 'closed', { value: true, configurable: true });
+    await act(async () => vi.advanceTimersByTimeAsync(200));
+    expect(mocks.hangup).toHaveBeenCalledOnce();
+    expect(app.onClose).toHaveBeenCalledOnce();
+  } finally {
+    await app.dispose();
+    popup.close();
+  }
+  expect(mocks.hangup).toHaveBeenCalledOnce();
+});
+
+it('群通话加载期间关闭子窗会离开原群通话', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const popup = new HappyWindow();
+  const open = vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const onClose = vi.fn(() => root.render(null));
+  try {
+    act(() =>
+      root.render(
+        h(GroupCallWindowHost, {
+          id: 'fixture-group-call',
+          groupId: '20001',
+          groupName: '合成群',
+          snapshot: {} as Parameters<typeof GroupCallWindowHost>[0]['snapshot'],
+          people: [],
+          onClose,
+        }),
+      ),
+    );
+    expect(open).toHaveBeenCalledOnce();
+    expect(popup.document.querySelector('[role="status"]')?.textContent).toContain('正在加载');
+    expect(host.textContent).not.toContain('正在加载');
+    Object.defineProperty(popup, 'closed', { value: true, configurable: true });
+    act(() => vi.advanceTimersByTime(250));
+    expect(onClose).toHaveBeenCalledOnce();
+    await act(async () => {});
+    expect(mocks.leaveGroup.mock.calls).toEqual([[{ id: 'fixture-group-call' }]]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    popup.close();
+  }
 });
 
 it('挂断请求失败后允许重试', async () => {

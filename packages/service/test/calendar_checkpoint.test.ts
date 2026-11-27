@@ -272,11 +272,18 @@ it('原子保存后新实例恢复结果，账号和数据源隔离；坏文件�
   const job = make(source);
   job.keepAlive(day);
   await finish(job);
-  const store = new CalendarCheckpointStore(root, 'account-A:source-A:month', () =>
-    job.checkpoint(),
+  const saved = vi.fn();
+  const store = new CalendarCheckpointStore(
+    root,
+    'account-A:source-A:month',
+    () => job.checkpoint(),
+    saved,
   );
-  await store.flush();
+  const writes = Promise.all([store.flush(), store.flush()]);
   await waitForCalendarWrites();
+  const completed = saved.mock.calls.length;
+  await writes;
+  expect(completed).toBe(2);
   const next = new CalendarCheckpointStore(root, 'account-A:source-A:month', () =>
     job.checkpoint(),
   );

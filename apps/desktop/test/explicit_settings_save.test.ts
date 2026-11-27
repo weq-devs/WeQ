@@ -6,6 +6,10 @@ import { McpServerSection } from '../src/renderer/src/components/settings/McpSer
 import { AssistantSection } from '../src/renderer/src/components/settings/AssistantSection';
 import { SsePushSection } from '../src/renderer/src/components/settings/SsePushSection';
 import { ExternalRkeySection } from '../src/renderer/src/components/settings/ExternalRkeySection';
+import {
+  connectionTestKey,
+  useConnectionTestTasks,
+} from '../src/renderer/src/lib/connectionTestTask';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { IntentTuningPanel } from '../src/renderer/src/components/settings/IntentTuningPanel';
@@ -47,6 +51,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.pending = false;
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
+  useConnectionTestTasks.setState({ running: new Set(), results: new Map() });
   useDialog.setState({ current: null });
   state.data = {
     'bootstrap.getSettings': {
@@ -92,7 +97,7 @@ function mount(element: ReactElement) {
 describe('显式保存设置不以未变化禁用', () => {
   it('公众号推送端口重读不覆盖草稿，未编辑时跟随实际端口，保存仍提交输入值', async () => {
     const f = mount(createElement(AssistantSection));
-    const input = f.host.querySelector<HTMLInputElement>('[aria-label="QQ 公众号推送端口"]')!;
+    const input = f.host.querySelector<HTMLInputElement>('[aria-label="公众号本地推送端口"]')!;
     expect(input.value).toBe('27182');
     state.data['bootstrap.getWeqAssistantStatus'] = { enabled: false, port: 28000, url: '' };
     f.render();
@@ -150,7 +155,7 @@ describe('显式保存设置不以未变化禁用', () => {
     });
   });
   it.each(['rkey', 'sse'] as const)(
-    '%s 连接测试只更新原横幅，不阻止切换编辑目标或以失败弹窗干扰新表单',
+    '%s 连接测试只更新原配置，不阻止切换编辑目标或以失败弹窗干扰新表单',
     async (kind) => {
       const server = {
         id: 'synthetic-a',
@@ -193,7 +198,8 @@ describe('显式保存设置不以未变化禁用', () => {
           )!;
         act(() => edits[0]!.click());
         await act(async () => testButton().click());
-        expect(useToast.getState().toasts[0]!.loading).toBe(true);
+        const key = connectionTestKey(kind, server.id);
+        expect([...useConnectionTestTasks.getState().running]).toEqual([key]);
         expect(state.mutate).toHaveBeenCalledWith(
           kind === 'rkey' ? 'bootstrap.testExternalRkeyServer' : 'bootstrap.testSsePushServer',
           expect.objectContaining({ accessToken: server.accessToken }),
@@ -209,11 +215,12 @@ describe('显式保存设置不以未变化禁用', () => {
             .value,
         ).toBe(other.accessToken);
         await act(async () => fail(Error('合成连接超时')));
-        expect(useToast.getState().toasts[0]).toMatchObject({
-          tone: 'error',
-          loading: false,
-          detail: '合成连接超时',
-        });
+        const { running, results } = useConnectionTestTasks.getState();
+        expect(running.has(key)).toBe(false);
+        expect([...results.keys()]).toEqual([key]);
+        expect(results.get(key)).toMatchObject({ failed: true, detail: '合成连接超时' });
+        expect(editor().textContent).not.toContain('合成连接超时');
+        expect(useToast.getState().toasts).toHaveLength(0);
         expect(useDialog.getState().current).toBeNull();
         expect(
           editor().querySelector<HTMLInputElement>('.weq-set-server-form input[type="password"]')!

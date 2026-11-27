@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { PageSnapshotScope } from './PageSnapshots';
 import { PageScrollSnapshot } from './PageScrollSnapshot';
 import { useTabActive, TabActivityContext } from './RetainedTabs.shared';
@@ -18,19 +18,26 @@ export function RetainedTabs({
   children,
   scrollable = false,
   snapshotKey,
+  animateSwitch = false,
 }: {
   activeKey: string;
   children: ReactNode;
   scrollable?: boolean;
   snapshotKey?: string;
+  /** 仅供没有外层转场的同级标签页使用。 */
+  animateSwitch?: boolean;
 }) {
   const id = useId();
   const active = useTabActive();
+  const [motion, setMotion] = useState({ key: activeKey, switching: false });
+  if (animateSwitch && motion.key !== activeKey)
+    setMotion({ key: activeKey, switching: active && children != null });
   if (!active || children == null) return null;
   return (
     <PageSnapshotScope key={activeKey} name={`${snapshotKey ?? id}:${activeKey}`}>
       <PageScrollSnapshot
         panel
+        className={animateSwitch && motion.switching ? 'weq-surface-switch' : undefined}
         style={{
           display: 'flex',
           flex: 1,

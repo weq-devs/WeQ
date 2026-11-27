@@ -347,7 +347,7 @@ async function inspectViewerFile(path: string, committedOnly = false) {
     ? '.jsonl.gz'
     : extname(canonical).toLowerCase();
   if (!info.isFile() || !['.json', '.jsonl', '.jsonl.gz'].includes(ext))
-    throw new Error('请选择聊天 JSON、JSONL 或 JSONL（压缩）文件。');
+    throw new Error('请选择聊天 JSON、JSONL 或 JSONL.GZ文件。');
   const source: ExportViewerSource = {
     path: canonical,
     root: basename(dirname(canonical)).startsWith('.weq-export')

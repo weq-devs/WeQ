@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { resolveFileTransferTip } from '../src/main/ipc/file_transfer_tip';
+import type { ChatMsgWire } from '../src/main/ipc/serde';
 import {
   mergeRoamingTimeline,
   mergeRoamingWindow,
@@ -11,6 +13,91 @@ const row = (seq: number, extra: Partial<TimelineRow> = {}): TimelineRow => ({
   msgId: `message-${seq}`,
   msgSeq: String(seq),
   ...extra,
+});
+
+describe('文件传输灰条定位', () => {
+  const self = { uid: 'u_self', uin: '10000' };
+  const peer = 'u_peer';
+  const file = { fileName: '同名文件.zip', fileSize: 1024, fileToken: 'transfer-a' };
+  const original: ChatMsgWire = {
+    kind: 'c2c',
+    conv: peer,
+    msgId: '9132756432187654321',
+    msgSeq: '22',
+    msgRandom: '77',
+    sendTime: '1000',
+    senderUid: self.uid,
+    senderUin: self.uin,
+    elements: [{ type: 'file', data: file }],
+  };
+  const tip: ChatMsgWire = {
+    ...original,
+    msgId: '9132756432187654322',
+    msgSeq: '24',
+    msgRandom: '78',
+    sendTime: '1527',
+    senderUid: peer,
+    senderUin: '10001',
+    elements: [{ type: 'grayTipFileRecv', data: file }],
+  };
+
+  it('本地只有灰条时用已确认序号的漫游文件，保留精确消息身份', () => {
+    const cached: ChatMsgWire = {
+      ...original,
+      sourceFormat: 'protocol',
+      ntSeqVerified: true,
+    };
+    const rows = mergeRoamingTimeline('c2c', [tip], [cached]);
+    expect(resolveFileTransferTip(rows, tip.msgId, tip.msgSeq, self)).toEqual({
+      msgId: original.msgId,
+      msgSeq: original.msgSeq,
+      direction: 'self',
+    });
+  });
+
+  it('文件由对方发出时确认本人是接收者，忽略同名但不同传输的消息', () => {
+    const received = { ...original, senderUid: tip.senderUid, senderUin: tip.senderUin };
+    const completion = { ...tip, senderUid: self.uid, senderUin: self.uin };
+    const other = {
+      ...received,
+      msgId: '11',
+      msgSeq: '23',
+      elements: [{ type: 'file', data: { ...file, fileToken: 'transfer-b' } }],
+    };
+    expect(
+      resolveFileTransferTip([completion, received, other], tip.msgId, tip.msgSeq, self),
+    ).toEqual({ msgId: received.msgId, msgSeq: received.msgSeq, direction: 'peer' });
+  });
+
+  it('同一传输标识对应多条消息时不跳转，已删除的唯一原消息也不可定位', () => {
+    const duplicate = { ...original, msgId: '11' };
+    expect(
+      resolveFileTransferTip([tip, original, duplicate], tip.msgId, tip.msgSeq, self),
+    ).toBeNull();
+    expect(
+      resolveFileTransferTip(
+        [tip, { ...original, deletedKind: 'qq' }],
+        tip.msgId,
+        tip.msgSeq,
+        self,
+      ),
+    ).toBeNull();
+  });
+
+  it('群消息可定位文件，但不使用灰条作者判断接收者', () => {
+    const group = { kind: 'group', conv: '12345' } as const;
+    expect(
+      resolveFileTransferTip(
+        [
+          { ...tip, ...group },
+          { ...original, ...group },
+        ],
+        tip.msgId,
+        tip.msgSeq,
+        self,
+      ),
+    ).toEqual({ msgId: original.msgId, msgSeq: original.msgSeq, direction: null });
+  });
 });
 
 describe('roaming timeline projection', () => {
@@ -45,7 +132,7 @@ describe('roaming timeline projection', () => {
       mergeRoamingTimeline('group', [local], [{ ...remote, senderUid: 'u_other' }]),
     ).toHaveLength(2);
   });
-  it('replaces a persisted sent row when a live roaming batch carries its server ID', () => {
+  it('云端副本补齐正式 ID 后仍保留 WeQ 发送身份，原库到达时接管同一条', () => {
     const sent = row(120, {
       source: 'roaming',
       sourceFormat: 'protocol',
@@ -54,7 +141,54 @@ describe('roaming timeline projection', () => {
       senderUid: 'u_me',
     });
     const remote = { ...sent, localSent: undefined, msgId: '900000001' };
-    expect(mergeRoamingTimeline('group', [sent], [remote])).toEqual([remote]);
+    const enriched = { ...remote, sentFromWeq: true };
+    expect(mergeRoamingTimeline('group', [sent], [remote])).toEqual([enriched]);
+    expect(mergeRoamingTimeline('group', [remote], [sent])).toEqual([enriched]);
+
+    const original = { ...remote, source: undefined, sourceFormat: undefined };
+    expect(mergeRoamingTimeline('group', [original], [remote, sent])).toEqual([original]);
+  });
+  it('实时推送先接管发送气泡，历史副本和 QQ 原库陆续到达时维持一条', () => {
+    const sent = row(120, {
+      source: 'roaming',
+      sourceFormat: 'protocol',
+      localSent: true,
+      msgRandom: '1234',
+      senderUid: 'u_me',
+      ntSeqVerified: true,
+    });
+    const live = { ...sent, localSent: undefined, livePush: true as const };
+    const shown = mergeRoamingTimeline('c2c', [sent], [live]);
+    expect(shown).toEqual([{ ...live, sentFromWeq: true }]);
+
+    const legacy = { ...sent, sourceFormat: undefined, localSent: undefined };
+    expect(mergeRoamingTimeline('c2c', shown, [legacy])).toEqual(shown);
+
+    const history = { ...live, livePush: undefined, msgId: '900000001' };
+    const enriched = mergeRoamingTimeline('c2c', shown, [history]);
+    expect(enriched).toEqual([{ ...history, sentFromWeq: true }]);
+
+    const original = { ...history, source: undefined, sourceFormat: undefined };
+    expect(mergeRoamingTimeline('c2c', [original], [...enriched, live])).toEqual([original]);
+  });
+  it('只用可信私聊序号继承发送身份并去重', () => {
+    const sent = row(120, {
+      source: 'roaming',
+      sourceFormat: 'protocol',
+      localSent: true,
+      msgRandom: '1234',
+      senderUid: 'u_me',
+      ntSeqVerified: true,
+    });
+    const history = { ...sent, localSent: undefined, msgId: '900000001' };
+    const unverified = { ...history, ntSeqVerified: false };
+    const otherSender = { ...history, senderUid: 'u_other' };
+    expect(mergeRoamingTimeline('c2c', [sent], [unverified])).toEqual([sent]);
+    expect(mergeRoamingTimeline('c2c', [], [{ ...sent, ntSeqVerified: false }, history])).toEqual([
+      history,
+    ]);
+    expect(mergeRoamingTimeline('c2c', [sent], [otherSender])).toHaveLength(2);
+    expect(mergeRoamingTimeline('c2c', [sent], [otherSender])).toContainEqual(otherSender);
   });
   it('旧版转写改变 random 后，用音频和原消息元数据收掉发送缓存', () => {
     const voice = { type: 'ptt', data: { fileName: `${'a'.repeat(32)}.amr` } };

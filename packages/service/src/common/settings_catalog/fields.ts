@@ -99,7 +99,7 @@ export const APP_SETTING_FIELDS = (
       '自动刷新冷却期',
     ],
     ['realtime', 'realtimeEnabled', 'realtime-enabled', '数据库监听'],
-    ['attach', 'autoAttachQq', 'auto-full-mode', '启用 QQ 在线能力'],
+    ['attach', 'qqCapabilityMode', 'auto-full-mode', 'QQ 能力档位'],
     [
       'qq-status-reminders',
       'qqStatusIndicatorEnabled',
@@ -336,16 +336,6 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
     '在线能力受限时通知',
     'runtime',
   ),
-  field('qq-client-sync', 'proxy', 'qq-proxy-connection', 'QQ 代理', 'runtime', {
-    scope: '此设备',
-    stopsService: true,
-  }),
-  field('qq-client-sync', 'enabled', 'qq-client-sync', '自动同步本人消息与已读', 'runtime', {
-    scope: '当前账号',
-  }),
-  field('qq-client-sync', 'live', 'qq-live-messages', '通过 QQ 代理加速实时更新', 'runtime', {
-    scope: '当前账号',
-  }),
   field('app-lock', 'enabled', 'app-lock', '启用应用锁', 'runtime'),
   field('app-lock', 'method', 'unlock-method', '解锁方式', 'runtime'),
   field('message-content', 'autoTranscribe', 'auto-transcribe-voice', '语音自动转文字', 'runtime'),
@@ -372,6 +362,8 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   field('profile-basic', 'imageMode', 'ai-images-profile', '图片处理偏好', 'runtime'),
   field('performance-recording', 'mode', 'performance-monitor', '性能记录档位', 'runtime'),
   field('logs', 'nativeDebug', 'native-debug-log', '原生调试日志', 'runtime', { scope: '此设备' }),
+  field('voice-online', 'priority', 'voice-recognition-priority', '语音转写优先使用', 'runtime'),
+  field('ocr-online', 'priority', 'ocr-recognition-priority', '图片文字识别优先使用', 'runtime'),
   field('voice-online', 'concurrency', 'voice-online-concurrency', '转录并发', 'runtime'),
   field('ocr-online', 'concurrency', 'ocr-online-concurrency', '识别并发', 'runtime'),
   field('ocr-online', 'prefilter', 'ocr-prefilter-enabled', 'OCR 前先筛图', 'runtime'),
@@ -394,7 +386,7 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   }),
   field('sse-targets', 'enabled', 'sse-targets', 'SSE 推送', 'runtime', { stopsService: true }),
   field('sse-tuning', 'tuning', 'sse-tuning', 'SSE 推送调优', 'runtime'),
-  field('assistant', 'enabled', 'assistant-service', 'QQ 公众号推送', 'runtime', {
+  field('assistant', 'enabled', 'assistant-service', '公众号本地推送', 'runtime', {
     stopsService: true,
   }),
   field('web', 'enabled', 'web-enabled', '本机浏览器访问', 'runtime', {

@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QzoneView } from '../src/renderer/src/views/QzoneView';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import { closeMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
 import { useViewState } from '../src/renderer/src/state/view';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -301,6 +302,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  act(() => closeMediaPreview(document));
   useDialog.getState().close();
   close?.();
   close = undefined;
@@ -1387,6 +1389,40 @@ it('主页按可见性补全并复用说说，保留原位互动，并与说说�
   expect(home.textContent).toContain(post.content);
   expect(state.detail).toHaveBeenCalledTimes(1);
 });
+
+it('主页累计翻页后只挂载附近内容，后续卡片仍在可滚动的范围内', async () => {
+  state.detail.mockImplementation(async ({ tid }) => ({
+    post: {
+      tid,
+      content: `主页样本 ${Number(tid.slice(-14))}`,
+      time: 1600000000,
+      images: [],
+      videos: [],
+      commentNum: 0,
+    },
+  }));
+  state.homePages = Array.from({ length: 20 }, (_, page) => ({
+    feeds: Array.from({ length: 12 }, (_, slot) => {
+      const index = page * 12 + slot;
+      return {
+        cell_common: {
+          app_id: 311,
+          time: 1600000000 - index,
+          union_id: { feed_id: `1127000001${String(index).padStart(14, '0')}` },
+        },
+        cell_user_info: { user: { uin: '10001' } },
+        cell_summary: { summary: [{ type: 0, content: `主页样本 ${index}` }] },
+      };
+    }),
+  }));
+  const { host } = await mount(false, '主页', { timelineOnly: true });
+  const home = host.querySelector('.weq-qzn-home')!;
+  expect(home.textContent).toContain('主页样本 0');
+  expect(home.textContent).not.toContain('主页样本 239');
+  expect(home.querySelectorAll('article').length).toBeLessThan(30);
+  const list = home.querySelector<HTMLElement>('.weq-qzn-feed-rows')!;
+  expect(Number.parseFloat(list.style.height)).toBeGreaterThan(20_000);
+});
 it('主页取日志并集，按编号合并而不按时间，切换栏目复用详情和评论', async () => {
   const blogId = '1600000007';
   const newId = '1600000097';
@@ -1547,6 +1583,12 @@ it('主页补全历史分享，保留不同发布，并与分享页共用评论�
 const activeMediaPreview = () =>
   document.querySelector<HTMLElement>('.weq-unified-preview:not([hidden])')!;
 
+async function openLoadedTile(button: HTMLButtonElement) {
+  const image = button.querySelector('img')!;
+  await act(async () => image.dispatchEvent(new Event('load')));
+  await act(async () => button.click());
+}
+
 it('主页按当前照片的精确键打开相册预览，关闭返回同一张', async () => {
   const tid = '112700000100000001000000';
   const photos = ['https://a.qpic.cn/first.jpg', 'https://a.qpic.cn/second.jpg'];
@@ -1579,7 +1621,7 @@ it('主页按当前照片的精确键打开相册预览，关闭返回同一张'
   });
   const view = await mount(false, '主页', { timelineOnly: true });
   const first = view.host.querySelector<HTMLButtonElement>('.weq-qzn-pictures button')!;
-  await act(async () => first.click());
+  await openLoadedTile(first);
   await act(async () =>
     activeMediaPreview().querySelector<HTMLButtonElement>('[aria-label="下一项媒体"]')!.click(),
   );
@@ -1629,8 +1671,8 @@ it('主页按当前照片的精确键打开相册预览，关闭返回同一张'
       expect(view.host.querySelectorAll('.weq-qzn-pictures button')).toHaveLength(2),
     ),
   );
-  await act(async () =>
-    view.host.querySelectorAll<HTMLButtonElement>('.weq-qzn-pictures button')[1]!.click(),
+  await openLoadedTile(
+    view.host.querySelectorAll<HTMLButtonElement>('.weq-qzn-pictures button')[1]!,
   );
   await act(async () =>
     [...activeMediaPreview().querySelectorAll('button')]
@@ -1701,10 +1743,9 @@ it('实况和普通视频都按媒体编号定位相册，切换到静态照片�
         (button) => button.textContent?.trim() === '在相册中查看',
       )!,
     );
-  const liveTile = () =>
-    view.host.querySelector<HTMLButtonElement>('[aria-label="查看空间实况照片 1"]')!;
+  const liveTile = () => view.host.querySelector<HTMLButtonElement>('.weq-qzn-video-open')!;
   await act(async () => vi.waitFor(() => expect(liveTile()).not.toBeNull()));
-  await click(liveTile());
+  await openLoadedTile(liveTile());
   await click(
     [...activeMediaPreview().querySelectorAll('button')].find(
       (button) => button.textContent?.trim() === '实况',
@@ -1721,7 +1762,7 @@ it('实况和普通视频都按媒体编号定位相册，切换到静态照片�
   await view.openPane('视频');
   const tiles = () => view.host.querySelectorAll<HTMLButtonElement>('.weq-qzal-album-open');
   await act(async () => vi.waitFor(() => expect(tiles()).toHaveLength(2)));
-  await click(tiles()[1]!);
+  await openLoadedTile(tiles()[1]!);
   await openInAlbum();
   expect(state.albumDetail).toHaveBeenLastCalledWith(
     expect.objectContaining({ topicId: 'motion-album', picKey: 'key-video' }),
@@ -1766,9 +1807,7 @@ it('主页的相册对话框用后续页的标题，并从原预览直接跳转�
     view.host.querySelector('[aria-label="空间内容"] [aria-current="page"]')?.textContent;
   const albumDialog = () =>
     document.querySelector<HTMLElement>('[role="dialog"]:has(.weq-qzone-album-head)')!;
-  await act(async () =>
-    view.host.querySelector<HTMLButtonElement>('.weq-qzn-pictures button')!.click(),
-  );
+  await openLoadedTile(view.host.querySelector<HTMLButtonElement>('.weq-qzn-pictures button')!);
   const source = activeMediaPreview();
   const openAlbum = [...source.querySelectorAll('button')].find(
     (button) => button.textContent?.trim() === '打开相册',
@@ -1841,7 +1880,7 @@ it('视频预览只链接同一作者的说说，关闭原文后返回正在浏�
   const view = await mount(false, '视频', { timelineOnly: true });
   const first = () => view.host.querySelector<HTMLButtonElement>('.weq-qzal-album-open')!;
   await act(async () => vi.waitFor(() => expect(first()).not.toBeNull()));
-  await act(async () => first().click());
+  await openLoadedTile(first());
   const source = activeMediaPreview();
   const sourceAction = () =>
     [...source.querySelectorAll('button')].find((item) => item.textContent?.includes('查看原说说'));

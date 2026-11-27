@@ -21,6 +21,8 @@ import {
 import { detectUpstreamSignal, analyzePragmatics } from '../src/account/intent_corpus';
 import { TokenUsageStore } from '../src/account/agentlab_usage';
 import { JsonStore } from '../src/common/json_store';
+import { networkCost, UNKNOWN_NETWORK } from '../src/common/data_saver';
+import { updateClientNetwork, updateTransferPolicy } from '../src/common/transfer_policy';
 import type { AccountSession } from '@weq/account';
 import {
   DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
@@ -80,6 +82,61 @@ function makeLocalPort(analyze: IntentLocalEnginePort['analyze']): IntentLocalEn
 }
 
 describe('IntentSenseService', () => {
+  it('宿主省流量时暂停自动模型调用，保留手动推荐与旧候选', async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({ choices: [{ message: { content: '{"replies":["有空"]}' } }] }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const svc = new IntentSenseService(
+      makeSession([textMsg(1n, 'u_peer', '明天有空吗？', 1000)]),
+      dir,
+      {
+        resolveEndpoint: () => ({
+          baseUrl: 'https://fixture.invalid',
+          apiKey: 'fixture',
+          model: 'chat',
+        }),
+      },
+    );
+    await svc.setConfig({
+      enabled: true,
+      suggestionsEnabled: true,
+      engine: 'api',
+      profileEnabled: true,
+      profileEngine: 'api',
+    });
+    try {
+      updateTransferPolicy('always', UNKNOWN_NETWORK);
+      expect(await svc.ensureAnalysis('c2c', 'u_peer')).toMatchObject({ skipped: 'data-saver' });
+      expect(await svc.analyzeMessage('c2c', 'u_peer', '1')).toBeNull();
+      expect(await svc.getProfile('u_peer')).toBeNull();
+      expect(await svc.getSuggestionRound('c2c', 'u_peer')).toBeNull();
+      expect(fetch).not.toHaveBeenCalled();
+      const manual = await svc.getSuggestionRound('c2c', 'u_peer', { refresh: true });
+      expect(manual?.suggestions[0]?.text).toBe('有空');
+      expect(svc.getSuggestionHistory('c2c', 'u_peer')[0]?.id).toBe(manual?.id);
+      expect(fetch).toHaveBeenCalledOnce();
+
+      updateClientNetwork('mobile-fixture', networkCost(true, true, 'fixture'));
+      updateTransferPolicy('auto', networkCost(false, false, 'fixture'));
+      const next = new IntentSenseService(
+        makeSession([textMsg(2n, 'u_peer', '今天有空吗？', 1001)]),
+        dir,
+        {
+          resolveEndpoint: () => ({
+            baseUrl: 'https://fixture.invalid',
+            apiKey: 'fixture',
+            model: 'chat',
+          }),
+        },
+      );
+      const auto = await next.getSuggestionRound('c2c', 'u_peer');
+      expect(auto?.target.msgId).toBe('2');
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      updateTransferPolicy('auto', networkCost(false, false, 'fixture'));
+    }
+  });
   it('分析转发正文和包内上文，不回读会话也不写入会话缓存', async () => {
     const analyze = vi.fn(
       async () =>
@@ -2038,19 +2095,26 @@ describe('IntentSenseService', () => {
       };
       const context = JSON.parse(payload.messages[1]!.content);
       expect(context.messages).toHaveLength(3);
-      expect(context.messages[0].sender).toMatchObject({ uid: 'u_self', isSelf: true });
-      const name = source === 'missing-names' ? null : '同名';
-      expect(context.messages[1].sender).toMatchObject({ uid: 'u_peer', name });
-      expect(context.messages[2].sender).toMatchObject({ uid: 'u_other', name });
-      expect(context.messages[2].sentAt).toBe('2026-10-24T12:00:20+08:00');
-      expect(context.messages[2].text).toContain('@同名');
-      expect(context.messages[2].mentions[0].target).toEqual(context.messages[1].sender);
-      expect(context.messages[2].mentions[1].target).toMatchObject({ uid: 'u_self', isSelf: true });
-      expect(context.messages[2].mentions[2].all).toBe(true);
-      expect(context.messages[2].mentions[3].target).toMatchObject({
-        uid: 'u_silent',
-        name: source === 'missing-names' ? null : '未发言成员',
-      });
+      const [self, peer, other] = context.messages;
+      expect(self.sender).toBe(0);
+      expect(other.sender).not.toBe(peer.sender);
+      expect(other.sentAt).toBe('2026-10-24 12:00:20');
+      expect(other.text).toContain('@同名');
+      expect(other.mentions.slice(0, 3)).toEqual([
+        [peer.sender, '@同名'],
+        [0, '@我'],
+        ['all', '@全体成员'],
+      ]);
+      const [silent, label] = other.mentions[3];
+      expect(label).toBe('@未发言成员');
+      expect([self.sender, peer.sender, other.sender, null]).not.toContain(silent);
+      if (source === 'missing-names') expect(context.names).toBeUndefined();
+      else
+        expect(context.names).toMatchObject({
+          [peer.sender]: '同名',
+          [other.sender]: '同名',
+          [silent]: '未发言成员',
+        });
       expect(session.groupMembers.getMembersByUids).toHaveBeenCalledWith(
         123n,
         expect.arrayContaining(['u_self', 'u_peer', 'u_other', 'u_silent']),
@@ -2411,11 +2475,14 @@ describe('IntentSenseService', () => {
     expect(svc.listMessageAnalyses('c2c', 'u_peer').map((row) => row.msgId)).toEqual(['4']);
   });
 
-  it('API 批次逐条传入已截取的上文，零条配置不共享整批历史', async () => {
+  it('API 批次复用重叠原文，每条目标仍只引用自己的上文', async () => {
     const msgs = Array.from({ length: 6 }, (_, i) =>
       textMsg(BigInt(i + 1), 'u_peer', `消息${i + 1}`, 1000 + i * 20),
     );
-    type Input = { messages: Array<{ i: number; text: string; context: Array<{ text: string }> }> };
+    type Input = {
+      turns: Array<[speaker: string, text: string]>;
+      messages: Array<{ i: number; turn: number; context?: number[] }>;
+    };
     const requests: Input[] = [];
     vi.stubGlobal(
       'fetch',
@@ -2460,13 +2527,19 @@ describe('IntentSenseService', () => {
       analysisContextMessages: 2,
     });
     expect((await svc.ensureAnalysis('c2c', 'u_peer', 2)).analyzed).toBe(2);
-    expect(requests[0]?.messages.map((row) => row.context.map((turn) => turn.text))).toEqual([
+    const [window] = requests;
+    expect(window?.turns.map(([, text]) => text)).toEqual(['消息3', '消息4', '消息5', '消息6']);
+    expect(window?.messages.map((row) => window.turns[row.turn]?.[1])).toEqual(['消息5', '消息6']);
+    expect(
+      window?.messages.map((row) => row.context?.map((index) => window.turns[index]?.[1])),
+    ).toEqual([
       ['消息3', '消息4'],
       ['消息4', '消息5'],
     ]);
     await svc.setConfig({ analysisContextMessages: 0 });
     expect((await svc.ensureAnalysis('c2c', 'u_peer', 2)).analyzed).toBe(2);
-    expect(requests[1]?.messages.map((row) => row.context)).toEqual([[], []]);
+    expect(requests[1]?.turns.map(([, text]) => text)).toEqual(['消息5', '消息6']);
+    expect(requests[1]?.messages.map((row) => row.context)).toEqual([undefined, undefined]);
   });
 
   it.each(['count', 'clear'] as const)(

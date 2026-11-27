@@ -6,7 +6,12 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod/v3';
-import { maintainDatabases } from '@weq/db';
+import {
+  assertQqDatabaseWriteAllowed,
+  assertQqFileWriteAllowed,
+  maintainDatabases,
+  withQqDatabaseWrite,
+} from '@weq/db';
 import {
   ACCOUNT_HEALTH_DATABASES,
   DatabaseMaintenance,
@@ -109,7 +114,11 @@ function resolveAccountInfo(uin: string): DbRepairAccountInfo | null {
 }
 const deps: DbRepairDeps = {
   cacheDir: (...segments) => requireBootstrap().userConfig.cacheDir(join(...segments)),
-  scratchDir: () => requireBootstrap().userConfig.getDbRepairCacheDir(),
+  scratchDir: () => {
+    const path = requireBootstrap().userConfig.getDbRepairCacheDir();
+    if (path) assertQqFileWriteAllowed(path);
+    return path;
+  },
   storageStreaming: () => !!requirePlatform().native.ntHelper.recoverDatabaseStreaming,
   storageOptimized: () =>
     (requirePlatform().native.ntHelper.databaseRepairStorageVersion?.() ?? 0) >= 1,
@@ -267,41 +276,42 @@ export const databaseMaintenance = new DatabaseMaintenance({
       batch: typeof targets,
       signal: AbortSignal,
       onProgress: (tick: DatabaseProgress) => void,
-    ) => {
-      const batchId = randomUUID();
-      const paths = batch.map((target) => target.dbPath);
-      const releaseWrites = maintainDatabases(paths);
-      let worker: DatabaseMaintenanceLock | undefined;
-      try {
-        setWriteBarrier(batchId, paths, true);
-        for (const path of paths) nt.closeDb(path);
-        worker = new DatabaseMaintenanceLock();
-        const locks = await worker.begin(batchId, batch, signal, onProgress);
-        worker.signal.throwIfAborted();
-        const owned = worker;
-        owned.signal.addEventListener('abort', () => lost.abort(owned.signal.reason), {
-          once: true,
-        });
-        for (const { dbPath, dbName } of batch) {
-          workers.set(dbPath, owned);
-          const error = locks.find((lock) => lock.dbPath === dbPath)?.error;
-          if (error) errors[dbName] = error;
-        }
-        const release = async () => {
-          await owned.end();
+    ) =>
+      withQqDatabaseWrite(async () => {
+        const batchId = randomUUID();
+        const paths = batch.map((target) => target.dbPath);
+        const releaseWrites = maintainDatabases(paths);
+        let worker: DatabaseMaintenanceLock | undefined;
+        try {
+          setWriteBarrier(batchId, paths, true);
+          for (const path of paths) nt.closeDb(path);
+          worker = new DatabaseMaintenanceLock();
+          const locks = await worker.begin(batchId, batch, signal, onProgress);
+          worker.signal.throwIfAborted();
+          const owned = worker;
+          owned.signal.addEventListener('abort', () => lost.abort(owned.signal.reason), {
+            once: true,
+          });
+          for (const { dbPath, dbName } of batch) {
+            workers.set(dbPath, owned);
+            const error = locks.find((lock) => lock.dbPath === dbPath)?.error;
+            if (error) errors[dbName] = error;
+          }
+          const release = async () => {
+            await owned.end();
+            setWriteBarrier(batchId, [], false);
+            releaseWrites();
+            for (const path of paths) workers.delete(path);
+            releases.delete(release);
+          };
+          releases.add(release);
+        } catch (error) {
+          await worker?.terminate();
           setWriteBarrier(batchId, [], false);
           releaseWrites();
-          for (const path of paths) workers.delete(path);
-          releases.delete(release);
-        };
-        releases.add(release);
-      } catch (error) {
-        await worker?.terminate();
-        setWriteBarrier(batchId, [], false);
-        releaseWrites();
-        throw error;
-      }
-    };
+          throw error;
+        }
+      });
     await acquireMore(targets, signal, progress);
     maintenanceLocks.set(id, workers);
     return {
@@ -481,6 +491,40 @@ export const dbRepairRouter = router({
     };
   }),
   maintenance: procedure.input(accountRef).query(({ input }) => databaseMaintenance.status(input)),
+  resumeReport: procedure.input(reportRef).mutation(async ({ input }) => {
+    assertQqDatabaseWriteAllowed();
+    assertNotRestoring();
+    const report = await savedReport(input, input.reportId);
+    if (report.operation.status !== 'interrupted') throw new Error('此报告没有中断的工作。');
+    if (databaseMaintenance.status(input)?.locked)
+      throw new Error('请先结束当前维护后继续中断的报告。');
+    const operation = report.operation;
+    const fromRepair = operation.kind === 'repair';
+    const kind = operation.kind === 'scan' ? 'scan' : 'checkup';
+    const named = new Set(
+      operation.databaseNames ??
+        report.databases.filter((row) => !fromRepair || row.repair).map(({ dbName }) => dbName),
+    );
+    const remaining = report.databases.filter((row) => {
+      if (!named.has(row.dbName)) return false;
+      if (fromRepair) return row.repair?.status !== 'completed';
+      const desired = operation.databaseScanKinds?.[row.dbName] ?? kind;
+      return (
+        row.scanStatus !== 'completed' || (desired === 'checkup' && row.deepStatus !== 'completed')
+      );
+    });
+    if (!remaining.length) throw new Error('这份报告已没有待检查的数据库。');
+    const targets = remaining.map(({ dbName }) => service.resolveTarget(input.uin, dbName));
+    return summarizeDatabaseMaintenance(
+      await databaseMaintenance.scan(
+        input,
+        targets,
+        kind,
+        undefined,
+        fromRepair ? undefined : operation.databaseScanKinds,
+      ),
+    );
+  }),
   scanAccount: procedure
     .input(
       accountRef.extend({
@@ -489,6 +533,7 @@ export const dbRepairRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      assertQqDatabaseWriteAllowed();
       assertNotRestoring();
       const info = service.accountInfo(input.uin);
       const current = databaseMaintenance.status(input);
@@ -519,6 +564,7 @@ export const dbRepairRouter = router({
       }),
     )
     .mutation(({ input }) => {
+      assertQqDatabaseWriteAllowed();
       const current = databaseMaintenance.status(input);
       const targets = [...new Set(input.dbNames)]
         .filter((name) => !current?.databases.some((row) => row.dbName === name))
@@ -536,20 +582,22 @@ export const dbRepairRouter = router({
         allowLowSpace: z.boolean().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
-      assertNotRestoring();
-      closedAccountDuringRun = false;
-      try {
-        return {
-          snapshot: summarizeDatabaseMaintenance(
-            await databaseMaintenance.repair(input, input.dbNames, input),
-          ),
-          closedAccount: closedAccountDuringRun,
-        };
-      } finally {
+    .mutation(({ input }) =>
+      withQqDatabaseWrite(async () => {
+        assertNotRestoring();
         closedAccountDuringRun = false;
-      }
-    }),
+        try {
+          return {
+            snapshot: summarizeDatabaseMaintenance(
+              await databaseMaintenance.repair(input, input.dbNames, input),
+            ),
+            closedAccount: closedAccountDuringRun,
+          };
+        } finally {
+          closedAccountDuringRun = false;
+        }
+      }),
+    ),
   stopMaintenance: procedure
     .input(accountRef.extend({ operationId: z.string().min(1).optional() }))
     .mutation(async ({ input }) => {
@@ -683,7 +731,10 @@ export const dbRepairRouter = router({
     assertCacheIdle();
     const picked = await getHost().pickDirectory({ title: '选择备份与修复工作区位置' });
     assertCacheIdle();
-    if (picked) requireBootstrap().userConfig.setDbRepairCacheDir(picked);
+    if (picked) {
+      assertQqFileWriteAllowed(picked);
+      requireBootstrap().userConfig.setDbRepairCacheDir(picked);
+    }
     return { override: requireBootstrap().userConfig.getDbRepairCacheDir() };
   }),
   resetCacheLocation: procedure.mutation(() => {
@@ -721,38 +772,40 @@ export const dbRepairRouter = router({
   ),
   restore: procedure
     .input(recordRef.extend({ force: z.boolean().optional() }))
-    .mutation(async ({ input }) => {
-      assertIdle();
-      closedAccountDuringRun = false;
-      try {
-        pendingRestore = service.restore(input.uin, input.recordId, {
-          force: input.force,
-          progress: (dbName, step) => {
-            restoreActivity = { scope: input, progress: { dbName, step } };
-            progressBus.emit('restore');
-          },
-        });
-        const record = await pendingRestore;
-        return {
-          ok: true as const,
-          record,
-          closedAccount: closedAccountDuringRun,
-        };
-      } catch (error) {
-        logger.warn('database restore failed', { error: String(error) });
-        return {
-          ok: false as const,
-          error: error instanceof Error ? error.message : String(error),
-          code: error instanceof DbRepairError ? error.code : 'recover-failed',
-          closedAccount: closedAccountDuringRun,
-        };
-      } finally {
-        pendingRestore = undefined;
-        restoreActivity = null;
-        progressBus.emit('restore');
+    .mutation(({ input }) =>
+      withQqDatabaseWrite(async () => {
+        assertIdle();
         closedAccountDuringRun = false;
-      }
-    }),
+        try {
+          pendingRestore = service.restore(input.uin, input.recordId, {
+            force: input.force,
+            progress: (dbName, step) => {
+              restoreActivity = { scope: input, progress: { dbName, step } };
+              progressBus.emit('restore');
+            },
+          });
+          const record = await pendingRestore;
+          return {
+            ok: true as const,
+            record,
+            closedAccount: closedAccountDuringRun,
+          };
+        } catch (error) {
+          logger.warn('database restore failed', { error: String(error) });
+          return {
+            ok: false as const,
+            error: error instanceof Error ? error.message : String(error),
+            code: error instanceof DbRepairError ? error.code : 'recover-failed',
+            closedAccount: closedAccountDuringRun,
+          };
+        } finally {
+          pendingRestore = undefined;
+          restoreActivity = null;
+          progressBus.emit('restore');
+          closedAccountDuringRun = false;
+        }
+      }),
+    ),
   deleteBackup: procedure.input(recordRef).mutation(({ input }) => {
     assertIdle();
     return service.deleteBackup(input.uin, input.recordId);

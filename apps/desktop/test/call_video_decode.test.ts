@@ -20,6 +20,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   acceptsFrame,
+  avcCodec,
   annexB,
   concatBytes,
   nextRotation,
@@ -47,6 +48,18 @@ const FIRST_FRAME = annexB([VPS, SPS, PPS, IDR_HEAD]);
 
 /** 第 2 帧：单个 TRAIL_R（type 1），不带参数集。 */
 const DELTA_FRAME = annexB([hex('0201e025e2409ec163f761f19f95bff884043e92')]);
+
+it('识别 H.264 参数集、IDR 和普通帧', () => {
+  const sps = hex('6764001facd940');
+  const pps = hex('68ee3c80');
+  const key = toAccessUnit(annexB([sps, pps, hex('658880')]), 'h264');
+  const delta = toAccessUnit(annexB([hex('419a80')]), 'h264');
+  expect(key.keyframe).toBe(true);
+  expect(key.params).toEqual([sps, pps]);
+  expect(avcCodec(key.params)).toBe('avc1.64001f');
+  expect(delta.keyframe).toBe(false);
+  expect(delta.params).toEqual([]);
+});
 
 describe('toAccessUnit', () => {
   it('首帧同时带参数集和 IRAP —— 两样都要识别出来', () => {

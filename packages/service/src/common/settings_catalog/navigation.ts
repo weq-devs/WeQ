@@ -34,21 +34,22 @@ export const SETTINGS_PAGE_LABELS = {
   'reply-suggestions': '推荐回复',
   'enhancement-packs': '增强包',
   recognition: '识别与转写',
-  account: 'QQ 在线能力',
+  account: '能力档位',
   'long-term-authorization': '长期授权',
   credentials: '凭据管理',
-  'qq-accounts': 'QQ 登录管理',
+  'qq-accounts': '登录管理',
   accounts: 'WeQ 账号管理',
-  diagnostics: 'QQ 高级工具',
-  'database-management': 'QQ 数据库管理',
-  'qq-storage': 'QQ 资源管理',
+  diagnostics: '高级工具',
+  'database-management': '数据库管理',
+  'qq-storage': '资源管理',
   'resource-loading': '资源加载',
   'data-saver': '省流量模式',
-  remote: 'Web 与 Remote',
+  'browser-access': '浏览器访问',
+  remote: 'Remote 服务器',
   mcp: 'MCP 服务器',
   onebot: 'OneBot',
   sse: 'SSE 推送',
-  assistant: 'QQ 公众号推送',
+  assistant: '公众号本地推送',
   privacy: '隐私',
   backup: '配置备份与恢复',
   version: '版本与更新',
@@ -83,12 +84,12 @@ export type SectionId =
   | 'updates'
   | 'daemon';
 
-export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: SettingsPageId[] }> = [
-  {
-    id: 'capabilities',
-    label: '能力',
-    sections: ['account', 'long-term-authorization', 'enhancement-packs'],
-  },
+export const SETTINGS_GROUPS: Array<{
+  id: string;
+  label: string;
+  sections: SettingsPageId[];
+  sidebar?: false;
+}> = [
   {
     id: 'general',
     label: '通用',
@@ -119,6 +120,18 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     ],
   },
   {
+    id: 'qq',
+    label: 'QQ',
+    sections: [
+      'account',
+      'credentials',
+      'qq-accounts',
+      'qq-storage',
+      'database-management',
+      'diagnostics',
+    ],
+  },
+  {
     id: 'ai',
     label: 'AI',
     sections: [
@@ -133,28 +146,25 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'services',
     label: '服务',
-    sections: ['remote', 'mcp', 'onebot', 'sse', 'assistant'],
-  },
-  {
-    id: 'qq',
-    label: 'QQ',
-    sections: [
-      'qzone',
-      'mail',
-      'credentials',
-      'qq-accounts',
-      'qq-storage',
-      'database-management',
-      'diagnostics',
-    ],
+    sections: ['browser-access', 'remote', 'mcp', 'onebot', 'sse', 'assistant'],
   },
   {
     id: 'app',
     label: '应用',
-    sections: ['privacy', 'weq-storage', 'accounts', 'backup'],
+    sections: [
+      'enhancement-packs',
+      'long-term-authorization',
+      'privacy',
+      'weq-storage',
+      'accounts',
+      'backup',
+    ],
   },
   { id: 'about', label: '关于', sections: ['version', 'faq', 'logs', 'feedback'] },
+  { id: 'feature-pages', label: '功能页设置', sections: ['qzone', 'mail'], sidebar: false },
 ];
+
+export const SETTINGS_NAV_GROUPS = SETTINGS_GROUPS.filter((group) => group.sidebar !== false);
 
 export interface SettingsScope {
   label: string;
@@ -411,6 +421,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ),
   ...(
     [
+      ['ocr-recognition-priority', '图片文字识别优先使用'],
+      ['voice-recognition-priority', '语音转写优先使用'],
       ['ocr-online-concurrency', '识别并发'],
       ['voice-online-concurrency', '转录并发'],
     ] as const
@@ -715,7 +727,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['mcp-install', 'mcp', '安装到本机 AI 客户端', '安装 MCP', 'MCP 自动配置'],
       ['sse-targets', 'sse', '已配置的推送目标', '推送地址', 'SSE access_token', '添加推送目标'],
       ['assistant-resource', 'assistant', '资源服务', '公众号资源地址'],
-      ['assistant-port', 'assistant', 'QQ 公众号推送端口', '公众号端口'],
+      ['assistant-port', 'assistant', '公众号本地推送端口', '公众号端口', 'QQ 公众号推送端口'],
       ['chat-image-cache', 'resource-loading', '图片预览内存预算', '图片与表情', '内存缓存'],
       ['chat-message-prewarm', 'resource-loading', '完整消息预热内存预算', '聊天快滚', '消息预热'],
     ] as const
@@ -733,21 +745,35 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ),
   ...(
     [
-      ['web-enabled', '允许本机浏览器访问', '启用 Web 服务'],
-      ['web-autostart', '启动 WeQ 时自动允许本机浏览器访问', '启动 WeQ 时自动开启 Web 服务'],
-      ['remote-enabled', '允许远程连接', 'WeQ Remote', '远程访问'],
-      ['remote-lan', '局域网 IP', '局域网地址'],
-      ['remote-tailscale', 'Tailscale IP', 'Tailscale', '跨网络连接', '内网穿透'],
-      ['remote-pairing', '配对手机', '设备配对', '手机配对', '配对二维码'],
-      ['remote-devices', '已配对设备', '设备授权', '撤销设备授权'],
+      ['web-enabled', 'browser-access', '允许本机浏览器访问', '启用 Web 服务'],
+      [
+        'web-autostart',
+        'browser-access',
+        '启动 WeQ 时自动允许本机浏览器访问',
+        '启动 WeQ 时自动开启 Web 服务',
+      ],
+      ['remote-enabled', 'remote', '允许 Remote 连接', '允许远程连接', '远程访问'],
+      ['remote-lan', 'remote', '网络详情', '局域网 IP', '局域网地址'],
+      [
+        'remote-tailscale',
+        'remote',
+        '跨网络连接',
+        '电脑端 Tailscale',
+        'Tailscale IP',
+        'Tailscale 地址',
+        'Tailscale',
+        '内网穿透',
+      ],
+      ['remote-pairing', 'remote', '配对新设备', '配对手机', '设备配对', '手机配对', '配对二维码'],
+      ['remote-devices', 'remote', '已配对设备', '已配对手机', '设备授权', '撤销设备授权'],
     ] as const
   ).map(
-    ([id, label, ...aliases]): ItemRedirect => ({
+    ([id, section, label, ...aliases]): ItemRedirect => ({
       id,
-      section: 'remote',
+      section,
       label,
       aliases,
-      from: ['remote'],
+      from: section === 'remote' ? ['remote'] : [section, 'remote'],
       desktopOnly: true,
     }),
   ),
@@ -818,28 +844,21 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'qq-proxy-connection',
     section: 'account',
-    label: '代理连接',
-    aliases: ['QQ 代理连接', '本机 QQ 同步', 'QQ 同步代理', '代理端口', '设置代理'],
-    from: ['account', 'qq-proxy'],
-  },
-  {
-    id: 'qq-sync-and-live',
-    section: 'account',
-    label: '同步与实时更新',
-    from: ['account', 'qq-proxy'],
-  },
-  {
-    id: 'qq-live-messages',
-    section: 'account',
-    label: '通过 QQ 代理加速实时更新',
-    aliases: ['通过 QQ 代理实时接收消息', '消息直推', '实时收信', '代理性能优化'],
-    from: ['account', 'qq-proxy'],
-  },
-  {
-    id: 'qq-client-sync',
-    section: 'account',
-    label: '自动同步本人消息与已读',
-    aliases: ['补投本人消息'],
+    label: '连接本机 QQ',
+    aliases: [
+      '代理连接',
+      'QQ 代理连接',
+      '本机 QQ 同步',
+      'QQ 同步代理',
+      '代理端口',
+      '设置代理',
+      '同步与实时更新',
+      '通过 QQ 代理加速实时更新',
+      '代理实时接收消息',
+      '消息直推',
+      '自动同步本人消息与已读',
+      '补投本人消息',
+    ],
     from: ['account', 'qq-proxy'],
   },
   {
@@ -1118,7 +1137,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     id: 'data-saver',
     section: 'data-saver',
     label: '启用方式与行为',
-    aliases: ['省流量模式', '低数据模式', '计费网络', '节省流量'],
+    aliases: ['省流量模式', '低数据模式', '计费网络', '节省流量', '暂停自动联网 AI'],
     from: ['resource-loading', 'data-saver'],
   },
   {
@@ -1293,8 +1312,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'assistant-service',
     section: 'assistant',
-    label: '启用 QQ 公众号推送',
-    aliases: ['启用 WeQ 助手', 'QQ 公众号推送', '推送与资源服务'],
+    label: '启用公众号本地推送',
+    aliases: ['启用 WeQ 助手', 'QQ 公众号推送', '启用 QQ 公众号推送', '推送与资源服务'],
     from: ['assistant', 'remote'],
   },
 ];
@@ -1343,6 +1362,8 @@ export function resolveSettingsTarget(target: SettingsTarget): ResolvedSettingsT
       ['关联资源目录', '关联本机媒体目录'].includes(target.item ?? ''))
   )
     return { section: 'resource-loading' };
+  if (['qq-live-messages', 'qq-client-sync', 'qq-sync-and-live'].includes(target.settingId ?? ''))
+    return { section: 'account', settingId: 'qq-proxy-connection' };
   const targetId =
     target.settingId === 'restricted-mode-indicator' || target.settingId === 'qq-proxy-indicator'
       ? 'qq-status-indicator'
@@ -1381,4 +1402,10 @@ export function settingsGroupFor(section: SectionId) {
     SETTINGS_GROUPS.find((group) => group.sections.includes(settingsSectionFor(section))) ??
     SETTINGS_GROUPS[0]!
   );
+}
+
+export function settingsPagePath(page: SettingsPageId): string[] {
+  const group = settingsGroupFor(page);
+  const label = SETTINGS_PAGE_LABELS[page];
+  return group.sidebar === false ? [label, '设置'] : ['设置', group.label, label];
 }

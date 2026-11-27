@@ -1,6 +1,6 @@
 import { z } from 'zod/v3';
 import { backgroundTasks } from '../../background_tasks';
-import { backgroundTaskVisible } from '../../../shared/background_task';
+import { backgroundTaskVisible, type BackgroundTask } from '../../../shared/background_task';
 import { procedure, router } from '../trpc';
 import { hideAnalysisReportTask, restoreAnalysisReportTasks } from './analysis_reports';
 import { getAppContext } from '../../context/app_context';
@@ -9,7 +9,16 @@ import { getUpdateActions } from '../../update/state';
 import { watchTaskPage } from '../../task_page';
 import { forgetEnhancementTask } from '../../enhancements/tasks';
 import { forgetRecordedTask, restoreRecordedTasks } from '../../account_task_receipts';
-import { retryRecordedClone } from './account';
+import { accountRouter, retryRecordedClone } from './account';
+import { retryGroupMemberOrderTask } from '../../context/group_member_order';
+import { removeQzoneShareSource, retryQzoneShare } from './annual_report';
+import { retryResourceCleanup } from './resource_cleanup';
+import { removeFavoriteImportSource } from '../../favorite_import_resume';
+import { retryOriginalDownload } from '../../data_saver';
+import {
+  forgetDirectIntentDownload,
+  restoreDirectIntentDownload,
+} from '../../intent_sense/direct_download_task';
 
 const scope = z.object({ uin: z.string(), configId: z.string().optional() }).nullable();
 const ref = z.object({ id: z.string().uuid(), scope });
@@ -17,8 +26,27 @@ const ref = z.object({ id: z.string().uuid(), scope });
 export const backgroundTasksRouter = router({
   onTaskPage: procedure.subscription(watchTaskPage),
   list: procedure.input(scope).query(async ({ input }) => {
+    restoreDirectIntentDownload();
     if (input?.configId) {
-      restoreRecordedTasks(input, retryRecordedClone);
+      restoreRecordedTasks(input, {
+        retryClone: retryRecordedClone,
+        retryContacts: retryGroupMemberOrderTask,
+        retryShare: retryQzoneShare,
+        retryCleanup: retryResourceCleanup,
+        retryFavorite: (id, scope) =>
+          accountRouter.createCaller({}).qqActions.favoriteImportResume({
+            expectedAccountUin: scope.uin,
+            expectedAccountConfigId: scope.configId!,
+            taskId: id,
+          }),
+        retryAlbumVideo: (id, scope) =>
+          accountRouter.createCaller({}).qqActions.albumVideoResumeTask({
+            expectedAccountUin: scope.uin,
+            expectedAccountConfigId: scope.configId!,
+            taskId: id,
+          }),
+        retryOriginal: retryOriginalDownload,
+      });
       restoreCalendarTasks(input);
       await restoreAnalysisReportTasks({
         expectedAccountUin: input.uin,
@@ -64,39 +92,35 @@ export const backgroundTasksRouter = router({
     await backgroundTasks.act(input.id, input.action);
     return true;
   }),
-  remove: procedure
-    .input(ref.extend({ updatedAt: z.number() }))
-    .mutation(async ({ input, ctx }) => {
-      const task = backgroundTasks.snapshot().find((task) => task.id === input.id);
-      if (
-        !task ||
-        task.status === 'running' ||
-        !backgroundTaskVisible(task, input.scope) ||
-        task.updatedAt !== input.updatedAt
-      )
-        return false;
-      if (task.kind === 'contacts') {
-        const services = getAppContext().services;
-        const account = services?.accountConfig.getRecord();
-        if (account?.uin !== task.scope?.uin || account?.configId !== task.scope?.configId)
-          return false;
-        await services?.contactDirectory?.removeRefreshTask(task.id);
-      }
-      if (task.kind === 'calendar' && !removeCalendarTask(task)) return false;
-      if (task.kind === 'update') {
-        if (ctx.authorize || getUpdateActions().forgetDownloadTask?.(task.id) === false)
-          return false;
-      }
-      if (task.kind === 'model' && task.destination === 'enhancement-packs') {
-        const packs = getAppContext().bootstrap?.enhancements?.packs;
-        if (packs && !forgetEnhancementTask(packs, task.id)) return false;
-      }
-      if (task.kind === 'analysis' && task.reportId) {
-        await hideAnalysisReportTask(task.reportId);
-        backgroundTasks.remove(input.id, task);
-        return true;
-      }
-      forgetRecordedTask(task);
-      return backgroundTasks.remove(input.id, task);
-    }),
 });
+
+export async function removeHostBackgroundTask(task: BackgroundTask, web: boolean) {
+  if (task.kind === 'contacts') {
+    const services = getAppContext().services;
+    const account = services?.accountConfig.getRecord();
+    if (account?.uin !== task.scope?.uin || account?.configId !== task.scope?.configId)
+      return false;
+    await services?.contactDirectory?.removeRefreshTask(task.id);
+  }
+  if (task.kind === 'calendar' && !removeCalendarTask(task)) return false;
+  if (task.kind === 'update') {
+    if (web || getUpdateActions().forgetDownloadTask?.(task.id) === false) return false;
+  }
+  if (task.kind === 'model' && task.destination === 'enhancement-packs') {
+    const packs = getAppContext().bootstrap?.enhancements?.packs;
+    if (packs && !forgetEnhancementTask(packs, task.id)) return false;
+  }
+  if (task.kind === 'model' && task.display?.action === '下载意图模型')
+    forgetDirectIntentDownload(task.id);
+  if (task.kind === 'qzone-share') await removeQzoneShareSource(task);
+  if (task.kind === 'clone') getAppContext().services?.agentLab.forgetBuildCheckpoint?.(task.id);
+  if (task.kind === 'favorite-import' && task.scope?.configId)
+    await removeFavoriteImportSource(task.scope.configId, task.id);
+  if (task.kind === 'analysis' && task.reportId) {
+    await hideAnalysisReportTask(task.reportId);
+    backgroundTasks.remove(task.id, task);
+    return true;
+  }
+  forgetRecordedTask(task);
+  return backgroundTasks.remove(task.id, task);
+}

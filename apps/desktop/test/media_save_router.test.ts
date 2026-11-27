@@ -29,6 +29,7 @@ import {
   type ActiveTransfer,
 } from '../src/shared/transfer_progress';
 import { messageMediaLocations } from '../src/main/message_media_local';
+import { runResumableExport } from '../src/main/resumable_exports';
 import { summarizeWorkspaceTasks } from '../src/renderer/src/lib/workspaceIndicators';
 import type { AccountServices } from '../src/main/context/app_context';
 const state = vi.hoisted(() => ({
@@ -353,6 +354,18 @@ it('当前设备下载只生成任务缓存，重启后仍能取回未交付的�
   expect(interrupted.listTasks(true)).toMatchObject([{ id: task.id, status: 'completed' }]);
   manager.browserOutputTaken(task.id);
   expect(new ExportTaskManager({} as MsgService, cache).listTasks(true)).toEqual([]);
+});
+it('中断的媒体保存继续使用原媒体和已选文件名', async () => {
+  const fileName = 'resume.png';
+  const source = { ...image, url: 'weq-media://pic?token=fixture&name=original.jpg' };
+  const result = await runResumableExport(
+    { ...state.services, groupFile: {} } as AccountServices,
+    { type: 'media-file', source, fileName },
+    { directory: root, signal: new AbortController().signal, progress() {} },
+    () => {},
+  );
+  expect(result).toMatchObject({ ok: 1, failed: [], fileName });
+  expect(readFileSync(join(root, fileName))).toEqual(Buffer.from(png));
 });
 it('本地文件只复制既有缓存，保留无后缀文件和原件，不要求在线换链', async () => {
   const sourcePath = join(root, 'README');

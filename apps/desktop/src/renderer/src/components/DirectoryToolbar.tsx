@@ -1,6 +1,7 @@
 import { NumericText } from './NumericText';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ListChecks, ListPlus, Search, X, FlipVertical2 } from 'lucide-react';
+import { useExitMotion } from '../hooks/useExitMotion';
 import '../styles/conversation-directory.css';
 
 /** 搜索与选择在同一条工具行内展开，列表区的位置和宽度不变。 */
@@ -39,13 +40,30 @@ export function DirectoryToolbar({
 }) {
   const [searching, setSearching] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const searchMode = useRef<HTMLDivElement>(null);
+  const searchButton = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
+  const activeSearch = searching && searchEnabled && (!selecting || separateSelectionBar);
+  const showSearch = useExitMotion(searchMode, activeSearch);
   useEffect(() => {
     if (query) setSearching(true);
   }, [query]);
   useEffect(() => {
-    if (searching && (!selecting || separateSelectionBar)) input.current?.focus();
-  }, [searching, selecting, separateSelectionBar]);
+    if (activeSearch) {
+      restoreFocus.current = false;
+      input.current?.focus();
+    }
+  }, [activeSearch]);
+  useLayoutEffect(() => {
+    if (showSearch || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    const button = searchButton.current;
+    const focused = button?.ownerDocument.activeElement;
+    if (focused === button?.ownerDocument.body || button?.parentElement?.contains(focused ?? null))
+      button?.focus({ preventScroll: true });
+  }, [showSearch]);
   const closeSearch = () => {
+    restoreFocus.current = true;
     onQuery('');
     setSearching(false);
   };
@@ -88,8 +106,14 @@ export function DirectoryToolbar({
             <X size={16} />
           </button>
         </div>
-      ) : searching && searchEnabled ? (
-        <div key="search" className="weq-directory-mode">
+      ) : showSearch && searchEnabled ? (
+        <div
+          key="search"
+          ref={searchMode}
+          className="weq-directory-mode"
+          data-closing={!activeSearch || undefined}
+          inert={!activeSearch}
+        >
           <Search size={16} aria-hidden />
           <input
             ref={input}
@@ -98,7 +122,16 @@ export function DirectoryToolbar({
             placeholder={`搜索${noun}`}
             onChange={(event) => onQuery(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Escape') closeSearch();
+              if (
+                event.key !== 'Escape' ||
+                event.defaultPrevented ||
+                event.nativeEvent.isComposing ||
+                event.nativeEvent.keyCode === 229
+              )
+                return;
+              event.preventDefault();
+              event.stopPropagation();
+              closeSearch();
             }}
           />
           {searchActions}
@@ -117,6 +150,7 @@ export function DirectoryToolbar({
         <>
           {searchEnabled ? (
             <button
+              ref={searchButton}
               type="button"
               title={`搜索${noun}`}
               aria-label={`搜索${noun}`}

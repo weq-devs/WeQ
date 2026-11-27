@@ -23,7 +23,10 @@ import {
 } from '../src/renderer/src/im-template/template/conversationLists';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
-import { sortConversationRows } from '../src/renderer/src/lib/conversationListOrder';
+import {
+  sortConversationRows,
+  updateConversationOrder,
+} from '../src/renderer/src/lib/conversationListOrder';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import {
   conversationActivityTime,
@@ -34,6 +37,30 @@ import {
 afterEach(() => {
   vi.unstubAllGlobals();
   metricState.rows = {};
+});
+
+it('未读更新沿用原排序，置顶、活动时间和目录增删后仍与完整排序一致', () => {
+  const rows = Array.from({ length: 4000 }, (_, index) => ({
+    id: `row-${index}`,
+    updatedAt: new Date(1_800_000_000_000 + 1000 * (index % 10)).toISOString(),
+    activityTime: 0,
+    unreadCount: 0,
+  }));
+  const initial = updateConversationOrder(rows);
+  const [unread, ...others] = rows;
+  const updated = [{ ...unread!, unreadCount: 2 }, ...others];
+  const dateParse = vi.spyOn(Date, 'parse');
+  const badgeChange = updateConversationOrder(updated, initial);
+  expect(dateParse).not.toHaveBeenCalled();
+  expect(badgeChange.rows.map(({ id }) => id)).toEqual(initial.rows.map(({ id }) => id));
+  expect(badgeChange.rows.filter((row, index) => row !== initial.rows[index])).toHaveLength(1);
+  dateParse.mockRestore();
+  const activityChange = { ...updated[1222]!, activityTime: 1_900_000_000_000 };
+  const inputs = [activityChange, ...updated.slice(1, 1222), ...updated.slice(1223)];
+  const pins = { 'row-5': { pinned: true } };
+  expect(updateConversationOrder(inputs, badgeChange, pins).rows).toEqual(
+    sortConversationRows(inputs, pins),
+  );
 });
 
 it('大目录排序每条会话只读取一次时间键，不在每次比较中重读', () => {

@@ -10,12 +10,14 @@
 import { getHost, getLogger, OperationError } from '@weq/service';
 
 import { z } from 'zod/v3';
-import { getAppContext, type AccountServices } from '../../context/app_context';
+import { getAppContext, requirePlatform, type AccountServices } from '../../context/app_context';
 import type { TranscribeResult } from '../../transcribe/engine';
 import { procedure, router } from '../trpc';
 import { messageMediaLocations } from '../../message_media_local';
 import { messageMediaLocationMissing } from '../../../shared/message_media';
 import { exportTaskResult } from '../../../shared/export_task_result';
+import { exportArchivePolicy } from '../../../shared/task_archive';
+import { archiveViewedTask, taskArchiveStore } from '../../task_archive';
 import { boundClientState } from './client_state';
 import {
   resourceSourceInput,
@@ -161,6 +163,12 @@ export const mediaResourceRouter = router({
         const state = boundClientState({ expectedAccountUin, expectedAccountConfigId });
         if (state.snapshot().records.tasks?.[id] !== result)
           state.records('tasks', { [id]: result });
+        if (exportArchivePolicy(task).auto)
+          archiveViewedTask(
+            taskArchiveStore(requirePlatform().appDataRoot(), expectedAccountConfigId),
+            id,
+            result,
+          );
       } catch (error) {
         logger.warn('文件已打开，下载任务已读状态保存失败', { error });
       }
@@ -195,26 +203,32 @@ export const mediaResourceRouter = router({
   }),
 
   /** One page of merged month entries (图片 / 视频, Ori + Thumb by hash). */
-  listMonth: procedure.input(pageInput.extend({ kind: monthKind })).query(({ input }) => {
-    return mediaPage(input.requestId, ({ mediaResource }, signal) =>
-      mediaResource.listMonth(input.kind, {
-        limit: input.limit,
-        cursor: input.cursor ?? null,
-        signal,
-      }),
-    );
-  }),
+  listMonth: procedure
+    .input(pageInput.extend({ kind: monthKind, observedIndex: z.boolean().optional() }))
+    .query(({ input }) => {
+      return mediaPage(input.requestId, ({ mediaResource }, signal) =>
+        mediaResource.listMonth(input.kind, {
+          limit: input.limit,
+          cursor: input.cursor ?? null,
+          signal,
+          observedIndex: input.observedIndex,
+        }),
+      );
+    }),
 
   /** One page of voice clips (语音, Ptt cache — SILK, decoded on demand). */
-  listVoice: procedure.input(pageInput).query(({ input }) => {
-    return mediaPage(input.requestId, ({ mediaResource }, signal) =>
-      mediaResource.listVoice({
-        limit: input.limit,
-        cursor: input.cursor ?? null,
-        signal,
-      }),
-    );
-  }),
+  listVoice: procedure
+    .input(pageInput.extend({ observedIndex: z.boolean().optional() }))
+    .query(({ input }) => {
+      return mediaPage(input.requestId, ({ mediaResource }, signal) =>
+        mediaResource.listVoice({
+          limit: input.limit,
+          cursor: input.cursor ?? null,
+          signal,
+          observedIndex: input.observedIndex,
+        }),
+      );
+    }),
 
   cancelPage: procedure.input(z.object({ requestId: z.string().uuid() })).mutation(({ input }) => {
     const services = getAppContext().services;

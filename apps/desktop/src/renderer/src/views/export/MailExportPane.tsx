@@ -1,3 +1,4 @@
+import { usePreferenceState } from '../../lib/clientPreferences';
 import { NumericText } from '../../components/NumericText';
 import { CalendarDateField } from '../../components/CalendarDateField';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -10,7 +11,7 @@ import { WindowedList } from '../../components/WindowedList';
 import { formatMailTime } from '../mail/content';
 import '../../styles/mail-export.css';
 import { useExportReportDialog } from './ExportReportControl.shared';
-import { StructuredExportControls, type StructuredExportOptions } from './StructuredExportControls';
+import { StructuredExportControls } from './StructuredExportControls';
 import { structuredExportOptions } from './StructuredExportControls.shared';
 
 export function MailExportPane({
@@ -37,11 +38,8 @@ export function MailExportPane({
   );
   const [all, setAll] = useState(selectedIds === null);
   const [busy, setBusy] = useState(false);
-  const [format, setFormat] = useState<'json' | 'jsonl' | 'jsonl.gz'>('json');
-  const [structured, setStructured] = useState<StructuredExportOptions>({
-    profile: 'basic',
-    incrementalSupport: false,
-  });
+  const [format, setFormat] = usePreferenceState('mailExportFormat');
+  const [structured, setStructured] = usePreferenceState('mailExportDetails');
   const report = useExportReportDialog();
   const pending = useRef(false);
   const [error, setError] = useState('');
@@ -270,7 +268,7 @@ export function MailExportPane({
         options={[
           { value: 'json', label: 'JSON' },
           { value: 'jsonl', label: 'JSONL' },
-          { value: 'jsonl.gz', label: 'JSONL（压缩）' },
+          { value: 'jsonl.gz', label: 'JSONL.GZ' },
         ]}
       />
       <StructuredExportControls

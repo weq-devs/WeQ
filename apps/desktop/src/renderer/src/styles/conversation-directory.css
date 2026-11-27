@@ -79,6 +79,9 @@
   min-width: 0;
   animation: weq-directory-expand 180ms ease-out;
 }
+.weq-directory-mode[data-closing] {
+  animation: weq-directory-collapse var(--weq-motion-exit) ease-in both;
+}
 .weq-directory-add-icon {
   transition: transform 180ms ease-out;
 }
@@ -105,8 +108,19 @@
     clip-path: inset(0);
   }
 }
+@keyframes weq-directory-collapse {
+  from {
+    opacity: 1;
+    clip-path: inset(0);
+  }
+  to {
+    opacity: 0;
+    clip-path: inset(0 60% 0 0);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .weq-directory-mode {
+  .weq-directory-mode,
+  .weq-directory-mode[data-closing] {
     animation: none;
   }
   .weq-directory-add-icon {

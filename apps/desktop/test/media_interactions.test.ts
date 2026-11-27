@@ -351,33 +351,93 @@ it('视频预览具有模态语义、失败提示、重试及焦点归还', asyn
   expect(document.activeElement).toBe(trigger);
 });
 
-it('聊天视频播放失败时保留放大预览，原地重试仍聚焦播放器', async () => {
+it('聊天视频在封面就绪后可放大，播放失败后点击原位重试并聚焦播放器', async () => {
   act(() =>
     root.render(h(Fragment, null, h(QqVideo, { data: {}, sendTimeMs: 1 }), h(MediaPreviewHost))),
   );
+  expect(host.querySelector('.weq-video-expand')).toBeNull();
+  send(host.querySelector('img')!, 'load');
   const expand = button('放大预览视频');
-  act(() => button('播放视频').click());
-  expect(document.activeElement).toBe(host.querySelector('video'));
-  send(host.querySelector('video')!, 'error');
-  expect(button('放大预览视频')).toBe(expand);
   await act(async () => {
     expand.click();
     await vi.dynamicImportSettled();
   });
   expect(document.querySelector('[role="dialog"] video')).not.toBeNull();
   act(() => button('关闭预览').click());
+  act(() => button('播放视频').click());
+  expect(document.activeElement).toBe(host.querySelector('video'));
+  send(host.querySelector('video')!, 'error');
+  expect(host.querySelector('.weq-video-expand')).toBeNull();
   act(() => button('重试加载视频').click());
   expect(document.activeElement).toBe(host.querySelector('video'));
 });
 
-it('聊天图片最终失败后可重新加载，不改变媒体占位尺寸', () => {
-  act(() => root.render(h(QqImage, { data: { imgWidth: 200, imgHeight: 100 }, sendTimeMs: 1 })));
+it('聊天图片缺失后同一按钮先重试，显示图片后再打开预览', async () => {
+  act(() =>
+    root.render(
+      h(
+        Fragment,
+        null,
+        h(QqImage, { data: { imgWidth: 200, imgHeight: 100 }, sendTimeMs: 1 }),
+        h(MediaPreviewHost),
+      ),
+    ),
+  );
+  const tile = host.querySelector('button')!;
   for (let i = 0; i < 2; i++) send(host.querySelector('img')!, 'error');
   const missing = host.querySelector<HTMLElement>('.qq-media-missing')!;
   expect(missing.style.width).toBe('200px');
-  act(() => button('重试加载图片').click());
+  expect(button('重试加载图片')).toBe(tile);
+  act(() => tile.click());
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(host.querySelector('img')).not.toBeNull();
   expect(host.querySelector<HTMLElement>('img')!.style.width).toBe('200px');
+  send(host.querySelector('img')!, 'load');
+  expect(button('查看图片')).toBe(tile);
+  await act(async () => {
+    tile.click();
+    await vi.dynamicImportSettled();
+  });
+  expect(document.querySelector('[role="dialog"] img')).not.toBeNull();
+});
+
+it('从预览加载另一张缺图后，聊天原位重新查缓存并显示', async () => {
+  act(() =>
+    root.render(
+      h(
+        Fragment,
+        null,
+        h(QqImage, {
+          data: { fileToken: 'gallery-photo', fileName: 'gallery.png' },
+          sendTimeMs: 42,
+        }),
+        h(MediaPreviewHost),
+      ),
+    ),
+  );
+  for (let i = 0; i < 2; i++) send(host.querySelector('img')!, 'error');
+  expect(host.querySelector('img')).toBeNull();
+  await act(async () => {
+    openMediaPreview({
+      items: [
+        {
+          key: 'other-entry',
+          kind: 'image',
+          src: 'weq-media://pic?token=gallery-photo&name=gallery.png&t=42',
+        },
+      ],
+      ownerDocument: document,
+    });
+    await vi.dynamicImportSettled();
+  });
+  await act(async () => image().dispatchEvent(new Event('load')));
+  await act(async () => button('关闭预览').click());
+  const inline = host.querySelector('img')!;
+  expect(inline).not.toBeNull();
+  expect(inline.getAttribute('src')).toContain('token=gallery-photo');
+  expect(inline.getAttribute('src')).not.toContain('intent=interactive');
+  send(inline, 'load');
+  expect(button('查看图片：gallery.png')).not.toBeNull();
 });
 
 it('重试仅刷新媒体桥，保留定位参数，不改写 CDN 签名与 Blob/Data 地址', () => {

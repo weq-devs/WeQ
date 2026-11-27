@@ -84,12 +84,12 @@ it('图片偏好与默认视觉模型独立全局保存、备份，旧设置不�
   expect(config.resolveVisionEndpoint()).toBeNull();
 });
 
-function assistantFixture(run?: AssistantTools['run']) {
+function assistantFixture(run?: AssistantTools['run'], sameModel = false) {
   const root = directory();
   const ocr = vi.fn(async () => ({ text: '合成截图文字' }));
   const processor = new AiImageProcessor({
     mode: () => 'vision',
-    vision: () => endpoint,
+    vision: () => (sameModel ? endpoint : { ...endpoint, model: 'image-only' }),
     load: async () => ({ dataUrl: 'data:image/png;base64,synthetic', key: 'synthetic' }),
     ocr,
   });
@@ -129,6 +129,37 @@ function assistantFixture(run?: AssistantTools['run']) {
   const calls = vi.spyOn(api, 'callApiStream').mockResolvedValue({ content: '已看图' });
   return { root, service, calls, ocr };
 }
+it.each([false, true])('助手同模型直传本轮附件（接口拒绝图片：%s）', async (rejectImages) => {
+  const f = assistantFixture(undefined, true);
+  f.calls.mockRestore();
+  const requests: string[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      const request = String(init?.body);
+      requests.push(request);
+      if (rejectImages && requests.length === 1)
+        return new Response('model does not support image inputs in streams', { status: 400 });
+      if (!JSON.parse(request).stream)
+        return Response.json({ choices: [{ message: { content: '合成表格描述' } }] });
+      return new Response(
+        'data: {"choices":[{"delta":{"content":"表格有两行"}}]}\n\ndata: [DONE]\n\n',
+      );
+    }),
+  );
+  const session = f.service.createSession();
+  await f.service.chat(session.id, '表格有几行？', undefined, undefined, [image]);
+  expect(requests).toHaveLength(rejectImages ? 3 : 1);
+  expect(requests[0]).toContain('表格有几行？');
+  expect(requests[0]).toContain('[图片 attachment-1]');
+  expect(requests[0]).toContain('image_url');
+  if (rejectImages) {
+    expect(requests[2]).toContain('合成表格描述');
+    expect(requests[2]).not.toContain('image_url');
+  }
+  expect(f.service.getConversation(session.id).at(-1)?.text).toBe('表格有两行');
+  expect(readFileSync(join(f.root, 'conversation.json'), 'utf8')).not.toContain('base64');
+});
 it('助手独立视觉解读失败时回退 OCR，历史只保存引用和实际结果', async () => {
   const f = assistantFixture();
   const fetch = vi.fn(async () => new Response('图片参数不支持', { status: 400 }));
@@ -151,16 +182,17 @@ it('助手已有流式文字后不重放请求、不回退 OCR', async () => {
     'fetch',
     vi.fn(async () => Response.json({ choices: [{ message: { content: '合成图片' } }] })),
   );
-  const f = assistantFixture();
+  const f = assistantFixture(undefined, true);
   const session = f.service.createSession();
   f.calls.mockImplementationOnce(async (...args) => {
     (args[3] as (step: unknown) => void)({ kind: 'text_delta', text: '已开始回答' });
-    throw new Error('连接中断');
+    throw new Error('模型服务错误：不支持图片输入');
   });
   await expect(f.service.chat(session.id, '看图', undefined, undefined, [image])).rejects.toThrow(
-    '连接中断',
+    '不支持图片输入',
   );
   expect(f.calls).toHaveBeenCalledOnce();
+  expect(JSON.stringify(f.calls.mock.calls[0]?.[1])).toContain('image_url');
   expect(f.ocr).not.toHaveBeenCalled();
 });
 it('助手工具循环和纯文字追问复用解读，按问题查看附件时才再读取原图', async () => {
@@ -311,12 +343,124 @@ it.each(['pic', 'mface'])('%s 消息进入意图分析；更换图片策略后�
   expect(analyze).toHaveBeenCalledTimes(3);
 });
 
+function visionIntentFixture() {
+  const message = (id: number, elements: object[]) => ({
+    msgId: BigInt(id),
+    msgSeq: BigInt(id),
+    sendTime: BigInt(1700000000 + id),
+    senderUin: 10001n,
+    senderUid: 'peer',
+    elements,
+  });
+  const session = {
+    context: { uin: 10000n },
+    uidMap: { sortNoByUid: () => undefined },
+    c2cMsgs: {
+      listLatest: async () => [
+        message(3, [{ kind: 'text', textContent: '这张图是什么意思？' }]),
+        message(2, [
+          { kind: 'text', textContent: '看下这张' },
+          { kind: 'pic', fileName: 'two.png' },
+        ]),
+        message(1, [{ kind: 'pic', fileName: 'one.png' }]),
+      ],
+    },
+  } as unknown as AccountSession;
+  const images = new AiImageProcessor({
+    mode: () => 'vision',
+    vision: () => endpoint,
+    load: async ({ id }) => ({
+      dataUrl: `data:image/png;base64,${Buffer.from(id).toString('base64')}`,
+      key: id,
+    }),
+    ocr: async () => ({ text: '合成图片文字' }),
+  });
+  return new IntentSenseService(session, directory(), { images, resolveEndpoint: () => endpoint });
+}
+
+it.each([false, true])(
+  '推荐回复同模型直传图片并保留消息归属（接口拒绝图片：%s）',
+  async (rejectImages) => {
+    const service = visionIntentFixture();
+    const ref = { providerId: 'fixture', model: endpoint.model };
+    await service.setConfig({ suggestionsEnabled: true, suggestionProviderRef: ref });
+    const requests: Array<{
+      messages: Array<{ content: string | Array<{ type: string; text?: string }> }>;
+    }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const request = JSON.parse(String(init?.body));
+        requests.push(request);
+        if (rejectImages && requests.length === 1)
+          return new Response('unsupported image_url', { status: 400 });
+        const content = request.stream
+          ? JSON.stringify({ summary: '解读图片', replies: [{ text: '这是周末行程' }] })
+          : '合成行程截图';
+        return Response.json({ choices: [{ message: { content } }] });
+      }),
+    );
+    expect(await service.getSuggestions('c2c', 'peer')).toMatchObject([{ text: '这是周末行程' }]);
+    expect(requests).toHaveLength(rejectImages ? 4 : 1);
+    const parts = requests[0]?.messages[1]?.content;
+    if (!Array.isArray(parts)) throw new Error('预期图文请求');
+    expect(parts.filter((part) => part.type === 'image_url')).toHaveLength(2);
+    const messages = JSON.parse(parts[0]?.text ?? '').messages;
+    expect(messages[0].attachments).toEqual([{ kind: 'image', imageId: '1:0' }]);
+    expect(messages[1].attachments).toEqual([{ kind: 'image', imageId: '2:0' }]);
+    if (rejectImages) expect(requests[3]?.messages[1]?.content).toContain('合成行程截图');
+    expect(JSON.stringify(service.getSuggestionDetails('c2c', 'peer'))).not.toContain('base64');
+  },
+);
+
+it.each([false, true])('意图感知批次共用上文图（接口拒绝图片：%s）', async (rejectImages) => {
+  const service = visionIntentFixture();
+  await service.setConfig({
+    enabled: true,
+    engine: 'api',
+    providerRef: { providerId: 'fixture', model: endpoint.model },
+    analysisContextMessages: 2,
+  });
+  const requests: string[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      requests.push(String(init?.body));
+      if (rejectImages && requests.length === 1)
+        return new Response('payload too large', { status: 413 });
+      if (rejectImages && requests.length < 4)
+        return Response.json({ choices: [{ message: { content: '独立解读结果' } }] });
+      const results = [0, 1, 2].map((i) => ({
+        i,
+        intent: 'share',
+        emotion: 'joy',
+        sentiment: 60,
+        intensity: 50,
+        confidence: 0.9,
+      }));
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ results }) } }] });
+    }),
+  );
+  expect((await service.ensureAnalysis('c2c', 'peer', 3)).analyzed).toBe(3);
+  expect(requests).toHaveLength(rejectImages ? 4 : 1);
+  const parts = JSON.parse(requests[0]!).messages[1].content;
+  expect(parts.filter((part: { type: string }) => part.type === 'image_url')).toHaveLength(2);
+  const { turns, messages } = JSON.parse(parts[0].text);
+  expect(turns[messages[0].turn][1]).toContain('[图片 1:0]');
+  expect(turns[messages[1].turn][1]).toContain('[图片 2:0]');
+  expect(messages[2].context).toEqual([messages[0].turn, messages[1].turn]);
+  if (rejectImages) {
+    expect(requests[3]).toContain('独立解读结果');
+    expect(requests[3]).not.toContain('image_url');
+  }
+});
+
 it.each([
   {
     name: '主动占位，模型的重发请求缺少依据',
     mode: 'placeholder',
     output: ['图没刷出来，重发下？'],
-    attachment: { kind: 'image', analysis: { result: 'not_analyzed' } },
+    attachment: { kind: 'image' },
     expected: [],
   },
   {
@@ -324,7 +468,7 @@ it.each([
     mode: 'ocr',
     ocr: { text: '', skipped: true },
     output: ['图我这边没加载出来', '这图自带防撤回吗，我这边一片空白😂', '图没刷出来，重发下？'],
-    attachment: { kind: 'image', analysis: { method: 'ocr', result: 'screened_no_text' } },
+    attachment: { kind: 'image' },
     expected: [],
   },
   {
@@ -333,7 +477,7 @@ it.each([
     ocr: { text: ' \n ' },
     text: '晚安哦',
     output: ['图片没加载出来，但晚安收到啦～', '好梦！明天再聊～'],
-    attachment: { kind: 'image', analysis: { method: 'ocr', result: 'no_text' } },
+    attachment: { kind: 'image' },
     expected: ['好梦！明天再聊～'],
   },
   {
@@ -341,7 +485,7 @@ it.each([
     mode: 'ocr',
     fail: true,
     output: ['这图加载不出来'],
-    attachment: { kind: 'image', analysis: { result: 'failed' } },
+    attachment: { kind: 'image' },
     expected: [],
   },
   {
@@ -349,7 +493,7 @@ it.each([
     mode: 'ocr',
     ocr: { text: 'C' },
     output: ['只识别出个 C，我这边图没加载全吗'],
-    attachment: { kind: 'image', analysis: { method: 'ocr', result: 'text', text: 'C' } },
+    attachment: { kind: 'image', ocr: 'C' },
     expected: [],
   },
   {
@@ -357,7 +501,7 @@ it.each([
     mode: 'placeholder',
     text: '你刚发的图打不开，能重发一下吗？',
     output: ['我重发一下'],
-    attachment: { kind: 'image', analysis: { result: 'not_analyzed' } },
+    attachment: { kind: 'image' },
     expected: ['我重发一下'],
   },
   {
@@ -430,10 +574,9 @@ it.each([
   );
   const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
   const userPrompt: string = request.messages[1].content;
-  expect(JSON.parse(userPrompt).messages[0]).toMatchObject({
-    text,
-    attachments: [fixture.attachment],
-  });
+  const [message] = JSON.parse(userPrompt).messages;
+  expect(message.text).toBe(text || undefined);
+  expect(message.attachments).toEqual([fixture.attachment]);
   expect(userPrompt).not.toMatch(/合成的本地解码错误|private-url|\[媒体消息\]/);
   const details = service.getSuggestionDetails('c2c', 'peer');
   if ('fail' in fixture)
@@ -560,7 +703,7 @@ it('停止图片 OCR 后，迟到结果不再推进字符进度或覆盖已停�
     expect(service.stopSuggestions('c2c', 'peer')).toBe(true);
   } finally {
     release();
-    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(pending).resolves.toEqual([]);
   }
   const details = service.getSuggestionDetails('c2c', 'peer');
   expect(details?.progress?.status).toBe('stopped');

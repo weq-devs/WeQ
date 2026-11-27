@@ -12,6 +12,8 @@ import { useOverlayLayer } from '../lib/overlayStack';
 import { topSurface, useSurfaceEscape } from '../lib/surfaceEscape';
 import { useViewState } from '../state/view';
 import { useRenderDocument } from '../lib/renderDocument';
+import { fadeRemovedSurface } from '../lib/surfaceExit';
+import { prepareMediaPreviewExit } from '../lib/mediaPreviewExit';
 import '../styles/unified-media-preview.css';
 
 const ownershipEvent = 'weq-media-preview-open';
@@ -55,6 +57,19 @@ export function MediaPreviewShell({
   closeRef.current = onClose;
   const account = useViewState((state) => state.openedUin);
   const previousAccount = useRef(account);
+  useLayoutEffect(() => {
+    if (!active) return;
+    const element = root.current;
+    return () => {
+      if (useViewState.getState().openedUin !== account) return;
+      fadeRemovedSurface(element, {
+        prepare: prepareMediaPreviewExit,
+        canShow: () =>
+          useViewState.getState().openedUin === account &&
+          !ownerDocument.querySelector('[data-weq-media-preview]:not([hidden])'),
+      });
+    };
+  }, [active, root, ownerDocument, account]);
   useEffect(() => {
     if (previousAccount.current !== account) {
       previousAccount.current = account;
@@ -83,6 +98,12 @@ export function MediaPreviewShell({
   useSurfaceEscape(root, onEscape, active, true);
   useLayoutEffect(() => {
     if (!active) return;
+    for (const snapshot of ownerDocument.querySelectorAll(
+      '.weq-unified-preview.weq-surface-exiting',
+    )) {
+      for (const animation of snapshot.getAnimations()) animation.cancel();
+      snapshot.remove();
+    }
     // portal 首次绘制即避让系统窗口控件，不等待下一帧的 DOM 观察回调。
     if (
       ownerDocument.defaultView?.weqRemoteWindowLayout ||
@@ -131,6 +152,9 @@ export function MediaPreviewShell({
       aria-label={ariaLabel}
       tabIndex={-1}
       hidden={!active}
+      inert={!active}
+      aria-hidden={!active || undefined}
+      data-weq-media-preview=""
       className={`weq-lightbox-layer weq-unified-preview ${className}`}
       style={{ zIndex: layer, display: active ? undefined : 'none' }}
       onKeyDown={onKeyDown}

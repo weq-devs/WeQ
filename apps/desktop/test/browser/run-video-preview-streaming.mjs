@@ -16,25 +16,25 @@ try {
     void video.play();
   });
   await page.waitForFunction(() => document.querySelector('video').currentTime > 0);
-  await page.evaluate(async () => {
-    const video = document.querySelector('video');
-    video.pause();
-    video.removeAttribute('src');
-    video.load();
-    video.src = '/_media/video?token=tail.mp4&msgId=2&conv=123';
-    await video.play();
-  });
-  await page.waitForFunction(() => document.querySelector('video').videoWidth === 320);
-  await page.evaluate(() => {
-    document.querySelector('video').currentTime = 9;
-  });
-  await page.waitForFunction(() => {
-    const video = document.querySelector('video');
-    return !video.seeking && video.currentTime >= 9 && video.readyState >= 2;
-  });
-  const width = await page.locator('video').evaluate((video) => video.videoWidth);
-  assert.equal(width, 320);
-  console.log(JSON.stringify({ played: true, sought: true, width }));
+  for (const src of [
+    '/_media/video?token=tail.mp4&msgId=2&conv=123',
+    '/_media/file?token=clip.mov&name=clip.mov&msgId=3&conv=123',
+  ]) {
+    await page.evaluate(async (source) => {
+      const video = document.querySelector('video');
+      video.pause();
+      video.src = source;
+      await video.play();
+      video.currentTime = 9;
+    }, src);
+    await page.waitForFunction(() => {
+      const video = document.querySelector('video');
+      return !video.seeking && video.currentTime >= 9 && video.readyState >= 2;
+    });
+    const width = await page.locator('video').evaluate((video) => video.videoWidth);
+    assert.equal(width, 320);
+  }
+  console.log(JSON.stringify({ played: true, sought: true, movSought: true }));
 } finally {
   await browser.close();
 }

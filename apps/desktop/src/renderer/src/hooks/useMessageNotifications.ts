@@ -54,6 +54,7 @@ export function useMessageNotifications(options: {
   foregroundConversation?: string;
   groupAssistantIds?: ReadonlySet<string>;
   resolveGroupSenderName?: (message: ChatMsgWire) => string | Promise<string>;
+  onMessageBatch?: (messages: readonly IncomingMessage[]) => void;
 }) {
   useClientPreferences((state) => state.tick);
   const locked = useAppLock((state) => state.locked);
@@ -131,6 +132,7 @@ export function useMessageNotifications(options: {
         (batch.configId && batch.configId !== scope.expectedAccountConfigId))
     )
       return;
+    if (batch) latest.current.onMessageBatch?.(batch.messages);
     for (const message of batch?.messages ?? []) {
       const key = JSON.stringify([
         message.kind,

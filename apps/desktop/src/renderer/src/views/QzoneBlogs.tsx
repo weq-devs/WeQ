@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText, MessageCircle } from 'lucide-react';
-import { createElement, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createElement, useContext, useEffect, useMemo, type ReactNode } from 'react';
+import { useFeedCardState } from './qzoneCardState';
 import { NumericText } from '../components/NumericText';
 import { QzoneActionsRow } from '../components/QzoneActionsRow';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
@@ -23,6 +24,7 @@ import {
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
 import { QzoneAutoPage } from './QzonePagination';
 import { QzonePageContext } from './qzoneShared.shared';
+import { hasNewQzoneItems, useQzoneRefresh } from './qzoneRefresh';
 
 type BlogInput = Omit<
   Parameters<typeof client.account.qzone.blog.query>[0],
@@ -157,8 +159,8 @@ export function QzoneBlogCard({
   const { active } = useContext(QzonePageContext);
   const { run } = useQzoneRequests();
   const queryClient = useQueryClient();
-  const [expanded, setExpanded] = useState(false);
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [expanded, setExpanded] = useFeedCardState('blog-expanded');
+  const [commentsOpen, setCommentsOpen] = useFeedCardState('blog-comments');
   const scoped = useMemo(() => ({ ...input, blogId: blog.id }), [input, blog.id]);
   useEffect(() => {
     if (!active) void queryClient.cancelQueries({ queryKey: ['qzone-blog', scoped] });
@@ -299,6 +301,11 @@ export function QzoneBlogs({
   onSpace: (uin: string, nickname?: string) => void;
 }) {
   const { items, input, configId, error, loading } = index;
+  useQzoneRefresh(
+    async () => hasNewQzoneItems(items, await index.reload(), (blog) => blog.id),
+    Boolean(configId),
+    configId,
+  );
   return (
     <div className="weq-qzn-timeline">
       {items.map((item) => (

@@ -23,6 +23,7 @@ export function ChatMediaGallery({
   renderToolbarActions,
   carrier,
   paged = false,
+  browseThumbnails = false,
   scopeKey = conv,
 }: {
   messages: GalleryMessage[];
@@ -34,6 +35,7 @@ export function ChatMediaGallery({
   renderToolbarActions?: (item: PreviewMedia) => ReactNode;
   carrier?: import('../state/messageContext').ForwardCarrier;
   paged?: boolean;
+  browseThumbnails?: boolean;
   scopeKey?: string;
 }) {
   const policy = useExportSavePolicy();
@@ -43,10 +45,10 @@ export function ChatMediaGallery({
   const handle = useRef<ReturnType<typeof openMediaPreview> | null>(null);
   const mediaFor = useCallback(
     (rows: GalleryMessage[]) => {
-      const all = galleryMedia(rows, conv, kind, carrier);
+      const all = galleryMedia(rows, conv, kind, carrier, browseThumbnails);
       return mediaKind ? all.filter((item) => item.kind === mediaKind) : all;
     },
-    [conv, kind, carrier, mediaKind],
+    [conv, kind, carrier, mediaKind, browseThumbnails],
   );
   const items = useMemo(() => mediaFor(messages), [messages, mediaFor]);
   const latest = useRef(items);

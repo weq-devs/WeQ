@@ -270,6 +270,27 @@ it('缺口选择只计数且不提醒，导出前才确认，取消不拉取或�
   }
 });
 
+it.each(['合并转发', '逐条转发'] as const)('聊天列表滚动时仍可点击%s', async (action) => {
+  const f = fixture();
+  try {
+    await f.click('[data-enter]');
+    await f.click('[aria-label="转发"]');
+    await act(async () =>
+      f.host.querySelector('.message-scroll')!.dispatchEvent(new Event('scroll')),
+    );
+    const option = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (row) => row.textContent === action,
+    );
+    expect(option).toBeDefined();
+    await act(async () => option!.click());
+    const callback = action === '合并转发' ? f.merge : f.forward;
+    expect(callback).toHaveBeenCalledOnce();
+    expect(callback.mock.calls[0]![0].map((message: Message) => message.id)).toEqual(['1']);
+  } finally {
+    f.close();
+  }
+});
+
 it.each(['分析所选消息', '删除', '添加到素材库', '合并转发', '逐条转发'] as const)(
   '只选缺口也可在%s前确认拉取，不用先选一条已有消息',
   async (action) => {
@@ -377,19 +398,23 @@ it.each(['导出所选消息', '分析所选消息', '删除'] as const)(
       const button = f.host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
       expect(button.disabled).toBe(false);
       await act(async () => button.click());
-      expect(document.body.textContent).toContain(`1 条消息不支持${actionLabel}，1 条可以继续`);
+      expect(document.querySelector('summary')?.textContent).toContain(`无法${actionLabel}`);
       const clickText = async (text: string) =>
         act(async () =>
           [...document.querySelectorAll<HTMLButtonElement>('button')]
             .find((item) => item.textContent === text)!
             .click(),
         );
-      await clickText('预览不支持的消息');
-      expect(document.querySelector('.weq-private-preview-inline')).not.toBeNull();
+      await act(async () => {
+        const details = document.querySelector('details:has(.weq-message-batch-summary)')!;
+        details.setAttribute('open', '');
+        details.dispatchEvent(new Event('toggle'));
+      });
+      expect(document.querySelector('.weq-message-batch-preview')).not.toBeNull();
       expect(document.body.textContent).toContain('等待同步的消息');
       expect(document.body.textContent).toContain('等待正式记录同步入库');
       expect(f.remove).not.toHaveBeenCalled();
-      await clickText(`仅${actionLabel}支持的 1 条`);
+      await clickText('继续（1 条）');
       if (label === '删除') {
         expect(f.remove).toHaveBeenCalledOnce();
         expect(f.remove).toHaveBeenCalledWith(own, expect.anything(), false);
@@ -415,15 +440,12 @@ it('全部不支持时仍可打开说明，取消保留选区，切会话销毁�
     f.render([{ ...f.message(1), optimistic: 'sending' }]);
     await f.click('[data-enter]');
     await f.click('[aria-label="删除"]');
-    const continueButton = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent === '仅删除支持的 0 条',
-    )!;
-    expect(continueButton.disabled).toBe(true);
-    await act(async () =>
-      [...document.querySelectorAll<HTMLButtonElement>('button')]
-        .find((button) => button.textContent === '取消')!
-        .click(),
+    const actions = document.querySelectorAll<HTMLButtonElement>(
+      '.weq-message-batch-dialog footer button',
     );
+    expect(actions).toHaveLength(1);
+    expect(actions[0]!.textContent).toBe('关闭');
+    await act(async () => actions[0]!.click());
     expect(f.state().ids).toEqual(['1']);
     await f.click('[aria-label="删除"]');
     f.render([f.message(1, 'other')], 'other');
@@ -466,6 +488,12 @@ it('批量恢复只处理选中的已删除消息，失败条目与普通消息�
     await f.click('[data-weq-select-id="2"]');
     await f.click('[data-weq-select-id="3"]');
     await f.click('[aria-label="恢复所选已删除消息"]');
+    expect(restore).not.toHaveBeenCalled();
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('.weq-message-batch-dialog [data-weq-dialog-confirm]')!
+        .click(),
+    );
     expect(restore.mock.calls.map(([id]) => id)).toEqual(['2', '3']);
     expect(f.state().ids).toEqual(['1', '3']);
     expect(useToast.getState().toasts.some((toast) => toast.title === '恢复消息失败')).toBe(true);

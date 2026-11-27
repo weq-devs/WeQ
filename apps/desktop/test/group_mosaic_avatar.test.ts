@@ -17,8 +17,11 @@ it('单图 / 两人并排 / 三四人铺满 2×2', () => {
   expect(mosaicLayout(4)).toEqual({ columns: 2, rows: 2 });
 });
 
-it('五人以上切三列，最多 3 行、9 格', () => {
-  expect(mosaicLayout(5)).toEqual({ columns: 3, rows: 2 });
+it('五人时第一行三等分、第二行二等分', () => {
+  expect(mosaicLayout(5)).toEqual({ columns: 6, rows: 2, columnSpans: [2, 2, 2, 3, 3] });
+});
+
+it('六人以上切三列，最多 3 行、9 格', () => {
   expect(mosaicLayout(6)).toEqual({ columns: 3, rows: 2 });
   expect(mosaicLayout(7)).toEqual({ columns: 3, rows: 3 });
   expect(mosaicLayout(9)).toEqual({ columns: 3, rows: 3 });

@@ -42,6 +42,28 @@ export const useDataSaver = create(() => ({
   behavior: { ...dataSaverBehaviorDefaults },
   status: null as DataSaverStatus | null,
 }));
+function hostRestricted({ status, behavior, host }: ReturnType<typeof useDataSaver.getState>) {
+  return dataSaverEnabled(
+    status?.effectiveMode ?? preferenceValue('dataSaverMode'),
+    [host],
+    behavior.dataSaverOnMetered,
+  );
+}
+export function useAutomaticAiRestricted() {
+  return useDataSaver((state) => state.behavior.dataSaverPauseAi && hostRestricted(state));
+}
+export function useHostDataSaver() {
+  return useDataSaver(hostRestricted);
+}
+export function useClientDataSaver() {
+  return useDataSaver(({ status, behavior, local }) =>
+    dataSaverEnabled(
+      status?.effectiveMode ?? preferenceValue('dataSaverMode'),
+      [status?.local ?? local],
+      behavior.dataSaverOnMetered,
+    ),
+  );
+}
 // 同源弹窗会复制 sessionStorage；每份文档必须有独立的任务来源。
 const taskWindowId = globalThis.crypto.randomUUID();
 function localNetwork(): NetworkCost {

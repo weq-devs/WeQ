@@ -72,7 +72,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-it('首次及并发列表等待迟到的历史报告，建立静默基线后仍提醒本次重新分析完成', async () => {
+it('首次及并发列表等待迟到的历史报告，建立静默基线，重新分析完成后生成新的任务结果', async () => {
   let restore!: (reports: AnalysisReportSummary[]) => void;
   f.list.mockReturnValueOnce(new Promise((resolve) => (restore = resolve)));
   const caller = backgroundTasksRouter.createCaller({});
@@ -102,11 +102,13 @@ it('首次及并发列表等待迟到的历史报告，建立静默基线后仍�
   f.list.mockResolvedValue([{ ...report, status: 'running', updatedAt: 2 }]);
   f.emitter!.emit('changed', report.request.id);
   await vi.waitFor(() => expect(backgroundTasks.snapshot()[0]?.status).toBe('running'));
-  expect(notices().map((notice) => notice.event)).toEqual(['progress']);
+  expect(notices().map((notice) => notice.event)).toEqual([null]);
   f.list.mockResolvedValue([{ ...report, updatedAt: 3 }]);
   f.emitter!.emit('changed', report.request.id);
   await vi.waitFor(() => expect(backgroundTasks.snapshot()[0]?.status).toBe('completed'));
-  expect(notices().map((notice) => notice.event)).toEqual(['taskComplete']);
+  expect(notices()).toMatchObject([
+    { event: null, task: { activity: 'finished', result: 'completed:3' } },
+  ]);
   expect(notices()).toEqual([]);
 });
 

@@ -1,3 +1,4 @@
+import { withQqFileWrite } from '@weq/db';
 import assert from 'node:assert/strict';
 import { lstat, mkdir, readdir } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
@@ -15,6 +16,17 @@ export interface DomainArchiveTarget {
 
 /** 仅合并本轮正式归档及其资源；旧目录中的非归档文件不被覆盖或重新打包。 */
 export async function updateArchiveBundle(
+  stage: string,
+  target: DomainArchiveTarget,
+  archiveId: string,
+  signal: AbortSignal,
+): Promise<Map<string, string>> {
+  return withQqFileWrite([target.directory, target.primaryPath], () =>
+    publishArchiveBundleUpdate(stage, target, archiveId, signal),
+  );
+}
+
+async function publishArchiveBundleUpdate(
   stage: string,
   target: DomainArchiveTarget,
   archiveId: string,

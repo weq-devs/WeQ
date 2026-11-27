@@ -23,7 +23,6 @@ import { client } from '../trpc/client';
 import { accountBinding } from '../lib/clientPreferences';
 import { filterByName } from '../lib/nameSearch';
 import { useMultiSelection } from '../hooks/useMultiSelection';
-import { useSettingsSaveBanner } from '../hooks/useSettingsSaveBanner';
 import { Avatar } from '../im-template/template/primitives';
 import { cn } from '../im-template/template/classNames';
 import { ProfileAvatar } from './ProfileAvatar';
@@ -59,7 +58,6 @@ export function GroupKeywordEditor({
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [memberQuery, setMemberQuery] = useState('');
   const [saving, setSaving] = useState(false);
-  useSettingsSaveBanner(saving);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -339,6 +337,7 @@ export function GroupKeywordEditor({
       <section className="group-keyword-section">
         <div className="group-keyword-label-row">
           <span className="group-keyword-label">关键词</span>
+          {saving ? <span role="status">保存中…</span> : null}
           <span className="group-keyword-desc">命中即提醒；每个词可单独限定发言人</span>
         </div>
         <div className="group-keyword-input-row">

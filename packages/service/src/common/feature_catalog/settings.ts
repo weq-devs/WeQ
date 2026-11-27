@@ -2,7 +2,7 @@ import {
   SETTINGS_CATALOG,
   SETTINGS_PAGE_ALIASES,
   SETTINGS_PAGE_LABELS,
-  settingsGroupFor,
+  settingsPagePath,
   type SettingsPageId,
 } from '../settings_catalog';
 import type { FeatureDefinition } from './model';
@@ -27,8 +27,12 @@ const pageDetails: Partial<
     docs: ['guide/settings.md'],
     tools: ['get_web_tokens', 'get_client_key', 'get_download_rkeys', 'get_ptlogin_jump_url'],
   },
+  'browser-access': {
+    summary: '启停本机浏览器访问，查看地址、复制访问令牌和设置自动启动。',
+    docs: ['guide/remote-web.md'],
+  },
   remote: {
-    summary: '查看本机浏览器访问地址，配对手机和管理已配对设备。',
+    summary: '启停 WeQ Remote、配对设备和管理跨网络连接。',
     docs: ['guide/remote-web.md'],
   },
   mcp: {
@@ -62,7 +66,7 @@ const pageDetails: Partial<
     docs: ['guide/settings.md'],
   },
   assistant: {
-    summary: '配置 QQ 公众号推送及资源服务，WeQ 运行期间提供资源。',
+    summary: '配置公众号本地推送及资源服务，WeQ 运行期间提供资源。',
     docs: ['guide/settings.md'],
   },
   backup: {
@@ -89,7 +93,7 @@ export const SETTINGS_PAGE_FEATURES = (Object.keys(SETTINGS_PAGE_LABELS) as Sett
       aliases: [page, ...(SETTINGS_PAGE_ALIASES[page] ?? [])],
       settingsPage: page,
       page,
-      path: ['设置', settingsGroupFor(page).label, SETTINGS_PAGE_LABELS[page]],
+      path: settingsPagePath(page),
       ...pageDetails[page],
     }) satisfies FeatureDefinition & { page: SettingsPageId; path: string[] },
 );

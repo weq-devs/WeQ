@@ -2,6 +2,7 @@ import { formatUnixTime } from '@weq/time';
 import type { QzoneShare, QzoneShareCategory } from '@weqbot/protocol/web';
 import { RefreshCw } from 'lucide-react';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
+import { useFeedCardState } from './qzoneCardState';
 import { FormSelect } from '../components/FormSelect';
 import { QzoneActionsRow, QzoneCommentToggle } from '../components/QzoneActionsRow';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
@@ -21,6 +22,7 @@ import { QzoneAutoPage } from './QzonePagination';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
 import { QzonePageContext, type QzoneMorePane } from './qzoneShared.shared';
 import { QzoneVideoGrid } from './QzoneVideoGrid';
+import { hasNewQzoneItems, useQzoneRefresh } from './qzoneRefresh';
 
 const shareCategories = {
   0: '全部',
@@ -40,6 +42,17 @@ type PagedState = Pick<
   'error' | 'loading' | 'initialLoading' | 'paging' | 'onNext' | 'onRetry' | 'pageCount'
 >;
 
+function useMoreRefresh(
+  state: Pick<ReturnType<typeof useMorePages>, 'items' | 'reload' | 'configId'>,
+  category = 0,
+) {
+  useQzoneRefresh(
+    async () => hasNewQzoneItems(state.items, await state.reload(), (item) => item.id),
+    Boolean(state.configId),
+    `${state.configId}:${category}`,
+  );
+}
+
 function PageEnd({ state, empty }: { state: PagedState; empty: string }) {
   return state.error || empty || state.initialLoading ? (
     <State loading={state.initialLoading} error={state.error} retry={state.onRetry} empty={empty} />
@@ -58,6 +71,7 @@ function Shares({ space, shareIndex }: { space: Space; shareIndex: QzoneShareInd
   const { active } = useContext(QzonePageContext);
   const filtered = useQzoneShareIndex(space, category, { active: active && category !== 0 });
   const state = category === 0 ? shareIndex : filtered;
+  useMoreRefresh(state, category);
   return (
     <>
       <div className="weq-qzn-more-toolbar">
@@ -109,7 +123,7 @@ export function QzoneSharePost({
     commentPreview?: ReactNode;
   };
 }) {
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useFeedCardState('share-comments');
   const [commentCount, setCommentCount] = useState<number | null>(null);
   const time = timeline?.time || formatUnixTime(share.publishedTime, 'minute') || share.publishedAt;
   return (
@@ -255,6 +269,7 @@ function Visitors({ space }: { space: Space }) {
     client.account.qzone.visitors.query({ ...input, page }),
   );
   const first = state.first;
+  useMoreRefresh(state);
   const empty =
     first?.status === 'forbidden'
       ? '无权查看这个空间的访客'
@@ -285,6 +300,7 @@ function Guestbook({ space }: { space: Space }) {
   const state = useMorePages(space, 'guestbook', 0, (input, offset) =>
     client.account.qzone.guestbook.query({ ...input, offset }),
   );
+  useMoreRefresh(state);
   return (
     <>
       {state.items.map((entry) => (
@@ -327,6 +343,7 @@ function Videos({ space }: { space: Space }) {
   const state = useMorePages(space, 'videos', 0, (input, offset) =>
     client.account.qzone.videos.query({ ...input, offset }),
   );
+  useMoreRefresh(state);
   return (
     <div className="weq-qzone-album-embedded">
       {state.items.length ? (

@@ -52,15 +52,21 @@ describe('导出 OCR 预检使用后台实际状态', () => {
       });
       expect((await ocrReadiness()).filterReady).toBe(false);
       const confirm = vi.fn();
-      expect(await preflightOcrImages({ confirm } as unknown as AppDialogApi)).toBe(true);
+      expect(await preflightOcrImages({ confirm } as unknown as AppDialogApi, true)).toBe(true);
       expect(confirm).not.toHaveBeenCalled();
     },
   );
 
+  it('仅 QQ 在线可用时，明确选择本地识别仍会拦截', async () => {
+    const info = vi.fn();
+    expect(await preflightOcrImages({ info } as unknown as AppDialogApi, false)).toBe(false);
+    expect(info).toHaveBeenCalledWith('本地文字识别未就绪', expect.any(String));
+  });
+
   it('后台已就绪时不被旧设置快照误报为未下载', async () => {
     expect((await ocrReadiness()).filterReady).toBe(true);
     const confirm = vi.fn();
-    expect(await preflightOcrImages({ confirm } as unknown as AppDialogApi)).toBe(true);
+    expect(await preflightOcrImages({ confirm } as unknown as AppDialogApi, true)).toBe(true);
     expect(confirm).not.toHaveBeenCalled();
     expect(mocks.settings).not.toHaveBeenCalled();
   });
@@ -71,7 +77,7 @@ describe('导出 OCR 预检使用后台实际状态', () => {
       ocrFilterModelId: null,
     });
     const confirm = vi.fn().mockResolvedValue(false);
-    expect(await preflightOcrImages({ confirm } as unknown as AppDialogApi)).toBe(false);
+    expect(await preflightOcrImages({ confirm } as unknown as AppDialogApi, true)).toBe(false);
     expect(confirm).toHaveBeenCalledWith('未下载筛图模型', expect.any(String), expect.any(Object));
   });
 
@@ -82,7 +88,7 @@ describe('导出 OCR 预检使用后台实际状态', () => {
       ocrLocalBlocker: '本机没有推理引擎',
     });
     const confirm = vi.fn().mockResolvedValue(true);
-    await preflightOcrImages({ confirm } as unknown as AppDialogApi);
+    await preflightOcrImages({ confirm } as unknown as AppDialogApi, true);
     expect(confirm).toHaveBeenCalledWith(
       '无法使用本地筛图',
       expect.stringContaining('本机没有推理引擎'),

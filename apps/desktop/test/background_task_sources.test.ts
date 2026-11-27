@@ -1,14 +1,25 @@
 import { EventEmitter } from 'node:events';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backgroundTasks, runBackgroundTask } from '../src/main/background_tasks';
 import { trackModelDownload } from '../src/main/model_download_task';
 import { updateFavoriteImportTask } from '../src/main/favorite_import_task';
 import { backgroundTasksRouter } from '../src/main/ipc/routers/background_tasks';
+import { taskArchiveRouter } from '../src/main/ipc/routers/task_archive';
+import { backgroundResult } from '../src/shared/task_archive';
 import type { FavoriteEmojiImportPreview, ModelDownloadProgress } from '@weq/service';
 
+const fixture = vi.hoisted(() => ({ root: '', scope: { uin: 'synthetic', configId: 'live' } }));
 vi.mock('../src/main/context/app_context', () => ({
   accountEventBus: new EventEmitter(),
-  getAppContext: () => ({}),
+  accountRuntimeCacheRoot: () => undefined,
+  getAppContext: () => ({
+    account: { context: { uin: fixture.scope.uin } },
+    services: { accountConfig: { getRecord: () => fixture.scope } },
+  }),
+  requirePlatform: () => ({ appDataRoot: () => fixture.root }),
 }));
 vi.mock(import('../src/main/ipc/routers/analysis_reports'), async (original) => ({
   ...(await original()),
@@ -16,6 +27,10 @@ vi.mock(import('../src/main/ipc/routers/analysis_reports'), async (original) => 
 }));
 
 afterEach(() => {
+  if (fixture.root) {
+    rmSync(fixture.root, { recursive: true, force: true });
+    fixture.root = '';
+  }
   for (const task of backgroundTasks.snapshot()) {
     backgroundTasks.finish(task.id, 'cancelled');
     backgroundTasks.remove(task.id);
@@ -118,7 +133,8 @@ describe('真实后台状态接入', () => {
   });
 
   it('任务 RPC 按账号配置筛选，清除核对回执版本，远端不能借桌面任务定位文件', async () => {
-    const scope = { uin: 'synthetic', configId: 'live' };
+    const { scope } = fixture;
+    fixture.root = mkdtempSync(join(tmpdir(), 'weq-background-archive-'));
     const id = backgroundTasks.start({ kind: 'database', name: '体检', scope });
     backgroundTasks.update(id, { details: ['合成失败明细'] });
     const open = vi.fn();
@@ -137,12 +153,23 @@ describe('真实后台状态接入', () => {
     const desktop = backgroundTasksRouter.createCaller({});
     await desktop.act({ id, scope, action: 'open' });
     expect(open).toHaveBeenCalledOnce();
-    const old = backgroundTasks.snapshot()[0]!;
-    expect(await desktop.remove({ id, scope, updatedAt: old.updatedAt })).toBe(false);
-    backgroundTasks.finish(id, 'completed');
-    expect(await desktop.remove({ id, scope, updatedAt: old.updatedAt })).toBe(false);
+    const archive = taskArchiveRouter.createCaller({});
+    const binding = { expectedAccountUin: scope.uin, expectedAccountConfigId: scope.configId };
+    const taskRef = () => ({
+      id: `background:host:${id}`,
+      result: backgroundResult(backgroundTasks.snapshot().find((task) => task.id === id)!),
+    });
+    const running = taskRef();
     expect(
-      await desktop.remove({ id, scope, updatedAt: backgroundTasks.snapshot()[0]!.updatedAt }),
-    ).toBe(true);
+      (await archive.change({ ...binding, action: 'archive', tasks: [running] })).changed,
+    ).toBe(0);
+    backgroundTasks.finish(id, 'completed');
+    const completed = taskRef();
+    expect(
+      (await archive.change({ ...binding, action: 'archive', tasks: [completed] })).changed,
+    ).toBe(1);
+    expect(await archive.remove({ ...binding, task: running })).toBe(false);
+    expect(await archive.remove({ ...binding, task: completed })).toBe(true);
+    expect(backgroundTasks.snapshot()).toEqual([]);
   });
 });

@@ -18,6 +18,7 @@ import { resolve } from 'node:path';
 const state = vi.hoisted(() => ({
   automatic: false,
   model: 'synthetic-model',
+  voiceOnlineAvailable: false,
   transcribe: vi.fn(
     async (_input: unknown): Promise<{ success: boolean; text?: string; error?: string }> => ({
       success: true,
@@ -44,6 +45,14 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
     account: {
       _def: () => ({ path: ['account'] }),
+      getGroupAlbumAccessState: {
+        useQuery: () => ({
+          data: {
+            voiceOnlineAvailable: state.voiceOnlineAvailable,
+            source: { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' },
+          },
+        }),
+      },
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'fixture' } }) },
     },
   },
@@ -119,6 +128,7 @@ beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   state.automatic = false;
   state.model = 'synthetic-model';
+  state.voiceOnlineAvailable = false;
   state.setAutomatic.mockClear();
   state.invalidate.mockClear();
   state.transcribe.mockReset().mockResolvedValue({ success: true, text: '合成语音文字' });
@@ -243,6 +253,17 @@ describe('语音消息转换入口', () => {
     );
   });
 
+  it('未安装模型时仍可通过已就绪的 QQ 手动转写语音', async () => {
+    state.model = '';
+    state.voiceOnlineAvailable = true;
+    await render();
+    const button = host.querySelector<HTMLButtonElement>('.qq-voice-transcribe-btn');
+    expect(button).not.toBeNull();
+    await act(async () => button?.click());
+    await settle();
+    expect(state.transcribe).toHaveBeenCalledWith(expect.objectContaining({ automatic: false }));
+  });
+
   it('默认不自动转换，开启后只转换进入视野且没有文字的语音', async () => {
     render();
     act(() => state.intersection?.([{ isIntersecting: true }]));
@@ -268,7 +289,7 @@ describe('语音消息转换入口', () => {
     rightClick();
     expect(
       document
-        .querySelector<HTMLButtonElement>('button[title="请先在设置中下载本地语音模型"]')!
+        .querySelector<HTMLButtonElement>('button[title="需要 QQ 在线或可用的本地语音模型"]')!
         .getAttribute('aria-disabled'),
     ).toBe('true');
   });

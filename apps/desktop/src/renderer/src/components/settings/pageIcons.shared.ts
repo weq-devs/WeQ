@@ -1,5 +1,6 @@
 import {
   Activity,
+  AppWindow,
   ArchiveRestore,
   Bell,
   BookOpen,
@@ -76,6 +77,7 @@ export const SETTINGS_PAGE_ICONS = {
   'intent-sense': BrainCircuit,
   mcp: Plug,
   onebot: RadioTower,
+  'browser-access': AppWindow,
   remote: MonitorSmartphone,
   assistant: Newspaper,
   sse: Radio,

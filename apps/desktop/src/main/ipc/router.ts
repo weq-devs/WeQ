@@ -29,6 +29,7 @@ import { exportViewerRouter } from './routers/export_viewer';
 import { callRouter } from './routers/call';
 import { groupCallRouter } from './routers/group_call';
 import { udpCaptureRouter } from './routers/udp_capture';
+import { taskArchiveRouter } from './routers/task_archive';
 import { backgroundTasksRouter } from './routers/background_tasks';
 import { startupRouter } from './routers/startup';
 import { settingsResetRouter } from './routers/settings_reset';
@@ -42,6 +43,7 @@ const utilityRoutes = {
   settingsReset: settingsResetRouter,
   startup: startupRouter,
   backgroundTasks: backgroundTasksRouter,
+  taskArchive: taskArchiveRouter,
   exportViewer: exportViewerRouter,
   remote: remoteRouter,
   remoteCache: remoteCacheRouter,

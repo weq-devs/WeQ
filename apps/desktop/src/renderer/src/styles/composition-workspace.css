@@ -27,6 +27,10 @@ html[data-native-window-controls] .weq-composition-window-control {
   border-left: 1px solid var(--weq-border-strong);
   box-shadow: var(--weq-shadow-card);
 }
+/* 窄屏的占位和正文共用页面位置，切换时不重播整页进场。 */
+.weq-workspace-page:has(.weq-composition-workspace.is-fallback) {
+  animation-name: none;
+}
 .weq-composition-head {
   display: flex;
   align-items: center;

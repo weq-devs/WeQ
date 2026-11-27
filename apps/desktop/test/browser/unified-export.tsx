@@ -6,6 +6,7 @@ import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { selectAllExportContent } from '@weq/service/export-content';
 import { useViewState } from '../../src/renderer/src/state/view';
 import '../../src/renderer/src/styles/index.css';
+import '../../src/renderer/src/styles/form-controls.css';
 import '../../src/renderer/src/styles/export.css';
 import '../../src/renderer/src/styles/unified-export.css';
 
@@ -38,7 +39,13 @@ function Fixture() {
         initialOptions={{ content: selectAllExportContent('none') }}
         onClose={() => {}}
         onConfirm={(value) =>
-          setResult(JSON.stringify({ formats: value.formats, content: value.options.content }))
+          setResult(
+            JSON.stringify({
+              formats: value.formats,
+              content: value.options.content,
+              report: value.options.includeIntegrityReport,
+            }),
+          )
         }
       />
       <pre hidden data-testid="export-result">

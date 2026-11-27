@@ -8,6 +8,9 @@ import { BuddyAnalyticsDialog } from '../../components/BuddyAnalyticsDialog';
 import { GroupAnalyticsDialog } from '../../components/GroupAnalyticsDialog';
 import { MemberAnalyticsDialog } from '../../components/MemberAnalyticsDialog';
 import { useDialog } from '../../components/Dialog.shared';
+import { backgroundResult } from '../../../../shared/task_archive';
+import { taskNotificationForeground } from '../../lib/taskNotificationPresentation';
+import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import type { AnalysisReportRequest } from './model';
 
 export function SavedAnalysisBody({
@@ -73,6 +76,55 @@ export function SavedAnalysisBody({
     };
   }, [input]);
   const saved = query.data;
+  const completedAt = saved?.status === 'completed' && !version ? saved.updatedAt : undefined;
+  useEffect(() => {
+    if (completedAt === undefined) return;
+    let active = true;
+    let observed = false;
+    const see = async () => {
+      if (observed || !taskNotificationForeground()) return;
+      observed = true;
+      const tasks = await client.backgroundTasks.list.query({
+        uin: expectedAccountUin,
+        configId: expectedAccountConfigId,
+      });
+      const task = tasks.find(
+        (row) =>
+          row.reportId === input.id &&
+          row.kind === 'analysis' &&
+          row.status === 'completed' &&
+          row.updatedAt === completedAt,
+      );
+      if (!active || !task || !taskNotificationForeground()) {
+        observed = false;
+        return;
+      }
+      const result = backgroundResult(task);
+      const id = `background:host:${task.id}`;
+      useWorkspaceMenu
+        .getState()
+        .readTask(JSON.stringify([expectedAccountUin, expectedAccountConfigId]), id, result);
+      await client.taskArchive.change.mutate({
+        expectedAccountUin,
+        expectedAccountConfigId,
+        action: 'auto',
+        tasks: [{ id, result }],
+      });
+    };
+    const onVisible = () => {
+      void see().catch(() => {
+        observed = false;
+      });
+    };
+    onVisible();
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [completedAt, input, expectedAccountConfigId, expectedAccountUin]);
   const versions = trpc.account.analysisReports.versions.useQuery(input, {
     enabled: ready,
     refetchOnWindowFocus: false,

@@ -24,55 +24,6 @@
   min-width: 0;
 }
 
-.weq-contact-workspace-tabs {
-  position: sticky;
-  top: -28px;
-  z-index: 5;
-  padding-block: 12px;
-  background: transparent;
-  transition: background 160ms ease;
-}
-
-/* 只有真正吸住时才铺底色，避免和顶部标题栏叠成两层浮层。 */
-.weq-contact-workspace-tabs.is-stuck {
-  background: var(--weq-bar-surface);
-  box-shadow: 0 1px 0 var(--weq-border-subtle);
-  backdrop-filter: blur(12px);
-}
-
-/* 分区切换沿用全应用的「浅 tint + accent 文字」，不再用实心药丸。 */
-.weq-contact-workspace-tabs .weq-segmented {
-  border-color: var(--weq-border-subtle);
-  background: color-mix(in srgb, var(--weq-fg-primary) 4%, transparent);
-}
-
-html[data-theme='dark'] .weq-contact-workspace-tabs .weq-segmented {
-  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
-}
-
-.weq-contact-workspace-tabs .weq-segmented > button {
-  display: inline-flex;
-  min-height: 32px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 5px 12px;
-  font-size: 13px;
-}
-
-.weq-contact-workspace-tabs .weq-segmented > button[aria-checked='true'] {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
-  color: var(--weq-accent-ink, var(--weq-fg-primary));
-  font-weight: 600;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .weq-contact-workspace-tabs {
-    transition: none;
-  }
-}
-
 .weq-contact-tab-panel {
   min-width: 0;
   min-height: 360px;
@@ -159,10 +110,6 @@ html[data-theme='dark'] .weq-contact-tab-panel > .weq-contact-portrait {
 @container (max-width: 760px) {
   .weq-contact-portrait .weq-int-profile {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .weq-contact-workspace-tabs {
-    top: -20px;
   }
 }
 

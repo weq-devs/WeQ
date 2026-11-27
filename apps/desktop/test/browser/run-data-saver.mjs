@@ -62,7 +62,9 @@ try {
         url.searchParams.get('token') === 'missing' &&
         url.searchParams.get('intent') !== 'interactive'
       )
-        return route.fulfill({ status: 409, body: 'deferred' });
+        return route.fulfill({ status: 409, headers: { 'X-WeQ-Media-State': 'deferred' } });
+      if (url.searchParams.get('token') === 'failed' && !url.searchParams.has('intent'))
+        return route.fulfill({ status: 404 });
       return route.fulfill({ contentType: 'image/webp', body: small });
     }
     return url.hostname === '127.0.0.1' ? route.continue() : route.abort();
@@ -78,7 +80,7 @@ try {
         document.documentElement.dataset.theme = theme;
       }, theme);
       assert.equal(await page.locator('.weq-set-card').count(), 3);
-      assert.equal(await page.getByRole('switch').count(), 9);
+      assert.equal(await page.getByRole('switch').count(), 10);
       assert.deepEqual(
         await page
           .getByRole('radiogroup', { name: '省流量模式', exact: true })
@@ -91,14 +93,15 @@ try {
         fullPage: true,
       });
       await page.locator('.qq-media-image').last().scrollIntoViewIfNeeded();
-      await page
+      const deferredImage = page
         .getByRole('button', { name: '加载图片', exact: true })
-        .waitFor()
-        .catch(async (error) => {
-          await page.screenshot({ path: resolve(output, 'failure.png') });
-          console.error(errors, await page.locator('body').innerText());
-          throw error;
-        });
+        .filter({ has: page.getByText('点击加载', { exact: true }) });
+      await deferredImage.waitFor().catch(async (error) => {
+        await page.screenshot({ path: resolve(output, 'failure.png') });
+        console.error(errors, await page.locator('body').innerText());
+        throw error;
+      });
+      await page.getByRole('button', { name: '重试加载图片', exact: true }).waitFor();
       assert.ok(requests.length >= 2);
       assert.ok(
         requests.every((request) => request.ds === '1' && request.v === 'thumb' && !request.intent),
@@ -114,10 +117,11 @@ try {
           url.searchParams.get('intent') === 'interactive'
         );
       });
-      await page.getByRole('button', { name: '加载图片', exact: true }).click();
+      await deferredImage.click();
       const active = await activeRequest;
       await active.response();
       assert.equal(new URL(active.url()).searchParams.get('intent'), 'interactive');
+      await page.getByRole('button', { name: '查看图片：missing.png', exact: true }).waitFor();
       await page
         .getByRole('radiogroup', { name: '省流量模式', exact: true })
         .getByRole('radio', { name: '关闭', exact: true })

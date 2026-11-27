@@ -13,7 +13,14 @@ export function useWorkspaceTaskBadge() {
   const running = useWorkspaceMenu((state) => (markers.running ? state.running : 0));
   const finished = useWorkspaceMenu((state) => (markers.tasks ? state.finished : 0));
   const unreadFailed = useWorkspaceMenu((state) => (markers.tasks ? state.unreadFailed : 0));
-  return workspaceTaskBadge(running, finished, unreadFailed);
+  const transfers = useWorkspaceMenu((state) =>
+    markers.running
+      ? state.taskItems.filter(
+          (task) => task.transfer && task.activity === 'running' && task.showRunningBadge !== false,
+        ).length
+      : 0,
+  );
+  return workspaceTaskBadge(running, finished, unreadFailed, transfers);
 }
 
 export function useWorkspaceSettingsBadge() {

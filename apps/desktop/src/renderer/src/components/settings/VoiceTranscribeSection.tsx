@@ -1,3 +1,4 @@
+import { ConnectionTestStatus } from './ConnectionTestStatus';
 import { FormSelect } from '../FormSelect';
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { usePageSnapshotReset } from '../PageSnapshots.shared';
@@ -270,7 +271,7 @@ export function TtsProvidersCard(): ReactElement {
         play();
         return {
           detail: '已生成样例语音。',
-          action: { label: '播放样例语音', run: play, icon: 'play', keepOpen: true },
+          action: { label: '播放样例语音', run: play },
         };
       }
       return { detail: res.error ?? '配置可用。' };
@@ -567,6 +568,7 @@ export function TtsProvidersCard(): ReactElement {
               ) : null}
             </div>
 
+            <ConnectionTestStatus testKey={testKey} />
             <div className="weq-provider-modal-actions">
               <button
                 type="submit"

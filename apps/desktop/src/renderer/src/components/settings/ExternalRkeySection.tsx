@@ -1,3 +1,4 @@
+import { ConnectionTestStatus } from './ConnectionTestStatus';
 /**
  * 设置 → 外部 RKEY 服务器.
  *
@@ -299,6 +300,7 @@ export function ExternalRkeySection(): ReactElement {
                       {cache.expired ? null : <CheckCircle2 size={12} strokeWidth={2} />}
                       {cache.text}
                     </div>
+                    <ConnectionTestStatus testKey={connectionTestKey('rkey', server.id)} />
                   </div>
                   <div className="weq-set-server-actions">
                     <button
@@ -423,6 +425,7 @@ export function ExternalRkeySection(): ReactElement {
                     </div>
                   }
                 />
+                <ConnectionTestStatus testKey={testKey} />
                 <div className="weq-set-server-form-actions">
                   <button
                     type="button"

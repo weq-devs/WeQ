@@ -5,13 +5,14 @@ type DownloadInput = Parameters<typeof client.account.flashDownloadOutput.mutate
 export async function downloadFlashToDevice(
   input: DownloadInput,
   isCurrent: () => boolean,
-): Promise<void> {
+): Promise<boolean> {
   const { url } = await client.account.flashDownloadOutput.mutate(input);
-  if (!isCurrent()) return;
+  if (!isCurrent()) return false;
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = '';
   document.body.append(anchor);
   anchor.click();
   anchor.remove();
+  return true;
 }

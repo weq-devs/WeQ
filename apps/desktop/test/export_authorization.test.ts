@@ -43,6 +43,7 @@ const f = vi.hoisted(() => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    bootstrap: { localModelResources: { useQuery: () => ({ data: undefined }) } },
     account: {
       exportCalendar: { useQuery: () => ({ data: undefined, isLoading: false, isError: false }) },
     },
@@ -177,6 +178,12 @@ it('受限漫游、抓包和 OCR 按实际凭据判断，跳过不修改原配�
     transcribeVoice: true,
     ocrImages: false,
     exportMedia: value.exportMedia,
+  });
+  expect(skipExportAuthorization(value, plan, { voice: false, ocr: true })).toMatchObject({
+    transcribeVoice: false,
+    onlineTranscribe: false,
+    ocrImages: true,
+    onlineOcr: false,
   });
   expect(value.completeMessages).toBe(true);
   expect(

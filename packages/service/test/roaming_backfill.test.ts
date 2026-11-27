@@ -306,7 +306,9 @@ describe('durable manual roaming jobs', () => {
       plannedSeqs: 3,
       remainingSeqs: 0,
       observed: 3,
+      targets: [expect.objectContaining({ firstObservedSeq: '2' })],
     });
+    expect(f.make().list()[0]?.targets[0]?.firstObservedSeq).toBe('2');
     expect(f.fetch).toHaveBeenCalledOnce();
   });
 

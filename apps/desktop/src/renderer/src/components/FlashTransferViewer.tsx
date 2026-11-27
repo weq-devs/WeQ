@@ -26,7 +26,6 @@ import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import {
   ArrowLeft,
   ChevronRight,
-  Check,
   Download,
   FolderOpen,
   ListTodo,
@@ -48,6 +47,7 @@ import { TransferRing } from './TransferRing';
 import { useTransferProgress } from '../lib/transferActivity';
 import { IS_WEB } from '../lib/target.shared';
 import { downloadFlashToDevice } from '../lib/flashDownload';
+import { flashResult } from '../../../shared/task_archive';
 import { TaskProgressBar } from './tasks/TaskProgressBar';
 import {
   flashFileTransferTarget,
@@ -358,10 +358,18 @@ export function FlashTransferViewer({
           throw new Error('下载仍在收尾，请稍后再试');
         if (batch.foreground) owned.current.add(batch.id);
       } else if (action === 'download') {
-        await downloadFlashToDevice(
+        const downloaded = await downloadFlashToDevice(
           { ...ref, fileId },
           () => active.current && liveBinding.current === binding,
         );
+        if (downloaded && (!fileId || batch.files.length === 1))
+          void client.taskArchive.change
+            .mutate({
+              ...binding,
+              action: 'deliver',
+              tasks: [{ id: `flash:${batch.id}`, result: flashResult(batch) }],
+            })
+            .catch(() => undefined);
         return;
       } else {
         await client.account.flashOpenDownloadOutput.mutate({
@@ -723,7 +731,18 @@ export function FlashTransferViewer({
               <section className="weq-ft-batches" aria-label="本分享的下载">
                 {batches.map((batch) => {
                   const running = activeDownload(batch);
-                  const label = batch.paused ? '已暂停' : downloadLabel[batch.status];
+                  const policyPaused =
+                    batch.pausedByPolicy &&
+                    batch.files.every(
+                      (file) =>
+                        file.pausedByPolicy ||
+                        ['done', 'failed', 'cancelled'].includes(file.status),
+                    );
+                  const label = policyPaused
+                    ? '省流量模式已暂停'
+                    : batch.paused
+                      ? '已暂停'
+                      : downloadLabel[batch.status];
                   const value =
                     batch.fileSize > 0 ? (batch.downloadedBytes / batch.fileSize) * 100 : undefined;
                   const disabled = busyBatch !== null;
@@ -746,7 +765,10 @@ export function FlashTransferViewer({
                         <ul>
                           {batch.files.map((file) => (
                             <li key={file.id}>
-                              {file.relativePath} · {downloadLabel[file.status]}
+                              {file.relativePath} ·{' '}
+                              {file.pausedByPolicy
+                                ? '省流量模式已暂停'
+                                : downloadLabel[file.status]}
                               {IS_WEB && file.status === 'done' && batch.files.length > 1 && (
                                 <button
                                   type="button"
@@ -806,14 +828,26 @@ export function FlashTransferViewer({
                         )}
                         {batch.canRetry && (
                           <button
-                            title={batch.paused ? '继续' : '重试未完成文件'}
+                            title={
+                              batch.pausedByPolicy
+                                ? '本次继续'
+                                : batch.paused
+                                  ? '继续'
+                                  : '重试未完成文件'
+                            }
                             type="button"
                             className="weq-set-btn"
                             disabled={disabled}
                             onClick={() => void control(batch, 'retry')}
                           >
                             <RefreshCw size={14} aria-hidden />
-                            <ToolbarLabel>{batch.paused ? '继续' : '重试未完成文件'}</ToolbarLabel>
+                            <ToolbarLabel>
+                              {batch.pausedByPolicy
+                                ? '本次继续'
+                                : batch.paused
+                                  ? '继续'
+                                  : '重试未完成文件'}
+                            </ToolbarLabel>
                           </button>
                         )}
                         {IS_WEB && batch.files.some((file) => file.status === 'done') && (
@@ -934,12 +968,6 @@ export function FlashTransferViewer({
                           disabled={starting || !ready || isAncestorSelected(file.path)}
                           aria-label={`选择 ${file.name}`}
                           readOnly
-                        />
-                        <Check
-                          className="weq-ft-check-mark"
-                          size={12}
-                          strokeWidth={3}
-                          aria-hidden
                         />
                       </label>
                       {file.isDir || (ZIP_RE.test(file.name) && !current.zipFileId && ready) ? (

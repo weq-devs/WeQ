@@ -7,7 +7,7 @@ import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { IS_WEB } from '../lib/target.shared';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast.shared';
-import { notifyTaskCreated } from '../lib/taskNotifications';
+import { rememberTaskCreated } from '../lib/taskNotifications';
 import '../styles/decoration-save.css';
 
 interface DecorationSaveInput {
@@ -56,7 +56,7 @@ export function useDecorationSave() {
         link.href = accountGatewayPath(`/_download/${encodeURIComponent(result.downloadId)}`);
         link.download = result.name;
         link.click();
-      } else notifyTaskCreated(result.taskId, '正在保存装扮');
+      } else rememberTaskCreated(result.taskId);
     } catch (error) {
       if (save.isCurrent())
         pushToast({

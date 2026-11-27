@@ -119,8 +119,23 @@ export * from './collection';
 export * from './guild';
 export {
   assertDatabaseWritable,
+  assertQqDatabaseWriteAllowed,
+  assertQqDatabaseWritesIdle,
+  configureQqDatabaseReadOnly,
+  qqDatabaseReadOnly,
+  QQ_READ_ONLY_MESSAGE,
+  withQqDatabaseWrite,
+  waitForDatabaseWritable,
   databaseUnderMaintenance,
   maintainDatabases,
   onDatabaseMaintenanceChange,
   DATABASE_MAINTENANCE_MESSAGE,
 } from './maintenance';
+
+export {
+  assertQqFileWriteAllowed,
+  beginQqFileWrite,
+  configureQqFileWriteRoots,
+  qqFileWriteTouchesData,
+  withQqFileWrite,
+} from './qq_files';

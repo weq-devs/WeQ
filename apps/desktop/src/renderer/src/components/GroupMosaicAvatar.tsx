@@ -2,10 +2,7 @@
  * 克隆群聊的合成头像：把成员头像拼成九宫格。
  *
  * 会话列表、克隆工作区左栏、对话头部、导出会话列表统一走这里，避免各处各写一套
- * 拼格逻辑。布局按人数铺满，不留空格：
- *   1 人 → 单图；2 人 → 左右各半；3 人 → 左一占满整列 + 右侧上下两格；
- *   4 人 → 2×2；5 人以上 → 三列（最多 9 格）。
- * 5/7/8 人时末行按人数自然留白，与 QQ 群头像一致。
+ * 拼格逻辑。布局见 GroupMosaicAvatar.shared。
  */
 
 import type { ReactElement } from 'react';
@@ -64,7 +61,7 @@ export function GroupMosaicAvatar({
       </span>
     );
   }
-  const { columns, rows } = mosaicLayout(unique.length);
+  const { columns, rows, columnSpans } = mosaicLayout(unique.length);
   // 3 人时第一张跨两行，左侧一整列、右侧上下两格 —— 否则 2×2 会空掉一格。
   const lead = unique.length === 3;
   return (
@@ -82,7 +79,10 @@ export function GroupMosaicAvatar({
         <span
           key={uin}
           className="weq-group-mosaic-cell"
-          style={lead && index === 0 ? { gridRow: 'span 2' } : undefined}
+          style={{
+            gridRow: lead && index === 0 ? 'span 2' : undefined,
+            gridColumn: columnSpans ? `span ${columnSpans[index]}` : undefined,
+          }}
         >
           <MosaicImg uin={uin} />
         </span>

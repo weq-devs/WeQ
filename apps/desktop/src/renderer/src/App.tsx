@@ -23,6 +23,7 @@ import {
 } from './lib/clientPreferences';
 import './styles/client-sync.css';
 import { BootstrapView } from './views/BootstrapView';
+import { SettingsDialog } from './components/lazyWorkspaces';
 import { DialogHost } from './components/Dialog';
 import { ClientDocumentPreview } from './components/ClientDocumentPreview';
 import { AccountSwitchRequestHost } from './components/AccountSwitchRequestHost';
@@ -237,7 +238,41 @@ function CdnProvider({
   return <CdnContext.Provider value={state}>{children}</CdnContext.Provider>;
 }
 
+function closeBootstrapSettingsWindow() {
+  window.electron?.ipcRenderer.send('bootstrap-settings:close');
+}
+
+export function BootstrapSettingsWindow(): ReactElement {
+  return (
+    <main className="weq-bootstrap-settings weq-web-shell flex h-screen">
+      <ClientStateSync />
+      <SettingsDialog open beforeLogin nativeWindow onClose={closeBootstrapSettingsWindow} />
+      <DialogHost />
+      <ToastHost />
+      <HoverTooltip />
+      <ClientDocumentPreview />
+      <DbRepairWindowHost />
+      <CaptureWindowHost />
+      <LogPerformanceWindowHost />
+      <DatabaseBrowserWindowHost />
+      <RestrictedModeHost />
+    </main>
+  );
+}
+
 export default function App(): ReactElement {
+  useEffect(() => {
+    ensureThemeInitialized();
+    // 隐私模式先用最近共享快照回填，随后异步校准，不等待查询才显示正文。
+    usePrivacyStore.getState().hydrate();
+  }, []);
+
+  if (!IS_WEB && new URLSearchParams(window.location.search).has('bootstrap-settings'))
+    return <BootstrapSettingsWindow />;
+  return <WorkspaceApp />;
+}
+
+function WorkspaceApp(): ReactElement {
   const view = useViewState((s) => s.view);
   const openedUin = useViewState((s) => s.openedUin);
   const homeStage = useViewState((s) => s.homeStage);
@@ -250,12 +285,6 @@ export default function App(): ReactElement {
     if (view === 'main' || homeStage !== 'booting')
       setWindowLayout(view === 'main' ? 'chat' : 'home');
   }, [view, homeStage]);
-
-  useEffect(() => {
-    ensureThemeInitialized();
-    // 隐私模式先用最近共享快照回填，随后异步校准，不等待查询才显示正文。
-    usePrivacyStore.getState().hydrate();
-  }, []);
 
   // Key MainView by openedUin so account switches (without going through
   // bootstrap) force a remount — drops the old onDbChanged subscription and

@@ -1,3 +1,4 @@
+import { qqDatabaseReadOnly } from '@weq/db';
 import { EventEmitter } from 'node:events';
 import { getLogger, logErrorContext } from '@weq/service';
 import { observable } from '@trpc/server/observable';
@@ -48,6 +49,8 @@ export function createNoticeReadSync(resolve: (input: Binding) => Store) {
       .mutation(({ input }) => {
         const store = resolve(input);
         const previous = store.getNoticeSeen(input.kind);
+        if (qqDatabaseReadOnly())
+          return previous ?? { seen: [], readThrough: 0, baselinePending: true as const };
         const state = mergeNoticeSeen(previous, input.state);
         return save(
           input,

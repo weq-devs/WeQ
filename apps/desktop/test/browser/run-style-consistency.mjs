@@ -110,6 +110,10 @@ try {
       const token = (name) => pixel(rootStyle.getPropertyValue(name));
       const color = (selector) => pixel(css(selector).color);
       const bg = (selector) => pixel(css(selector).backgroundColor);
+      const flashCheck = getComputedStyle(
+        document.querySelector('.weq-ft-check input'),
+        '::before',
+      );
       const detail = [...document.querySelectorAll('.weq-ark-security div')].find(
         (node) => node.textContent === '合成详情',
       );
@@ -162,8 +166,9 @@ try {
         })(),
         arkBody: pixel(getComputedStyle(detail).color) === token('--weq-fg-primary'),
         flashContrast:
+          flashCheck.content !== 'none' &&
           window.styleConsistency.contrastRatio(
-            color('.weq-ft-check-mark'),
+            pixel(flashCheck.backgroundColor),
             bg('.weq-ft-check input'),
           ) >= 7,
         grayTip:

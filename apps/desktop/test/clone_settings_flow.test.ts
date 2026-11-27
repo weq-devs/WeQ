@@ -203,17 +203,15 @@ it('保存期间允许继续编辑，关闭等候回执；对象不存在时不�
         }),
     );
     await act(async () => t.pane().querySelector<HTMLButtonElement>('.weq-cvs-close')!.click());
-    expect(t.pane().textContent).not.toContain('保存中');
-    expect(useToast.getState().toasts).toHaveLength(0);
+    expect(t.pane().querySelector('[role="status"]')?.textContent).toBe('保存中…');
     await act(async () => vi.advanceTimersByTimeAsync(300));
-    const [banner] = useToast.getState().toasts;
-    expect(banner).toMatchObject({ loading: true, event: 'progress' });
+    expect(useToast.getState().toasts).toHaveLength(0);
     expect(t.pane().querySelector('fieldset')!.disabled).toBe(false);
     t.change(t.pane().querySelector('textarea')!, '在途的新修改');
     expect(t.close).not.toHaveBeenCalled();
     expect(f.confirm).not.toHaveBeenCalled();
     await act(async () => finish(null));
-    expect(useToast.getState().leaving).toContain(banner!.id);
+    expect(t.pane().textContent).not.toContain('保存中');
     expect(t.saved).not.toHaveBeenCalled();
     expect(f.success).not.toHaveBeenCalled();
     expect(t.pane().textContent).toContain('克隆体已不存在');

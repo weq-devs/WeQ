@@ -8,7 +8,9 @@ import { IS_WEB } from '../lib/target.shared';
 import { useRenderDocument } from '../lib/renderDocument';
 import { useToast } from './Toast.shared';
 import { taskNotificationSource } from '../lib/notificationNavigation.shared';
-import { notifyTaskCreated } from '../lib/taskNotifications';
+import { exportTaskResult } from '../../../shared/export_task_result';
+import { taskNotificationForeground } from '../lib/taskNotificationPresentation';
+import { rememberTaskCreated } from '../lib/taskNotifications';
 import '../styles/media-save.css';
 
 function sourceKey(source: MediaSaveSource): string {
@@ -213,8 +215,12 @@ export function useMediaSave({
       }
       if (!op.taskId || !current()) return { taskId: op.taskId, cancelled: true };
       if (foreground) record(op.key, { taskId: op.taskId, status: 'running' });
-      else notifyTaskCreated(op.taskId, IS_WEB ? '正在准备媒体下载' : '正在保存媒体');
+      else rememberTaskCreated(op.taskId);
       if (!IS_WEB && !foreground) return { taskId: op.taskId };
+      const publishResult = async () => {
+        if (foreground && op.taskId)
+          await client.account.mediaSave.background.mutate({ ...op.expected, taskId: op.taskId });
+      };
       const deadline = Date.now() + 15 * 60_000;
       while (current() && (foreground || Date.now() < deadline)) {
         const receipt = await client.account.getExportOutputReceipt.query({
@@ -243,11 +249,40 @@ export function useMediaSave({
               throw new Error(receipt.save.error ?? '未能保存到所选位置');
             record(op.key, { taskId: op.taskId, status: 'saved' });
             if (foreground)
+              void publishResult()
+                .then(async () => {
+                  if (
+                    !op.taskId ||
+                    owner.released ||
+                    !save.isCurrent() ||
+                    !taskNotificationForeground()
+                  )
+                    return;
+                  const latest = await client.account.getExportOutputReceipt.query({
+                    ...op.expected,
+                    taskId: op.taskId,
+                  });
+                  if (
+                    !latest ||
+                    owner.released ||
+                    !save.isCurrent() ||
+                    !taskNotificationForeground()
+                  )
+                    return;
+                  await client.taskArchive.change.mutate({
+                    ...op.expected,
+                    action: 'auto',
+                    tasks: [exportTaskResult(latest)],
+                  });
+                })
+                .catch(() => undefined);
+            if (foreground)
               void utils?.account?.mediaResource?.messageLocations
                 ?.invalidate()
                 .catch(() => undefined);
             return { taskId: op.taskId };
           }
+          await publishResult();
           const result = await client.account.exportTaskDownload.mutate({
             ...op.expected,
             taskId: op.taskId,
@@ -261,22 +296,35 @@ export function useMediaSave({
           link.click();
           link.remove();
           record(op.key, { taskId: op.taskId, status: 'downloaded' });
+          void client.account.getExportOutputReceipt
+            .query({ ...op.expected, taskId: op.taskId })
+            .then(
+              (latest) =>
+                latest &&
+                client.taskArchive.change.mutate({
+                  ...op.expected,
+                  action: 'deliver',
+                  tasks: [exportTaskResult(latest)],
+                }),
+            )
+            .catch(() => undefined);
           return { taskId: op.taskId };
         }
         await pause(op.controller.signal);
       }
-      if (current())
-        push({
-          tone: 'info',
-          title: '文件仍在后台处理，结果将保留在任务列表',
-          source: taskNotificationSource(op.taskId),
-        });
       return { taskId: op.taskId, cancelled: !current() };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (current()) {
-        if (foreground && op.taskId)
+        if (foreground && op.taskId) {
           record(op.key, { taskId: op.taskId, status: 'failed', error: message });
+          void client.account.mediaSave.background
+            .mutate({
+              ...op.expected,
+              taskId: op.taskId,
+            })
+            .catch(() => undefined);
+        }
         if (!foreground || !op.taskId)
           push({
             tone: 'error',

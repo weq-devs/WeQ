@@ -24,7 +24,12 @@ import {
 import type { RecallJournalEntry } from './recall_journal';
 import type { SyncProxyStatus } from './ipc';
 import { qqSyncRequest, subscribeQqLive } from './runtime';
-import { decodeLivePush, LiveMessages, type LivePushUpdates } from './live_messages';
+import {
+  decodeLivePush,
+  LiveMessages,
+  type LiveMessage,
+  type LivePushUpdates,
+} from './live_messages';
 
 type SentIdentity = Pick<
   GapFetchedMessage,
@@ -47,7 +52,7 @@ export interface AccountQqSyncOptions {
   enabled(): boolean;
   antiRecall?: AntiRecallService;
   liveEnabled?(): boolean;
-  onLiveMessages?(messages: GapFetchedMessage[]): void;
+  onLiveMessages?(messages: LiveMessage[]): void;
   onLiveUpdates?(updates: LivePushUpdates): void;
   onLiveClosed?(): void;
   allowLiveMessage?(message: GapFetchedMessage): boolean;
@@ -178,6 +183,7 @@ export class AccountQqSync {
         updates.groups.length ||
         updates.reactions.length ||
         updates.interactions.length ||
+        updates.business.length ||
         updates.recalled
       )
         this.options.onLiveUpdates?.(updates);

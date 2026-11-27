@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { z } from 'zod/v3';
 import { usePageState } from '../PageSnapshots.shared';
 import { BarChart3, FolderOpen, HardDrive, Layers, Trash2 } from 'lucide-react';
@@ -8,6 +8,7 @@ import { RetainedTabs, TabActivity } from '../RetainedTabs';
 import { useTabActive } from '../RetainedTabs.shared';
 import { SegmentedControl } from '../SegmentedControl';
 import { Card, SectionHeader, QueryError } from './controls';
+import { SETTINGS_PAGE_LABELS } from './navigation';
 import { EmptyState } from '../EmptyState';
 import { PanelLoading } from '../LoadingIndicator';
 import { CacheView } from '../../views/cache/CacheView';
@@ -22,7 +23,7 @@ import '../../styles/settings-resources.css';
 
 type ResourceView = 'overview' | 'cleanup' | 'browse';
 
-export function ResourceManagementSection() {
+export function ResourceManagementSection({ favoriteRevision }: { favoriteRevision?: number }) {
   const active = useTabActive();
   const uin = useViewState((state) => state.openedUin);
   const account = trpc.account.getAccountConfig.useQuery(undefined, {
@@ -37,7 +38,7 @@ export function ResourceManagementSection() {
       : null;
   return (
     <div className="weq-set weq-resources-settings">
-      <SectionHeader title="QQ 资源管理" page="qq-storage" />
+      <SectionHeader title={SETTINGS_PAGE_LABELS['qq-storage']} page="qq-storage" />
       {account.error ? (
         <QueryError
           message={account.error.message}
@@ -58,6 +59,7 @@ export function ResourceManagementSection() {
           <ResourceManagementBody
             key={JSON.stringify([source.expectedAccountUin, source.expectedAccountConfigId])}
             source={source}
+            favoriteRevision={favoriteRevision}
           />
         </TabActivity>
       ) : !account.error ? (
@@ -67,7 +69,13 @@ export function ResourceManagementSection() {
   );
 }
 
-function ResourceManagementBody({ source }: { source: ResourceSource }) {
+function ResourceManagementBody({
+  source,
+  favoriteRevision,
+}: {
+  source: ResourceSource;
+  favoriteRevision?: number;
+}) {
   const remote = useRemoteClient();
   const activity = useQQReadActivity(true, { onlineOnly: false });
   const [view, setView] = usePageState<ResourceView>(
@@ -77,7 +85,12 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
   );
   const currentView = remote && view === 'cleanup' ? 'overview' : view;
   const [busy, setBusy] = useState(false);
-  const [selection, setSelection] = useState<{ category: string }>();
+  const [selection, setSelection] = useState<{ category: string; favoriteRevision?: number }>();
+  useEffect(() => {
+    if (favoriteRevision === undefined) return;
+    setSelection({ category: 'customEmoji', favoriteRevision });
+    setView('browse');
+  }, [favoriteRevision, setView]);
   const scan = useResourceManagementScan(source, activity.enabled);
   if (!scan) return null;
   const snapshot = { ...scan, cleanupRunning: busy };
@@ -136,7 +149,7 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
           </p>
         ) : null}
       </Card>
-      <RetainedTabs snapshotKey="resource-management" activeKey={currentView}>
+      <RetainedTabs snapshotKey="resource-management" activeKey={currentView} animateSwitch>
         <div key={currentView} className="weq-resource-panel" data-resource-panel={currentView}>
           {currentView === 'overview' ? (
             <>

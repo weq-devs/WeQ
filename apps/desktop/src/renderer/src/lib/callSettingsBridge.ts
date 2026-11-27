@@ -19,6 +19,9 @@ export type SettingsSection =
   | 'longTermAuthorization'
   | 'qqProxyConnection'
   | 'enhancementPacks'
+  | 'enhancementText'
+  | 'enhancementVoice'
+  | 'recognition'
   | 'weqAssistant'
   | 'dataSaver';
 
@@ -29,6 +32,9 @@ function isSettingsSection(section: unknown): section is SettingsSection {
     section === 'longTermAuthorization' ||
     section === 'qqProxyConnection' ||
     section === 'enhancementPacks' ||
+    section === 'enhancementText' ||
+    section === 'enhancementVoice' ||
+    section === 'recognition' ||
     section === 'weqAssistant' ||
     section === 'dataSaver'
   );

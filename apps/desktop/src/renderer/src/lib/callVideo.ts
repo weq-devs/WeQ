@@ -126,15 +126,45 @@ export function annexB(nals: readonly Uint8Array[]): Uint8Array {
  * 实测对端的首帧就是 `VPS + SPS + PPS + IDR` 四个 NAL 拼在一起 —— 正好是一个完整
  * AU，**原样按 Annex B 送进去即可**，既不要剥掉参数集，也不要塞进 `description`。
  */
-export function toAccessUnit(input: unknown): HevcAccessUnit {
+export function toAccessUnit(input: unknown, codec: 'hevc' | 'h264' = 'hevc'): HevcAccessUnit {
   const nals = splitHevcNals(toBytes(input) ?? new Uint8Array(0));
   if (nals.length === 0) return { data: null, keyframe: false, params: [] };
 
+  if (codec === 'h264') {
+    return {
+      data: annexB(nals.map((nal) => nal.data)),
+      keyframe: nals.some((nal) => (nal.data[0]! & 31) === 5),
+      params: nals.filter((nal) => [7, 8].includes(nal.data[0]! & 31)).map((nal) => nal.data),
+    };
+  }
   const isParam = (t: number) => t === 32 || t === 33 || t === 34;
   return {
     data: annexB(nals.map((nal) => nal.data)),
     keyframe: nals.some((nal) => nal.type >= 16 && nal.type <= 21),
     params: nals.filter((nal) => isParam(nal.type)).map((nal) => nal.data),
+  };
+}
+
+export function avcCodec(params: readonly Uint8Array[]): string | undefined {
+  const sps = params.find((nal) => (nal[0]! & 31) === 7 && nal.length >= 4);
+  if (!sps) return undefined;
+  return `avc1.${Array.from(sps.subarray(1, 4), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+export function h264EncoderConfig(
+  width: number,
+  height: number,
+  framerate: number,
+  bitrate: number,
+): VideoEncoderConfig {
+  return {
+    width,
+    height,
+    bitrate,
+    framerate,
+    codec: 'avc1.64001f',
+    avc: { format: 'annexb' },
+    latencyMode: 'realtime',
   };
 }
 

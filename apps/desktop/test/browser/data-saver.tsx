@@ -51,6 +51,16 @@ createRoot(document.getElementById('root')!).render(
         data={{ fileName: 'missing.png', fileToken: 'missing', imgWidth: 640, imgHeight: 480 }}
         sendTimeMs={2}
       />
+      <QqImage
+        data={{
+          fileName: 'failed.png',
+          fileToken: 'failed',
+          thumbnailUrl: 'https://gchat.qpic.cn/failed.png',
+          imgWidth: 640,
+          imgHeight: 480,
+        }}
+        sendTimeMs={3}
+      />
     </main>
     <ToastHost />
   </>,

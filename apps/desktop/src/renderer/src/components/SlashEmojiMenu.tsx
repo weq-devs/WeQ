@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { SlashEmojiMatch } from '../lib/slashEmoji';
 import { emojiUrl } from '../lib/resourceUrl';
+import { useSurfaceRemovalFade } from '../hooks/useSurfaceRemovalFade';
 import { useOverlayLayer } from '../lib/overlayStack';
 import '../styles/slash-emoji.css';
 
@@ -21,11 +22,13 @@ export function SlashEmojiMenu({
   onActiveIndexChange: (index: number) => void;
 }) {
   const list = useRef<HTMLDivElement>(null);
-  const layer = useOverlayLayer(items.length > 0);
+  const open = items.length > 0 && editor.isConnected;
+  const layer = useOverlayLayer(open);
+  useSurfaceRemovalFade(list, { enabled: open });
   useEffect(() => {
     list.current?.children[activeIndex]?.scrollIntoView({ block: 'nearest' });
   }, [activeIndex]);
-  if (!items.length || !editor.isConnected) return null;
+  if (!open) return null;
   const rect = editor.getBoundingClientRect();
   const ownerWindow = editor.ownerDocument.defaultView ?? window;
   const viewport = ownerWindow.visualViewport;
@@ -48,6 +51,7 @@ export function SlashEmojiMenu({
       ref={list}
       id={id}
       className="weq-slash-emoji-menu"
+      data-weq-surface-motion="enter"
       role="listbox"
       aria-label="表情候选"
       style={{

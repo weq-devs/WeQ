@@ -42,9 +42,11 @@ export function buildChatExportMedia(
   downloadPtt: boolean;
   transcribeVoice: boolean;
   onlineTranscribe: boolean;
+  voicePriority?: ExportOptions['voicePriority'];
   onlineConcurrency: number;
   ocrImages: boolean;
   onlineOcr: boolean;
+  ocrPriority?: ExportOptions['ocrPriority'];
   onlineOcrConcurrency: number;
   ocrPrefilter: boolean;
   mediaKinds: ExportOptions['mediaKinds'] | undefined;
@@ -70,10 +72,12 @@ export function buildChatExportMedia(
     transcribeVoice: options.transcribeVoice,
     // 在线转写依附于「语音转写」；未开语音转写时强制关闭。
     onlineTranscribe: options.transcribeVoice && options.onlineTranscribe,
+    voicePriority: options.voicePriority,
     onlineConcurrency: options.onlineConcurrency,
     ocrImages: options.ocrImages,
     // 在线识别依附于「图片文字识别」；未开 OCR 时强制关闭。
     onlineOcr: options.ocrImages && options.onlineOcr,
+    ocrPriority: options.ocrPriority,
     onlineOcrConcurrency: options.ocrConcurrency,
     // 筛图模型在设置中下载，没下好就跳过预筛选阶段。
     ocrPrefilter: options.ocrImages && opts.ocrPrefilter === true,
@@ -110,17 +114,17 @@ export async function preflightChatExport(
     if (!ok) return false;
   }
 
-  if (media.transcribeVoice) {
+  if (media.transcribeVoice && !media.onlineTranscribe) {
     const ok = await preflightVoiceTranscribe(dialog);
     if (!ok) return false;
   }
 
   if (media.ocrImages) {
-    const ok = await preflightOcrImages(dialog);
+    const ok = await preflightOcrImages(dialog, media.onlineOcr);
     if (!ok) return false;
   }
 
-  // 在线转录必须已经 arm（灯箱点开关时 arm）；否则硬拦截。
+  // 在线转写由导出面板在确认时准备。
   if (media.onlineTranscribe) {
     const ok = await preflightOnlineTranscribe(dialog);
     if (!ok) return false;

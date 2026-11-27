@@ -64,6 +64,7 @@ export function SearchResultsPanel({
             title="返回搜索结果"
             aria-label="返回搜索结果"
             onClick={navigation.backDetail}
+            autoFocus
           >
             <ArrowLeft size={18} aria-hidden />
           </button>

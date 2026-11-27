@@ -1,4 +1,5 @@
 import { join, resolve } from 'node:path';
+import { assertQqFileWriteAllowed } from '@weq/db';
 import { UserConfigService } from './user_config';
 import { WeqBackupService } from './backup_service';
 import {
@@ -38,6 +39,7 @@ export function bootstrapWeqBackupFiles(appRoot: string, shared = false): WeqFil
           throw new Error('当前缓存目录配置无效');
         if (typeof override === 'string' && override.trim()) cacheRoot = resolve(override);
       }
+      assertQqFileWriteAllowed({ path: cacheRoot, tree: true });
       const restore = () => applyPendingWeqBackupRestore(root, cacheRoot);
       result = shared ? withSharedConfigLock(root, restore) : restore();
       if (result?.needsRecovery) throw new Error(result.error || '备份回滚尚未完成');

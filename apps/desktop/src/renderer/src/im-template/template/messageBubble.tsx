@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { MessageSelectionMark } from '../../components/MessageSelectionMark';
 import { TransferRing } from '../../components/TransferRing';
-import { transferLabel } from '../../lib/transferPresentation';
+import { outgoingTransferProgress, transferLabel } from '../../lib/transferPresentation';
 import { useTransferProgress } from '../../lib/transferActivity';
 import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import {
@@ -143,12 +143,8 @@ function OutgoingSendProgress({
   outgoingToHost,
 }: Pick<Message, 'transferId' | 'outgoingToHost'>) {
   const transfer = useTransferProgress(transferId);
-  const toHost = IS_WEB && outgoingToHost && (!transfer || transfer.phase === 'to-host');
-  const progress = toHost
-    ? (transfer ?? { phase: 'to-host' as const })
-    : transfer?.phase === 'to-host'
-      ? undefined
-      : transfer;
+  const progress = outgoingTransferProgress(transfer, outgoingToHost);
+  const toHost = progress?.phase === 'to-host';
   const label = progress ? transferLabel(progress) : '发送中';
   const monitor = toHost ? (
     <Monitor className="weq-message-send-host" size={10} aria-hidden />
@@ -419,8 +415,7 @@ function MessageBubbleBody({
     onDismissUnsent && mine && !selectionMode && optimistic === 'sent' && optimisticRejected,
   );
   const StatusTag = mine && onReedit && !selectionMode && (recall || isDeleted) ? 'button' : 'div';
-  const reeditClass =
-    StatusTag === 'button' ? cn('weq-msg-reedit-trigger', reeditArmed && 'is-armed') : undefined;
+  const reeditClass = StatusTag === 'button' ? 'weq-msg-reedit-trigger' : undefined;
   async function activateReedit(event: ReactMouseEvent) {
     event.stopPropagation();
     if (reeditPending.current) return;
@@ -439,10 +434,6 @@ function MessageBubbleBody({
           type: 'button' as const,
           'aria-label': '重新编辑',
           onClick: activateReedit,
-          onMouseEnter: () => setReeditArmed(true),
-          onMouseLeave: () => setReeditArmed(false),
-          onFocus: () => setReeditArmed(true),
-          onBlur: () => setReeditArmed(false),
           disabled: reeditBusy,
           'aria-busy': reeditBusy,
         }
@@ -803,6 +794,15 @@ function MessageBubbleBody({
             optimistic === 'queued',
           ],
           ['.message-actions', message.actions],
+          [
+            '.message-content, .weq-message-heading',
+            msgBubbleId,
+            msgFontId,
+            sender.memberLevel,
+            sender.customTitle,
+            sender.levelName,
+            sender.role,
+          ],
         ]}
       />
       {selectionMode ? <MessageSelectionMark selected={selected ?? false} /> : null}
@@ -869,7 +869,14 @@ function MessageBubbleBody({
             title="防撤回已保留原消息"
           >
             <RotateCcw size={12} />
-            <span>{reeditArmed && reeditClass ? '重新编辑' : recallText}</span>
+            {reeditClass ? (
+              <span className="weq-msg-recall-labels" aria-hidden="true">
+                <span className="weq-msg-recall-label">{recallText}</span>
+                <span className="weq-msg-recall-action">重新编辑</span>
+              </span>
+            ) : (
+              <span>{recallText}</span>
+            )}
           </StatusTag>
         ) : null}
         {outgoingMetadata ? (
@@ -973,7 +980,18 @@ function MessageBubbleBody({
             className={cn('weq-msg-deleted-veil')}
             aria-label={isQqDeleted ? 'QQ删除的消息' : '已删除的消息'}
           >
-            <StatusTag {...statusProps} className={cn('weq-msg-deleted-badge', reeditClass)}>
+            <StatusTag
+              {...statusProps}
+              className={cn(
+                'weq-msg-deleted-badge',
+                reeditClass,
+                reeditClass && reeditArmed && 'is-armed',
+              )}
+              onMouseEnter={reeditClass ? () => setReeditArmed(true) : undefined}
+              onMouseLeave={reeditClass ? () => setReeditArmed(false) : undefined}
+              onFocus={reeditClass ? () => setReeditArmed(true) : undefined}
+              onBlur={reeditClass ? () => setReeditArmed(false) : undefined}
+            >
               {reeditArmed && reeditClass ? '重新编辑' : isQqDeleted ? 'QQ删除' : '已删除'}
             </StatusTag>
             {!isQqDeleted && !selectionMode && onRestore ? (

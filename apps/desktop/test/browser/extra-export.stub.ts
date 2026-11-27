@@ -10,6 +10,13 @@ const album = {
 const values: Record<string, unknown> = {
   'bootstrap.getSettings': { exportSaveMode: 'before' },
   'bootstrap.listAgentLabProviders': [],
+  'bootstrap.localModelResources': {
+    selected: { voice: '', ocr: '', filter: '' },
+    voice: [],
+    ocr: [],
+    engineBlocker: null,
+  },
+  'wonderfulTools.captureSupport': { available: true, elevated: false },
   'account.getAccountConfig': { uin: '10001', configId: 'synthetic' },
   'account.listAgentLabPersonas': [{ id: 'synthetic', name: '合成克隆' }],
   'account.getAgentLabExportInfo': null,

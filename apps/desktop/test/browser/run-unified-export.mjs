@@ -182,15 +182,42 @@ try {
         .getAttribute('data-value')) !== '2026'
     )
       throw new Error('完成统计后抢走用户月份');
+    await page
+      .getByRole('radiogroup', { name: '消息导出方式', exact: true })
+      .getByRole('radio', { name: '仅本地', exact: true })
+      .click();
+    const format = (label) => page.locator('.weq-set-chk').filter({ hasText: label });
+    for (const label of [/^JSON$/, /^JSONL\.GZ$/, /^HTML$/, /^ChatLab JSON$/, /^ChatLab JSONL$/]) {
+      const choice = format(label);
+      if ((await choice.getAttribute('aria-checked')) !== 'true') await choice.click();
+    }
+    const voice = page.getByRole('radiogroup', { name: '语音转写', exact: true });
+    if (!(await voice.getByRole('radio', { name: '本地', exact: true }).isDisabled()))
+      throw new Error('未准备模型时仍可选择本地转写');
+    const online = voice.getByRole('radio', { name: 'QQ 在线优先', exact: true });
+    await online.click();
+    if ((await online.getAttribute('aria-checked')) !== 'true')
+      throw new Error('缺少本地模型时无法选择 QQ 在线转写');
+    await voice.getByRole('radio', { name: '关闭', exact: true }).click();
+    const report = page.getByRole('switch', { name: '附带完整性报告', exact: true });
+    await report.click();
+    await start.click();
+    await page.waitForFunction(() => {
+      const value = JSON.parse(document.querySelector('[data-testid="export-result"]').textContent);
+      return (
+        value.report &&
+        ['json', 'jsonl.gz', 'html', 'chatlab.json', 'chatlab.jsonl'].every((f) =>
+          value.formats.includes(f),
+        )
+      );
+    });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
     if (overflow) throw new Error(`水平溢出 ${width}/${theme}`);
     if (output)
       await page.screenshot({ path: resolve(output, `${theme}-${width}.png`), fullPage: true });
   }
   if (errors.length) throw new Error(errors.join('\n'));
-  console.log(
-    '4 种主题、宽度、主题色和背景组合通过：空选理由、独立明细、隐藏段对齐、统计中选日期、布局。',
-  );
+  console.log('导出面板通过格式混选、无本地模型时选择 QQ 在线转写、报告开关和布局检查。');
 } finally {
   await browser?.close();
   await server.close();

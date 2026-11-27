@@ -2,7 +2,6 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { useMessageLocateFeedback } from '../src/renderer/src/hooks/useMessageLocateFeedback';
-import { ToastHost } from '../src/renderer/src/components/Toast';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const cleanups: Array<() => void> = [];
@@ -30,7 +29,7 @@ function mount() {
   let feedback!: ReturnType<typeof useMessageLocateFeedback>;
   function Harness({ scope }: { scope: string }) {
     feedback = useMessageLocateFeedback(scope);
-    return h(ToastHost);
+    return feedback.locating ? h('span', { role: 'status' }, '正在加载目标消息') : null;
   }
   const render = (scope: string) => act(() => root.render(h(Harness, { scope })));
   render('account:group-a');
@@ -46,7 +45,7 @@ function mount() {
   };
 }
 
-it('读取期间持续显示加载横幅，读取及定位完成才收起', async () => {
+it('读取期间在会话内显示加载状态，读取及定位完成才收起', async () => {
   const f = mount();
   const query = deferred(),
     positioning = deferred();
@@ -58,19 +57,14 @@ it('读取期间持续显示加载横幅，读取及定位完成才收起', asyn
     });
   });
   expect(f.host.textContent).toContain('正在加载目标消息');
-  expect(f.host.querySelector('[aria-label="加载中"]')).not.toBeNull();
-  expect(useToast.getState().toasts[0]).toMatchObject({
-    loading: true,
-    dismissible: false,
-    ttl: 0,
-  });
+  expect(useToast.getState().toasts).toEqual([]);
   await act(async () => query.resolve());
-  expect(useToast.getState().toasts).toHaveLength(1);
+  expect(f.host.querySelector('[role="status"]')).not.toBeNull();
   await act(async () => {
     positioning.resolve();
     await task;
   });
-  expect(useToast.getState().toasts).toHaveLength(0);
+  expect(f.host.querySelector('[role="status"]')).toBeNull();
 });
 
 it('读取失败时清除加载状态，不吞掉错误', async () => {
@@ -85,7 +79,7 @@ it('读取失败时清除加载状态，不吞掉错误', async () => {
     query.reject(new Error('synthetic failure'));
     await result;
   });
-  expect(useToast.getState().toasts).toHaveLength(0);
+  expect(f.host.querySelector('[role="status"]')).toBeNull();
 });
 
 it('连续定位只保留最新提示，旧任务完成不能清除新提示或继续定位', async () => {
@@ -103,18 +97,17 @@ it('连续定位只保留最新提示，旧任务完成不能清除新提示或�
   act(() => {
     b = f.run(() => second.promise);
   });
-  const id = useToast.getState().toasts[0]!.id;
   await act(async () => {
     first.resolve();
     await a;
   });
   expect(positioned).not.toHaveBeenCalled();
-  expect(useToast.getState().toasts.map((toast) => toast.id)).toEqual([id]);
+  expect(f.host.querySelector('[role="status"]')).not.toBeNull();
   await act(async () => {
     second.resolve();
     await b;
   });
-  expect(useToast.getState().toasts).toHaveLength(0);
+  expect(f.host.querySelector('[role="status"]')).toBeNull();
 });
 
 it('切换会话立即清除提示，迟到结果不能继续定位', async () => {
@@ -129,7 +122,7 @@ it('切换会话立即清除提示，迟到结果不能继续定位', async () =
     });
   });
   f.render('account:group-b');
-  expect(useToast.getState().toasts).toHaveLength(0);
+  expect(f.host.querySelector('[role="status"]')).toBeNull();
   await act(async () => {
     query.resolve();
     await task;
@@ -139,7 +132,7 @@ it('切换会话立即清除提示，迟到结果不能继续定位', async () =
 
 it('已加载消息的立即定位可以取消旧加载，不显示多余提示', async () => {
   const f = mount();
-  expect(useToast.getState().toasts).toHaveLength(0);
+  expect(f.host.querySelector('[role="status"]')).toBeNull();
   const query = deferred();
   const positioned = vi.fn();
   let task!: Promise<void>;
@@ -150,7 +143,7 @@ it('已加载消息的立即定位可以取消旧加载，不显示多余提示'
     });
   });
   act(() => f.cancel());
-  expect(useToast.getState().toasts).toHaveLength(0);
+  expect(f.host.querySelector('[role="status"]')).toBeNull();
   await act(async () => {
     query.resolve();
     await task;
@@ -170,7 +163,7 @@ it('退出消息页后清除提示，未完成请求不再触发定位', async (
     });
   });
   cleanups.pop()!();
-  expect(useToast.getState().toasts).toHaveLength(0);
+  expect(f.host.querySelector('[role="status"]')).toBeNull();
   await act(async () => {
     query.resolve();
     await task;

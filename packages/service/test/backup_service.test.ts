@@ -708,7 +708,7 @@ it.each([false, true])('连接配置只在确认后启用服务（确认 %s）',
     conflict: 'skip',
     activateServices,
   });
-  expect(preview.services).toEqual(['QQ 公众号推送', 'MCP', 'OneBot']);
+  expect(preview.services).toEqual(['公众号本地推送', 'MCP', 'OneBot']);
   receiver.service.stage(preview.id);
   expect(applyPendingWeqBackupRestore(receiver.root, receiver.cache)?.status).toBe('applied');
   receiver.config.reload();

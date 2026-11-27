@@ -12,7 +12,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 });
 
 const roots: string[] = [];
+const services: MediaResourceService[] = [];
 afterEach(async () => {
+  for (const service of services.splice(0)) service.dispose();
   vi.clearAllMocks();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
@@ -28,6 +30,7 @@ async function fixture() {
       pttDir: () => join(root, 'Ptt'),
     } as Platform,
   );
+  services.push(service);
   const put = async (relative: string, seconds: number, bytes = 'fixture') => {
     const name = join(root, relative);
     await mkdir(dirname(name), { recursive: true });
@@ -123,4 +126,33 @@ it('隐藏页面时停止发出更多文件读取，回到语音页后可完整�
   const second = await f.service.listVoice({ limit: 4, cursor: first.nextCursor });
   expect(second.entries.map((entry) => entry.hash)).toEqual(['15', '14', '13', '12']);
   expect(lstat).toHaveBeenCalledOnce();
+});
+
+it('重开大月份只校验目录与索引版本，原地更新只重新 stat 变化的文件', async () => {
+  const f = await fixture();
+  for (let first = 0; first < 200; first += 20)
+    await Promise.all(
+      Array.from({ length: 20 }, (_, offset) => {
+        const i = first + offset;
+        return f.put(`Ptt/2026-10/Ori/${i}.amr`, i + 1);
+      }),
+    );
+  const browse = () => f.service.listVoice({ limit: 3, observedIndex: true });
+  const fileStats = () =>
+    vi.mocked(lstat).mock.calls.filter(([path]) => String(path).endsWith('.amr'));
+  const first = await browse();
+  await vi.waitFor(async () => {
+    vi.mocked(lstat).mockClear();
+    expect(await browse()).toEqual(first);
+    expect(fileStats()).toHaveLength(0);
+  });
+
+  await f.put('Ptt/2026-10/Ori/0.amr', 500, 'updated');
+  vi.mocked(lstat).mockClear();
+  await vi.waitFor(async () => {
+    expect((await browse()).entries[0]).toMatchObject({ hash: '0', bytes: 7, mtimeMs: 500_000 });
+  });
+  expect(fileStats().map(([path]) => String(path))).toEqual([
+    join(f.root, 'Ptt/2026-10/Ori/0.amr'),
+  ]);
 });

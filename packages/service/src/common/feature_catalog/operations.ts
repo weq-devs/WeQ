@@ -15,6 +15,13 @@ export const TASK_PANEL_FEATURES = {
     summary: '查看和管理已建立的定时导出计划。',
     docs: ['guide/export.md#feature-export.tasks.schedules'],
   }),
+  archived: defineFeature('export.tasks.archived', 'export', '已归档任务', ['任务归档'], {
+    parentId: 'export.tasks',
+    context: ['account'],
+    navigation: 'search',
+    summary: '查看和恢复已归档的任务，或彻底删除任务记录。',
+    docs: ['guide/export.md#feature-export.tasks.archived'],
+  }),
 };
 
 export type TaskPanelTab = keyof typeof TASK_PANEL_FEATURES;

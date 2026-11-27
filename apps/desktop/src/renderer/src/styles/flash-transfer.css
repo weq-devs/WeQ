@@ -266,27 +266,7 @@ html[data-theme='dark'] .weq-ft {
   cursor: pointer;
 }
 .weq-ft-check input {
-  appearance: none;
-  width: 16px;
-  height: 16px;
   margin: 0;
-  border: 1.5px solid var(--weq-border-strong);
-  border-radius: 4px;
-  background: var(--weq-bg-surface);
-  cursor: inherit;
-}
-.weq-ft-check input:checked {
-  background: var(--weq-accent-solid);
-  border-color: var(--weq-accent-ink);
-}
-.weq-ft-check-mark {
-  position: absolute;
-  color: var(--weq-accent-solid-foreground);
-  pointer-events: none;
-  opacity: 0;
-}
-.weq-ft-check input:checked ~ .weq-ft-check-mark {
-  opacity: 1;
 }
 .weq-ft-check-disabled {
   cursor: not-allowed;

@@ -299,7 +299,7 @@
   align-items: flex-start;
 }
 
-.weq-array-item > *:not(.weq-array-index) {
+.weq-array-item > :not(.weq-array-index, input[type='checkbox']) {
   flex: 1;
   min-width: 0;
 }

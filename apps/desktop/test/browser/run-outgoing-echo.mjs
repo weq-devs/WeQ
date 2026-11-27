@@ -186,6 +186,34 @@ try {
             assert.ok(
               await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
             );
+            if (width === 390 && theme === 'dark') {
+              await page.evaluate(() => window.echoQA.setStage('recalled'));
+              const marker = page.getByRole('button', { name: '重新编辑' });
+              await marker.getByText('你撤回了这条消息', { exact: true }).waitFor();
+              const before = await marker.boundingBox();
+              const point = { x: before.x + 6, y: before.y + before.height / 2 };
+              await page.mouse.move(point.x, point.y);
+              await marker.getByText('重新编辑', { exact: true }).waitFor();
+              const stable = await marker.evaluate(
+                async (element, { point, before }) => {
+                  for (let frame = 0; frame < 24; frame++) {
+                    await new Promise(requestAnimationFrame);
+                    const rect = element.getBoundingClientRect();
+                    if (
+                      !element.matches(':hover') ||
+                      !element.contains(document.elementFromPoint(point.x, point.y)) ||
+                      ['x', 'y', 'width', 'height'].some((key) => rect[key] !== before[key])
+                    )
+                      return false;
+                  }
+                  return true;
+                },
+                { point, before },
+              );
+              assert.ok(stable, `${engine} 撤回标签的左侧应一直可点击`);
+              await page.mouse.click(point.x, point.y);
+              await marker.waitFor({ state: 'detached' });
+            }
             assert.deepEqual(errors, []);
             cases++;
           } finally {

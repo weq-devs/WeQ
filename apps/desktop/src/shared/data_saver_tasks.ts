@@ -19,7 +19,7 @@ export function unfinishedDataSaverTasks(input: {
     ).length +
     (input.roaming ?? []).filter((task) => !ended.has(task.status)).length +
     Number(Boolean(input.scanning)) +
-    (input.flash ?? []).filter((task) => !ended.has(task.status)).length +
+    (input.flash ?? []).filter((task) => task.status !== 'done' && !ended.has(task.status)).length +
     (input.background ?? []).filter((task) => !ended.has(task.status)).length
   );
 }

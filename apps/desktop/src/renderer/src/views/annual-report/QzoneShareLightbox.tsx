@@ -6,9 +6,7 @@
  * 可见权限。确认后走 `annualReport.shareQzone`：主进程逐页渲染 PNG → 逐张
  * 上传 Qzone 图床 → 发表说说。
  *
- * 「发表」不在灯箱里等：点下去就关灯箱、先给一条 toast 回执，任务在后台跑完
- * 再把那条 toast 就地推进成结果（见 share）。截图九页 + 逐张上传慢起来要一两
- * 分钟，让用户对着一个转圈按钮干等是这一页最糟的体验。
+ * 提交后关闭灯箱，图片生成、上传与发表进度可在任务列表查看。
  *
  * 预览刻意做成「卡片缩略 + 页名」的轻量清单，而不是把报告 deck 复刻一遍 ——
  * 灯箱的职责是让用户确认发什么、配什么字，不是再看一次报告。
@@ -21,6 +19,7 @@ import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { createPortal } from 'react-dom';
 import { Check, Earth, Lock, Users, X } from 'lucide-react';
 import { client } from '../../trpc/client';
+import { accountBinding } from '../../lib/clientPreferences';
 import { useToast } from '../../components/Toast.shared';
 import { AvatarPicture } from '../../components/AvatarPicture';
 import { useSelfFace } from './useSelfFace';
@@ -31,23 +30,7 @@ import { useSurfaceEscape, useSurfaceEscapeDismissal } from '../../lib/surfaceEs
 
 /** 说说一次最多带 9 张图（Qzone 服务端限制）。 */
 const QZONE_MAX_IMAGES = 9;
-/**
- * 「正在分享」那条 toast 的存活时长。
- *
- * 截图 + 逐张上传 + 发表全在主进程里跑，九张图一两分钟是常态，所以进度提示挂一个
- * 很长的 ttl —— 否则它会在任务还在跑的时候自己溜走，用户回到「没有回执」的状态。
- * 任务结束时就地更新成结果，ttl 收回正常的十秒（见 Toast.tsx 的 ttl 重置）。
- */
-const SHARE_PROGRESS_TTL_MS = 15 * 60 * 1000;
-
-/**
- * 同一时刻只允许一份分享在跑。
- *
- * 灯箱一点就关了，界面上不再有「正在发表」这个禁用态，但主进程那条「截图 →
- * 上传 → 发表」的流水线可能还跑着：用户再点一次会原模原样发出第二条说说。
- * 模块级标志顶住重复提交（比放在组件里可靠 —— 灯箱每次打开都重新挂载）。
- */
-let shareInFlight = false;
+const sharesInFlight = new Set<string>();
 
 /** 默认分享文案 —— 用户可改。指向项目仓库。 */
 function defaultShareText(year: number): string {
@@ -82,7 +65,6 @@ export function QzoneShareLightbox({
   const surface = useRef<HTMLDivElement>(null);
   useSurfaceEscape(surface, onClose, true, true);
   useSurfaceEscapeDismissal(surface, onClose, true);
-  const updateToast = useToast((s) => s.update);
   const selfFace = useSelfFace();
   const { overlayHostRef } = useReportView();
   /**
@@ -139,64 +121,41 @@ export function QzoneShareLightbox({
     [slides, selected],
   );
 
-  /**
-   * 点「发表说说」= 立刻收灯箱 + 先给一条回执，真正的活儿在主进程里继续跑。
-   *
-   * 截图九页、逐张上传图床、最后发说说，全在主进程串行完成，慢的时候要一两分钟；
-   * 原来把整个 mutate 摆在按钮的 loading 里等，用户只能对着一个转圈的按钮干等，
-   * 还会以为是卡死了。现在按钮只管**提交意图**：灯箱马上关掉、报告回到手里，
-   * 那条 toast 从「正在分享」就地推进成「已分享 / 分享失败」，慢也慢得看得见。
-   *
-   * 图片仍由主进程从同一份 HTML 里逐页截图：`orderedSelected` 是已勾选页在报告
-   * 顺序里的下标，主进程按它取第 N 张 `.slide`，顺序与九宫格预览一致。
-   */
   async function share(): Promise<void> {
     if (!canSubmit) return;
-    if (shareInFlight) {
-      pushToast({
-        tone: 'info',
-        durationKind: 'success',
-        title: '上一次分享还没发完',
-        detail: '截图与上传正在后台跑，状态就在那条「正在分享」的提示里。',
-      });
+    const binding = accountBinding();
+    if (!binding) {
+      pushToast({ tone: 'error', title: '账号尚未就绪，请稍后重试' });
+      return;
+    }
+    const scope = JSON.stringify(binding);
+    if (sharesInFlight.has(scope)) {
       onClose();
       return;
     }
-    shareInFlight = true;
+    sharesInFlight.add(scope);
     const indexes = orderedSelected;
     const text = content.trim();
-    const toastId = pushToast({
-      tone: 'info',
-      title: '正在分享到 QQ 空间…',
-      durationKind: 'long',
-      detail: `已选 ${indexes.length} 张图 · 正在逐页生成并上传，可以先继续看报告`,
-      ttl: SHARE_PROGRESS_TTL_MS,
-    });
     onClose();
     try {
       const html = await getHtml();
-      const result = await client.account.annualReport.shareQzone.mutate({
+      await client.account.annualReport.shareQzone.mutate({
+        ...binding,
         year,
         content: text,
         html,
         slideIndexes: indexes,
         ugcRight,
       });
-      updateToast(toastId, {
-        tone: 'success',
-        title: '已分享到 QQ 空间',
-        detail: `说说已发表 · ${result.images} 张图`,
-        ttl: 10000,
-      });
     } catch (error) {
-      updateToast(toastId, {
-        tone: 'error',
-        title: '分享失败',
-        detail: error instanceof Error ? error.message : String(error),
-        ttl: 10000,
-      });
+      if (JSON.stringify(accountBinding()) === scope)
+        pushToast({
+          tone: 'error',
+          title: '无法提交分享',
+          detail: error instanceof Error ? error.message : String(error),
+        });
     } finally {
-      shareInFlight = false;
+      sharesInFlight.delete(scope);
     }
   }
 

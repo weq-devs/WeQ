@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { decode as decodeRawProto, type RawField } from '@weq/codec/raw';
 import { cachedAvatarUrl } from '../lib/avatarCache';
+import { CardPreviewImage } from './CardPreviewImage';
 import { QqAvatar } from './QqAvatar';
 import { ProfileAvatar } from './ProfileAvatar';
 import { client } from '../trpc/client';
@@ -121,7 +122,6 @@ export function QqDynamic({
   meta?: string;
   tags?: DynamicTag[];
 }): ReactElement {
-  const [coverBroken, setCoverBroken] = useState(false);
   const navigate = useContext(QzoneCardNavigationContext);
   const [publisher, setPublisher] = useState<{
     nick?: string;
@@ -208,14 +208,8 @@ export function QqDynamic({
 
         {content ? <div className="weq-dynamic-content">{content}</div> : null}
 
-        {coverUrl && !coverBroken ? (
-          <img
-            className="weq-dynamic-cover"
-            src={cachedAvatarUrl(coverUrl) ?? coverUrl}
-            alt=""
-            loading="lazy"
-            onError={() => setCoverBroken(true)}
-          />
+        {coverUrl ? (
+          <CardPreviewImage className="weq-dynamic-cover" src={coverUrl} hideUnavailable />
         ) : null}
 
         {highlights.length > 0 ? (

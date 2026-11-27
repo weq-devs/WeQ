@@ -20,13 +20,8 @@
   overflow-wrap: anywhere;
 }
 
-/* 提示气泡 250ms 后才出现，出现这一下淡入，避免硬闪。 */
+/* 等待时间仍由提示宿主决定，气泡本身快速进退。 */
 .weq-hover-tooltip {
-  animation: weq-tooltip-in 90ms ease-out both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .weq-hover-tooltip {
-    animation: none;
-  }
+  --weq-motion-enter: 90ms;
+  --weq-motion-exit: 90ms;
 }

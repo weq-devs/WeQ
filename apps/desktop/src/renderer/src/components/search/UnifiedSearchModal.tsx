@@ -81,8 +81,22 @@ export function SearchMoreResults({
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<'initial' | 'more' | null>(restored.current?.error ?? null);
-  const runRef = useRef(0);
-  const pending = useRef(false);
+  const [owner] = useState(() =>
+    Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+      byte.toString(16).padStart(2, '0'),
+    ).join(''),
+  );
+  const generation = useRef(0);
+  const pending = useRef<{ generation: number; controller: AbortController } | null>(null);
+  const cancel = useCallback(() => {
+    const request = pending.current;
+    if (!request) return;
+    pending.current = null;
+    request.controller.abort();
+    void client.account.cancelSidebarSearch
+      .mutate({ owner, generation: request.generation })
+      .catch(() => {});
+  }, [owner]);
   const nextOffset = useRef(restored.current?.nextOffset ?? 0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const selectedFocusKey = useRef<string | null>(restored.current?.focusKey ?? null);
@@ -115,24 +129,29 @@ export function SearchMoreResults({
   const fetchPage = useCallback(
     async (pageKeyword: string, offset: number, append: boolean) => {
       if (!readEnabled.current) return;
-      const run = ++runRef.current;
-      pending.current = true;
+      cancel();
+      const request = { generation: ++generation.current, controller: new AbortController() };
+      pending.current = request;
       setError(null);
       if (!append) setLoading(true);
       else setLoadingMore(true);
       try {
-        const result = (await client.account.searchMore.query({
-          category,
-          keyword: pageKeyword,
-          offset,
-          limit: 30,
-          conversationScope: sources ? 'all' : conversationScope,
-          ...(relevantFilter ? { sources: ['qq'] } : sources ? { sources: [...sources] } : {}),
-          ...(relevantFilter
-            ? { recordFilter: relevantFilter, expectedAccountUin, expectedAccountConfigId }
-            : {}),
-        })) as MoreSearchResult;
-        if (run !== runRef.current) return;
+        const result = (await client.account.searchMore.query(
+          {
+            category,
+            keyword: pageKeyword,
+            offset,
+            limit: 30,
+            conversationScope: sources ? 'all' : conversationScope,
+            ...(relevantFilter ? { sources: ['qq'] } : sources ? { sources: [...sources] } : {}),
+            recordFilter: relevantFilter,
+            expectedAccountUin,
+            expectedAccountConfigId,
+            searchWindow: { owner, generation: request.generation },
+          },
+          { signal: request.controller.signal },
+        )) as MoreSearchResult;
+        if (pending.current !== request) return;
         nextOffset.current = offset + result.items.length;
         setData((prev) => {
           if (!append || !prev) return result;
@@ -149,12 +168,12 @@ export function SearchMoreResults({
           return { ...result, items, changed };
         });
       } catch (err) {
-        if (run !== runRef.current) return;
+        if (pending.current !== request) return;
         setError(append ? 'more' : 'initial');
         console.error('[search-more] failed', err);
       } finally {
-        if (run === runRef.current) {
-          pending.current = false;
+        if (pending.current === request) {
+          pending.current = null;
           setLoading(false);
           setLoadingMore(false);
         }
@@ -167,19 +186,17 @@ export function SearchMoreResults({
       relevantFilter,
       expectedAccountUin,
       expectedAccountConfigId,
+      owner,
+      cancel,
     ],
   );
 
   // Reset + fetch first page when the keyword settles.
   useLayoutEffect(() => {
     if (restoredRequest.current === requestKey) {
-      return () => {
-        ++runRef.current;
-      };
+      return cancel;
     }
     restoredRequest.current = null;
-    ++runRef.current;
-    pending.current = false;
     nextOffset.current = 0;
     setData(null);
     setError(null);
@@ -194,11 +211,10 @@ export function SearchMoreResults({
     const timer = window.setTimeout(() => void fetchPage(trimmed, 0, false), 250);
     debounceTimer.current = timer;
     return () => {
-      ++runRef.current;
-      pending.current = false;
+      cancel();
       window.clearTimeout(timer);
     };
-  }, [keyword, fetchPage, requestKey]);
+  }, [keyword, fetchPage, requestKey, cancel]);
 
   const previousActivity = useRef(activity);
   const currentData = useRef(data);
@@ -209,8 +225,7 @@ export function SearchMoreResults({
     if (previous.enabled === activity.enabled && previous.revision === activity.revision) return;
     if (!activity.enabled) {
       window.clearTimeout(debounceTimer.current);
-      ++runRef.current;
-      pending.current = false;
+      cancel();
       setLoading(false);
       setLoadingMore(false);
       return;
@@ -224,7 +239,7 @@ export function SearchMoreResults({
       window.clearTimeout(debounceTimer.current);
       void fetchPage(keyword.trim(), 0, false);
     }
-  }, [activity.enabled, activity.revision, keyword, fetchPage]);
+  }, [activity.enabled, activity.revision, keyword, fetchPage, cancel]);
 
   // Infinite scroll: fetch the next page near the bottom.
   const onScroll = useCallback(() => {

@@ -120,7 +120,7 @@ export async function writeTable<T>(
     case 'jsonl':
       return writeJsonl(cols, rows, outputPath);
     case 'jsonl.gz':
-      throw new Error('JSONL（压缩）必须通过正式归档写入器生成');
+      throw new Error('JSONL.GZ必须通过正式归档写入器生成');
     case 'csv':
       return writeCsv(cols, rows, outputPath);
     case 'xlsx':

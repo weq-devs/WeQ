@@ -168,7 +168,6 @@ function Fixture() {
               update(task, { status: 'running', canResume: false, networkPaused: false }),
             cancel: (task) =>
               update(task, { status: 'cancelled', canResume: true, resumeMode: 'restart' }),
-            remove: (task) => setTasks((items) => items.filter((item) => item.id !== task.id)),
             save: (task) => {
               window.taskQuickCalls?.push({ action: 'save', input: task.id });
             },

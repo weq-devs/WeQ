@@ -65,24 +65,19 @@ export function IntentSenseSection() {
           />
           <Row
             settingId="intent-mode"
+            settingFallback={s?.analysisMode === 'manual' ? 'intent-after-self' : undefined}
             label="模式"
             control={
-              <span
-                data-setting-fallback={
-                  s?.analysisMode === 'manual' ? 'intent-after-self' : undefined
-                }
-              >
-                <SegmentedControl
-                  label="意图感知模式"
-                  value={s ? (s.analysisMode ?? 'auto') : null}
-                  disabled={disabled}
-                  onChange={(analysisMode) => void patch({ analysisMode })}
-                  options={[
-                    { value: 'auto', label: '自动' },
-                    { value: 'manual', label: '手动' },
-                  ]}
-                />
-              </span>
+              <SegmentedControl
+                label="意图感知模式"
+                value={s ? (s.analysisMode ?? 'auto') : null}
+                disabled={disabled}
+                onChange={(analysisMode) => void patch({ analysisMode })}
+                options={[
+                  { value: 'auto', label: '自动' },
+                  { value: 'manual', label: '手动' },
+                ]}
+              />
             }
           />
         </>
@@ -91,28 +86,25 @@ export function IntentSenseSection() {
         <>
           <Row
             settingId="intent-engine"
+            settingFallback={
+              s?.engine === 'local'
+                ? 'intent-api-model intent-tuning-analysisTemperature'
+                : s?.engine === 'api'
+                  ? 'intent-model-resources'
+                  : undefined
+            }
             label="运行方式"
             control={
-              <span
-                data-setting-fallback={
-                  s?.engine === 'local'
-                    ? 'intent-api-model intent-tuning-analysisTemperature'
-                    : s?.engine === 'api'
-                      ? 'intent-model-resources'
-                      : undefined
-                }
-              >
-                <SegmentedControl
-                  label="意图感知运行方式"
-                  value={s?.engine ?? null}
-                  disabled={disabled}
-                  onChange={(engine) => void patch({ engine })}
-                  options={[
-                    { value: 'api', label: 'API 模型' },
-                    { value: 'local', label: '本地模型', disabled: !local.data?.available },
-                  ]}
-                />
-              </span>
+              <SegmentedControl
+                label="意图感知运行方式"
+                value={s?.engine ?? null}
+                disabled={disabled}
+                onChange={(engine) => void patch({ engine })}
+                options={[
+                  { value: 'api', label: 'API 模型' },
+                  { value: 'local', label: '本地模型', disabled: !local.data?.available },
+                ]}
+              />
             }
           />
           {s?.engine === 'api' ? (

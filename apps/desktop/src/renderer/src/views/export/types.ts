@@ -31,6 +31,8 @@ export type ExportFormat =
   | 'json'
   | 'jsonl'
   | 'jsonl.gz'
+  | 'chatlab.json'
+  | 'chatlab.jsonl'
   | 'xlsx'
   | 'csv'
   | 'txt'
@@ -38,7 +40,7 @@ export type ExportFormat =
   | 'vcard';
 export type QzoneExportContent = 'posts' | 'both' | 'albums';
 
-/** Formats the backend (`account.startExport`) can produce. */
+/** 格式集合也供本地生成会话使用。 */
 export const BACKEND_FORMATS = ['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx'] as const;
 export type BackendFormat = (typeof BACKEND_FORMATS)[number];
 
@@ -48,27 +50,36 @@ export function isBackendFormat(f: ExportFormat): f is BackendFormat {
 
 /** Format chips shown for the full-message / scheduled flows. HTML is a chip
  *  here now (merged from its old standalone mode). */
-export const FULL_FORMATS: Array<{ value: ExportFormat; label: string }> = [
+export const FULL_FORMATS: Array<{ value: Exclude<ExportFormat, 'vcard'>; label: string }> = [
   { value: 'json', label: 'JSON' },
   { value: 'jsonl', label: 'JSONL' },
-  { value: 'jsonl.gz', label: 'JSONL（压缩）' },
+  { value: 'jsonl.gz', label: 'JSONL.GZ' },
   { value: 'xlsx', label: 'XLSX' },
   { value: 'csv', label: 'CSV' },
   { value: 'txt', label: 'TXT' },
   { value: 'html', label: 'HTML' },
+  { value: 'chatlab.json', label: 'ChatLab JSON' },
+  { value: 'chatlab.jsonl', label: 'ChatLab JSONL' },
 ];
 
-/** ChatLab only emits structured JSON variants. */
-export const CHATLAB_FORMATS: Array<{ value: ExportFormat; label: string }> = [
-  { value: 'json', label: 'JSON' },
-  { value: 'jsonl', label: 'JSONL' },
-];
+export function exportFormatLabel(format: ExportFormat): string {
+  return FULL_FORMATS.find((option) => option.value === format)?.label ?? format.toUpperCase();
+}
+
+export function explicitChatlabFormats(
+  formats: readonly ExportFormat[],
+  legacyChatlab?: boolean,
+): ExportFormat[] {
+  return formats.map<ExportFormat>((format) =>
+    legacyChatlab && (format === 'json' || format === 'jsonl') ? `chatlab.${format}` : format,
+  );
+}
 
 /** QQ 空间导出：JSON / TXT / HTML（HTML 会强制下载配图到 media/ 并本地引用）。 */
 export const QZONE_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'json', label: 'JSON' },
   { value: 'jsonl', label: 'JSONL' },
-  { value: 'jsonl.gz', label: 'JSONL（压缩）' },
+  { value: 'jsonl.gz', label: 'JSONL.GZ' },
   { value: 'txt', label: 'TXT' },
   { value: 'html', label: 'HTML' },
 ];
@@ -77,7 +88,7 @@ export const QZONE_FORMATS: Array<{ value: ExportFormat; label: string }> = [
 export const FRIEND_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'json', label: 'JSON' },
   { value: 'jsonl', label: 'JSONL' },
-  { value: 'jsonl.gz', label: 'JSONL（压缩）' },
+  { value: 'jsonl.gz', label: 'JSONL.GZ' },
   { value: 'csv', label: 'CSV' },
   { value: 'xlsx', label: 'XLSX' },
   { value: 'txt', label: 'TXT' },
@@ -88,7 +99,7 @@ export const FRIEND_FORMATS: Array<{ value: ExportFormat; label: string }> = [
 export const MEMBER_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'json', label: 'JSON' },
   { value: 'jsonl', label: 'JSONL' },
-  { value: 'jsonl.gz', label: 'JSONL（压缩）' },
+  { value: 'jsonl.gz', label: 'JSONL.GZ' },
   { value: 'csv', label: 'CSV' },
   { value: 'xlsx', label: 'XLSX' },
   { value: 'txt', label: 'TXT' },
@@ -98,7 +109,7 @@ export const MEMBER_FORMATS: Array<{ value: ExportFormat; label: string }> = [
 export const COLLECTION_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'json', label: 'JSON' },
   { value: 'jsonl', label: 'JSONL' },
-  { value: 'jsonl.gz', label: 'JSONL（压缩）' },
+  { value: 'jsonl.gz', label: 'JSONL.GZ' },
   { value: 'csv', label: 'CSV' },
   { value: 'xlsx', label: 'XLSX' },
   { value: 'txt', label: 'TXT' },
@@ -214,6 +225,8 @@ export interface ExportOptions {
    * 漏包 / 过期的再用本地模型补全。
    */
   onlineTranscribe: boolean;
+  /** 即时导出确认时从全局偏好填入。 */
+  voicePriority?: 'local' | 'qq';
   /** 在线转写的并发请求数（默认 5）。 */
   onlineConcurrency: number;
   /**
@@ -227,6 +240,8 @@ export interface ExportOptions {
    * 前提是 QQ 在线且有发包物料；关掉就是纯本地识别。
    */
   onlineOcr: boolean;
+  /** 即时导出确认时从全局偏好填入。 */
+  ocrPriority?: 'local' | 'qq';
   /** 在线识别的并发请求数（默认 5）。 */
   ocrConcurrency: number;
   /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */

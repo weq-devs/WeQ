@@ -136,6 +136,7 @@ export {
   parseApiUsage,
   isApiCancellation,
   apiErrorMessage,
+  apiErrorExcerpt,
   ApiHttpError,
   DEFAULT_API_TIMEOUT_MS,
 } from './api_usage';

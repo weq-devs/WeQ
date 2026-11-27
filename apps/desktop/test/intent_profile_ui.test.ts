@@ -11,13 +11,14 @@ const fixture = vi.hoisted(() => ({
     data: null as IntentProfile | null | undefined,
     isLoading: false,
     error: null as Error | null,
-    refetch: vi.fn(async () => {}),
   },
   profileMode: 'auto',
   useQuery: vi.fn(),
+  recalculate: vi.fn(),
   setData: vi.fn(),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: { account: { intentSense: { getProfile: { query: fixture.recalculate } } } },
   trpc: {
     useUtils: () => ({ account: { intentSense: { getProfile: { setData: fixture.setData } } } }),
     account: { intentSense: { getProfile: { useQuery: fixture.useQuery } } },
@@ -54,7 +55,7 @@ beforeEach(() => {
   fixture.query.data = null;
   fixture.query.isLoading = false;
   fixture.query.error = null;
-  fixture.query.refetch.mockClear();
+  fixture.recalculate.mockReset().mockResolvedValue(null);
   fixture.profileMode = 'auto';
   fixture.useQuery.mockReset().mockImplementation(() => fixture.query);
   fixture.setData.mockClear();
@@ -109,7 +110,10 @@ describe('无证据的互动画像', () => {
     await act(async () =>
       document.querySelector<HTMLButtonElement>('[aria-label="重新计算"]')!.click(),
     );
-    expect(fixture.query.refetch).toHaveBeenCalledOnce();
+    expect(fixture.recalculate).toHaveBeenCalledOnce();
+    expect(fixture.recalculate).toHaveBeenCalledWith(
+      expect.objectContaining({ peerUid: 'u_synthetic', manual: true }),
+    );
   });
 
   it('读取失败显示错误且允许重试，不伪装成空结果或持续加载', async () => {
@@ -121,7 +125,10 @@ describe('无证据的互动画像', () => {
     await act(async () =>
       document.querySelector<HTMLButtonElement>('[aria-label="重新计算"]')!.click(),
     );
-    expect(fixture.query.refetch).toHaveBeenCalledOnce();
+    expect(fixture.recalculate).toHaveBeenCalledOnce();
+    expect(fixture.recalculate).toHaveBeenCalledWith(
+      expect.objectContaining({ peerUid: 'u_synthetic', manual: true }),
+    );
   });
 
   it('首次加载使用画像专属骨架，头部占位仍可跳转且不冒充好感度', async () => {

@@ -1,3 +1,4 @@
+import { configureQqDatabaseReadOnly } from '@weq/db';
 import type { AccountSession } from '@weq/account';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,6 +9,7 @@ import { UnreadInfoService } from '../src/account/unread_info';
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
+  configureQqDatabaseReadOnly(() => false);
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
@@ -84,4 +86,37 @@ it('清除前开始、清除后才读完的小表请求不会重新写回旧阅�
   expect(await reading).toBe(false);
   expect((await service.getUnreadInfos([row]))[0]?.unreadCount).toBe(10);
   expect(database.markRead).not.toHaveBeenCalled();
+});
+
+it('只读档阻止会话浏览、手动标记及旧在途阅读，同时继续反映 QQ 自己的更新', async () => {
+  let readOnly = false;
+  configureQqDatabaseReadOnly(() => readOnly);
+  const row = { chatType: 1, uid: 'u_peer', peer: '1_u_peer', msgSeq: 90, latestSeq: '100' };
+  const database = {
+    getAllUnreadInfos: vi.fn(async () => [{ ...row }]),
+    getUnreadInfos: vi.fn(async () => [{ ...row }]),
+    markRead: vi.fn(),
+  };
+  const service = new UnreadInfoService(
+    { unreadInfo: database } as unknown as AccountSession,
+    undefined,
+    { statePath: '', readOnly: true },
+  );
+  cleanups.push(() => service.dispose());
+  expect((await service.getUnreadInfos([row]))[0]?.unreadCount).toBe(10);
+  const pending = service.markLocalRead(1, row.uid, '100');
+  readOnly = true;
+  service.suspendReadChanges();
+  expect(await pending).toBe(false);
+  await expect(service.setReadState([row], false)).rejects.toThrow('只读模式');
+  expect(await service.markReadAndReport(1, row.uid, '100')).toEqual({
+    changed: false,
+    report: { state: 'disabled' },
+  });
+  expect(database.markRead).not.toHaveBeenCalled();
+  expect((await service.getUnreadInfos([row]))[0]?.unreadCount).toBe(10);
+  row.latestSeq = '105';
+  row.msgSeq = 95;
+  service.invalidate();
+  expect((await service.getUnreadInfos([row]))[0]?.readSeq).toBe('95');
 });

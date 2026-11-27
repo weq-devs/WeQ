@@ -164,7 +164,7 @@ it('文件更多页承接混合结果，选中目录文件时保留分页返回�
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250);
     });
-    expect(rpc.query).toHaveBeenCalledWith({
+    expect(rpc.query.mock.lastCall?.[0]).toMatchObject({
       conversationScope: 'all',
       category: 'file',
       keyword: '报告',

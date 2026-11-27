@@ -8,9 +8,11 @@ import {
 import type { MoreSearchResult } from '../src/renderer/src/components/search/types';
 import type { ComponentProps } from 'react';
 
-const rpc = vi.hoisted(() => ({ query: vi.fn() }));
+const rpc = vi.hoisted(() => ({ query: vi.fn(), cancel: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  client: { account: { searchMore: { query: rpc.query } } },
+  client: {
+    account: { searchMore: { query: rpc.query }, cancelSidebarSearch: { mutate: rpc.cancel } },
+  },
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => children,
@@ -51,6 +53,7 @@ function mount(
       ),
     );
   render(options.initialSnapshot?.keyword ?? '旧词');
+  rpc.cancel.mockResolvedValue(true);
   return {
     host,
     change(value: string) {
@@ -179,6 +182,8 @@ describe('搜索更多的请求隔离', () => {
         await vi.advanceTimersByTimeAsync(250);
       });
       f.change('新词');
+      expect(rpc.cancel).toHaveBeenCalledWith(rpc.query.mock.calls[0]?.[0].searchWindow);
+      expect(rpc.query.mock.calls[0]?.[1].signal.aborted).toBe(true);
       await act(async () => {
         resolve(page('旧结果'));
       });
@@ -192,6 +197,16 @@ describe('搜索更多的请求隔离', () => {
     } finally {
       f.close();
     }
+  });
+
+  it('关闭更多结果时取消已经派发的查询', async () => {
+    vi.useFakeTimers();
+    rpc.query.mockReturnValueOnce(new Promise(() => {}));
+    const view = mount();
+    await act(async () => vi.advanceTimersByTimeAsync(250));
+    view.close();
+    expect(rpc.cancel).toHaveBeenCalledWith(rpc.query.mock.calls[0]?.[0].searchWindow);
+    expect(rpc.query.mock.calls[0]?.[1].signal.aborted).toBe(true);
   });
 
   it('查询失败显示可重试状态，分页失败保留已有结果', async () => {

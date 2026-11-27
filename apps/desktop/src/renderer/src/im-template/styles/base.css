@@ -101,13 +101,17 @@ body {
 
 .lucky-char-badge {
   display: inline-block;
+  flex: none;
   width: 48px;
   height: 48px;
-  min-width: 48px;
   border-radius: 4px;
   object-fit: contain;
   vertical-align: middle;
   user-select: none;
+}
+
+.lucky-char-badge[hidden] {
+  display: none;
 }
 
 input,

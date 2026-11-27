@@ -1,10 +1,11 @@
+import { usePreferenceState } from '../../lib/clientPreferences';
 import { NumericText } from '../../components/NumericText';
 import { useState } from 'react';
 import { Download, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { client } from '../../trpc/client';
 import { ExportReportControl } from './ExportReportControl';
-import { StructuredExportControls, type StructuredExportOptions } from './StructuredExportControls';
+import { StructuredExportControls } from './StructuredExportControls';
 import { structuredExportOptions } from './StructuredExportControls.shared';
 
 export function CollectionExportDialog({
@@ -14,15 +15,11 @@ export function CollectionExportDialog({
   cids?: string[];
   onClose: () => void;
 }) {
-  const [format, setFormat] = useState<'json' | 'jsonl' | 'jsonl.gz' | 'csv' | 'xlsx' | 'txt'>(
-    'json',
-  );
-  const [structured, setStructured] = useState<StructuredExportOptions>({
-    profile: 'basic',
-    incrementalSupport: false,
-  });
+  const [format, setFormat] = usePreferenceState('collectionExportFormat');
+  const [structured, setStructured] = usePreferenceState('collectionExportDetails');
   const [busy, setBusy] = useState(false);
-  const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
+  const [includeIntegrityReport, setIncludeIntegrityReport] =
+    usePreferenceState('exportIntegrityReport');
   const [error, setError] = useState('');
   async function start() {
     setBusy(true);
@@ -62,7 +59,7 @@ export function CollectionExportDialog({
             options={[
               { value: 'json', label: 'JSON' },
               { value: 'jsonl', label: 'JSONL' },
-              { value: 'jsonl.gz', label: 'JSONL（压缩）' },
+              { value: 'jsonl.gz', label: 'JSONL.GZ' },
               { value: 'csv', label: 'CSV' },
               { value: 'xlsx', label: 'Excel' },
               { value: 'txt', label: 'TXT' },

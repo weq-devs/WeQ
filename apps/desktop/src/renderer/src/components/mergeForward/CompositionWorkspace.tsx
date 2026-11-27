@@ -30,6 +30,7 @@ import { useAppLock } from '../../state/lock';
 import { copyTextToClipboard } from '../../im-template/template/clipboard';
 import type { Message } from '../../im-template/template/types';
 import { MergeForwardComposer } from './MergeForwardComposer';
+import { runMergeForwardTask, type SendMergeForward } from './mergeForwardTask';
 import { MergeForwardTargets } from './MergeForwardTargets';
 import { SequentialForwardDialog } from '../SequentialForwardDialog';
 import { Modal } from '../Dialog';
@@ -117,11 +118,7 @@ function CompositionWorkspaceBody({
   sendAvailable: boolean;
   incoming?: readonly CompositionRequest[];
   onRequestsHandled?: (ids: string[]) => void;
-  onForward: (
-    draft: MfDraft,
-    target: MfTarget,
-    binding: CompositionBinding,
-  ) => Promise<undefined | boolean>;
+  onForward: SendMergeForward;
   onSend: (
     message: Message,
     target: MfTarget,
@@ -146,6 +143,8 @@ function CompositionWorkspaceBody({
     refetchOnMount: 'always',
     refetchOnWindowFocus: false,
   });
+  const latestConfig = useRef(config.data);
+  latestConfig.current = config.data;
   const [binding, setBinding] = useState<CompositionBinding | null>(null);
   useEffect(() => {
     if (
@@ -473,17 +472,28 @@ function CompositionWorkspaceBody({
   };
   const sendMerged = async () => {
     if (!send || !binding) return;
-    for (const target of targets.filter((target) => selected.has(target.id))) {
-      if (!visibleRef.current || popup?.closed) throw new Error('合成窗口已关闭，已停止后续发送');
-      if (accepted.current.has(target.id)) continue;
-      if ((await onForward(send.draft, target, binding)) === false) continue;
-      accepted.current.add(target.id);
-    }
-    const remaining = new Set([...selected].filter((id) => !accepted.current.has(id)));
-    setSelected(remaining);
-    if (!remaining.size) {
+    const picked = targets.filter(
+      (target) => selected.has(target.id) && !accepted.current.has(target.id),
+    );
+    if (!picked.length) return;
+    const result = await runMergeForwardTask({
+      draft: send.draft,
+      targets: picked,
+      binding,
+      send: onForward,
+      isCurrent: () =>
+        visibleRef.current &&
+        !popup?.closed &&
+        latestConfig.current?.uin === binding.expectedAccountUin &&
+        latestConfig.current.configId === binding.expectedAccountConfigId,
+    });
+    for (const target of [...result.sent, ...result.unconfirmed]) accepted.current.add(target.id);
+    setSelected(new Set(result.rejected.map((target) => target.id)));
+    if (result.sent.length === picked.length) {
       setSend(null);
       setStatus('已发送');
+    } else {
+      setStatus('请在任务列表查看转发结果');
     }
   };
   const decoded = useMemo(
@@ -1127,7 +1137,11 @@ function CompositionWorkspaceBody({
                 <X size={17} />
               </CompositionButton>
             </header>
-            <MergeForwardTargets targets={targets} selected={selected} onChange={setSelected} />
+            <MergeForwardTargets
+              targets={targets.filter((target) => !accepted.current.has(target.id))}
+              selected={selected}
+              onChange={setSelected}
+            />
             {error ? <p role="alert">{error}</p> : null}
             <CompositionButton
               type="button"

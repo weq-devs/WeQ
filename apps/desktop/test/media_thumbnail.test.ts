@@ -1,7 +1,10 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { QqImage } from '../src/renderer/src/components/QqMedia';
+import { decodeElement, ElementType } from '@weq/codec';
+import { toRenderElements } from '@weq/service';
+import { QqImage, QqMarketFace } from '../src/renderer/src/components/QqMedia';
+import { useDataSaver } from '../src/renderer/src/lib/dataSaver';
 
 const state = vi.hoisted(() => ({ open: vi.fn() }));
 vi.mock('../src/renderer/src/components/mediaPreviewStore', () => ({
@@ -11,6 +14,7 @@ vi.mock('../src/renderer/src/components/mediaPreviewStore.shared', () => ({
   openMediaPreview: state.open,
 }));
 const roots: ReturnType<typeof createRoot>[] = [];
+const initialPolicy = useDataSaver.getState();
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('IntersectionObserver', undefined);
@@ -18,18 +22,22 @@ beforeEach(() => {
 });
 afterEach(async () => {
   for (const root of roots.splice(0)) await act(async () => root.unmount());
+  useDataSaver.setState(initialPolicy);
   document.body.innerHTML = '';
   vi.clearAllMocks();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-async function render(data: Record<string, unknown>) {
+async function renderNode(node: ReturnType<typeof createElement>) {
   const host = document.createElement('div');
   document.body.appendChild(host);
   const root = createRoot(host);
   roots.push(root);
-  await act(async () => root.render(createElement(QqImage, { data, sendTimeMs: 1000 })));
+  await act(async () => root.render(node));
   return host;
+}
+function render(data: Record<string, unknown>, sendTimeMs = 1000) {
+  return renderNode(createElement(QqImage, { data, sendTimeMs }));
 }
 it('时间线请求缩略图，灯箱区分本地原图、缩略图和主动下载', async () => {
   const host = await render({
@@ -42,6 +50,7 @@ it('时间线请求缩略图，灯箱区分本地原图、缩略图和主动下�
   expect(new URL(image.src).searchParams.get('v')).toBe('thumb');
   expect(image.loading).toBe('lazy');
   expect(image.decoding).toBe('async');
+  await act(async () => image.dispatchEvent(new Event('load')));
   await act(async () => image.click());
   const item = state.open.mock.calls[0]![0].items[0];
   expect(new URL(item.src).searchParams.get('preview')).toBe('1');
@@ -66,6 +75,7 @@ it.each(['fixture.gif', 'fixture.png'])(
     const image = host.querySelector('img')!;
     expect(new URL(image.src).searchParams.get('recv')).toBe('1');
     expect(new URL(image.src).searchParams.has('v')).toBe(false);
+    await act(async () => image.dispatchEvent(new Event('load')));
     await act(async () => image.click());
     expect(state.open).toHaveBeenCalledTimes(1);
     const item = state.open.mock.calls[0]![0].items[0];
@@ -89,6 +99,69 @@ it('本地图片预览直接加载，加载失败再回退到 QQ 缩略图', asy
   expect(new URL(host.querySelector('img')!.src).searchParams.get('v')).toBe('thumb');
 });
 
+it('省流量下优先显示 QQ 回读中已有的本地发送图片', async () => {
+  useDataSaver.setState({ enabled: true });
+  const [element] = toRenderElements([
+    decodeElement({
+      elementType: ElementType.PIC,
+      isSender: true,
+      fileName: 'sent.png',
+      localPath: '::NTOSFull::/synthetic/nt_data/Pic/sent.png',
+      thumbnailUrl: '/qq-thumb.png',
+    }),
+  ]);
+  const host = await render(element!.data as Record<string, unknown>);
+  const image = host.querySelector('img')!;
+  expect(new URL(image.src).searchParams.get('path')).toBe('/synthetic/nt_data/Pic/sent.png');
+  await act(async () => image.dispatchEvent(new Event('error')));
+  const fallback = new URL(host.querySelector('img')!.src);
+  expect(fallback.searchParams.get('small')).toBe('/qq-thumb.png');
+  expect(fallback.searchParams.get('ds')).toBe('1');
+  expect(fallback.searchParams.has('intent')).toBe(false);
+});
+
+it('加载某张自定义表情后，其他消息用省流量请求重新检查本地缓存', async () => {
+  useDataSaver.setState({ enabled: true });
+  const md5 = 'ab'.repeat(16);
+  const first = await render({ subType: 1, md5, fileToken: 'first' });
+  const failed = await render(
+    { subType: 1, fileName: `${md5.toUpperCase()}.gif`, fileToken: 'second' },
+    2000,
+  );
+  const pending = await render({ subType: 1, md5, fileToken: 'third' }, 3000);
+  const different = await render({ subType: 1, md5: 'cd'.repeat(16), fileToken: 'other' }, 4000);
+  await act(async () => {
+    first.querySelector('img')!.dispatchEvent(new Event('error'));
+    failed.querySelector('img')!.dispatchEvent(new Event('error'));
+    different.querySelector('img')!.dispatchEvent(new Event('error'));
+  });
+  await act(async () => first.querySelector('button')!.click());
+  await act(async () => first.querySelector('img')!.dispatchEvent(new Event('load')));
+  for (const element of [failed, pending]) {
+    const url = new URL(element.querySelector('img')!.src);
+    expect(url.searchParams.get('ds')).toBe('1');
+    expect(url.searchParams.has('_weq_retry')).toBe(true);
+    expect(url.searchParams.has('intent')).toBe(false);
+  }
+  expect(different.querySelector('img')).toBeNull();
+});
+
+it('手动加载的商城表情会刷新另一条消息里的同款表情', async () => {
+  useDataSaver.setState({ enabled: true });
+  const data = { emojiPackId: 123, marketEmoticonIdHex: 'abc' };
+  const first = await renderNode(createElement(QqMarketFace, { data }));
+  const second = await renderNode(createElement(QqMarketFace, { data }));
+  await act(async () => {
+    first.querySelector('img')!.dispatchEvent(new Event('error'));
+    second.querySelector('img')!.dispatchEvent(new Event('error'));
+  });
+  await act(async () => first.querySelector('button')!.click());
+  await act(async () => first.querySelector('img')!.dispatchEvent(new Event('load')));
+  const url = new URL(second.querySelector('img')!.src);
+  expect(url.searchParams.has('_weq_retry')).toBe(true);
+  expect(url.searchParams.has('intent')).toBe(false);
+});
+
 it('已回读的图片点开仍显示本地原图，保存时请求 QQ 原图', async () => {
   const host = await render({
     fileName: 'sent.png',
@@ -98,6 +171,7 @@ it('已回读的图片点开仍显示本地原图，保存时请求 QQ 原图', 
   });
   const image = host.querySelector('img')!;
   expect(image.src).toBe('blob:sent-photo');
+  await act(async () => image.dispatchEvent(new Event('load')));
   await act(async () => image.click());
   const item = state.open.mock.calls[0]![0].items[0];
   expect(item.src).toBe('blob:sent-photo');

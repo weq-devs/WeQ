@@ -4,7 +4,7 @@ import { client, trpc } from '../trpc/client';
 import { createUnreadTargetRefresh } from '../lib/unreadRefresh';
 import type { QQWriteBinding } from './useQQWriteSession';
 
-/** 通知独立订阅；本地列表即时校准，在线申请每类至多五秒补读一轮。 */
+/** 群通知由本地变更驱动，好友通知仍可补读在线申请。 */
 export function useContactNoticeUpdates(binding: QQWriteBinding | null) {
   const utils = trpc.useUtils();
   const uin = binding?.expectedAccountUin;
@@ -14,23 +14,17 @@ export function useContactNoticeUpdates(binding: QQWriteBinding | null) {
     let active = true;
     type Target = { chatType: number; uid: ContactNoticeKind };
     const online = createUnreadTargetRefresh<Target>(
-      async (targets) => {
-        for (const { uid: kind } of targets) {
-          if (!active) return true;
-          const kinds =
-            kind === 'friend'
-              ? (['friend', 'doubtFriend'] as const)
-              : (['group', 'filteredGroup'] as const);
-          await Promise.all(
-            kinds.map((kind) =>
-              utils.account.qqActions.requestInbox.invalidate({
-                expectedAccountUin: uin,
-                expectedAccountConfigId: configId,
-                kind,
-              }),
-            ),
-          );
-        }
+      async () => {
+        if (!active) return true;
+        await Promise.all(
+          (['friend', 'doubtFriend'] as const).map((kind) =>
+            utils.account.qqActions.requestInbox.invalidate({
+              expectedAccountUin: uin,
+              expectedAccountConfigId: configId,
+              kind,
+            }),
+          ),
+        );
         return true;
       },
       undefined,
@@ -43,7 +37,7 @@ export function useContactNoticeUpdates(binding: QQWriteBinding | null) {
         await (target.uid === 'friend'
           ? utils.account.listBuddyRequests.invalidate()
           : utils.account.listGroupNotifies.invalidate());
-        if (active) online.request([target]);
+        if (active && target.uid === 'friend') online.request([target]);
       }
       return true;
     });

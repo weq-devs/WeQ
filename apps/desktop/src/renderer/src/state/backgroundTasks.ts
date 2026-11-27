@@ -1,5 +1,12 @@
 import { BackgroundTaskRegistry, type BackgroundTask } from '../../../shared/background_task';
+import { backgroundResult } from '../../../shared/task_archive';
 import { client } from '../trpc/client';
+import {
+  canContinueForward,
+  deleteForwardPlan,
+  forwardResumeAction,
+  readForwardPlan,
+} from '../lib/forwardContinuation';
 
 /** 逐条转发、浏览器分片上传等显式后台操作的生命周期由当前窗口负责。 */
 export const localBackgroundTasks = new BackgroundTaskRegistry();
@@ -23,7 +30,45 @@ export function rememberWindowTask(id: string, upload?: UploadReceipt) {
   }
 }
 
+/** 转发执行仍在发起窗口，已结束的回执同步到宿主，供重启或其他客户端查看。 */
+export async function recordForwardTask(id: string) {
+  const task = localBackgroundTasks.snapshot().find((entry) => entry.id === id);
+  if (
+    task?.kind !== 'forward' ||
+    !task.scope?.configId ||
+    !(task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled')
+  )
+    return;
+  const { uin, configId } = task.scope;
+  try {
+    await client.taskArchive.change.mutate({
+      expectedAccountUin: uin,
+      expectedAccountConfigId: configId,
+      action: 'record',
+      tasks: [
+        {
+          id: `background:window:${id}`,
+          result: backgroundResult(task),
+          receipt: {
+            ...task,
+            kind: 'forward',
+            status: task.status,
+            logs: task.logs
+              ?.slice(-200)
+              .map((line) => ({ ...line, text: line.text.slice(0, 4000) })),
+            details: task.details?.slice(0, 2000).map((line) => line.slice(0, 4000)),
+          },
+        },
+      ],
+    });
+    forgetWindowTask(id);
+  } catch {
+    // 宿主暂不可用时，本窗口已有回执可进入后续归档操作。
+  }
+}
+
 export function forgetWindowTask(id: string) {
+  deleteForwardPlan(id);
   try {
     localStorage.removeItem(`${receiptPrefix}${id}`);
   } catch {
@@ -53,63 +98,92 @@ export function restoreWindowTaskReceipts(
       /* 单条旧回执损坏不会阻塞其余任务。 */
     }
   }
-  const ended = saved
-    .filter(({ task }) => task.status !== 'paused' && task.status !== 'running')
-    .sort((a, b) => b.task.updatedAt - a.task.updatedAt);
-  for (const { task } of ended.slice(60)) storage.removeItem(`${receiptPrefix}${task.id}`);
-  const keep = new Set(ended.slice(0, 60).map(({ task }) => task.id));
   for (const { task, upload } of saved) {
     const interrupted = task.status === 'running';
-    if (!interrupted && task.status !== 'paused' && !keep.has(task.id)) continue;
     if (localBackgroundTasks.snapshot().some((entry) => entry.id === task.id)) continue;
-    const unknown = interrupted && !(task.kind === 'album-upload' && upload && !upload.submitted);
+    const plan =
+      task.kind === 'forward' && task.scope
+        ? readForwardPlan(task.id, task.scope, storage)
+        : undefined;
+    const canContinue = canContinueForward(plan);
+    const finished = interrupted && Boolean(plan?.entries.every(({ state }) => state === 'sent'));
+    const planUnknown = plan?.entries.some(
+      ({ state }) => state === 'submitting' || state === 'unconfirmed',
+    );
+    const unknown = plan
+      ? Boolean(planUnknown)
+      : interrupted && !(task.kind === 'album-upload' && upload && !upload.submitted);
     const actions =
-      upload?.videoId && (unknown || task.status === 'paused')
-        ? [
-            {
-              id: 'verify',
-              label: '核对上传结果',
-              run: async () => {
-                const scope = task.scope!;
-                const current = async () => {
-                  const account = await client.account.getAccountConfig.query();
-                  if (account?.uin !== scope.uin || account.configId !== scope.configId)
-                    throw new Error('请回到原账号和数据源核对');
-                };
-                await current();
-                const rows = await client.account.listGroupAlbumMedia.query({
-                  groupCode: upload.groupCode,
-                  albumId: upload.albumId,
-                  expectedAccountUin: scope.uin,
-                  expectedAccountConfigId: scope.configId,
-                });
-                await current();
-                if (
-                  !rows.some(
-                    (row) => row.video?.id === upload.videoId && row.uploader === scope.uin,
+      canContinue && task.scope
+        ? [forwardResumeAction(task.id, task.scope, plan?.kind)]
+        : upload?.videoId && (unknown || task.status === 'paused')
+          ? [
+              {
+                id: 'verify',
+                label: '核对上传结果',
+                run: async () => {
+                  const scope = task.scope!;
+                  const current = async () => {
+                    const account = await client.account.getAccountConfig.query();
+                    if (account?.uin !== scope.uin || account.configId !== scope.configId)
+                      throw new Error('请回到原账号和数据源核对');
+                  };
+                  await current();
+                  const rows = await client.account.listGroupAlbumMedia.query({
+                    groupCode: upload.groupCode,
+                    albumId: upload.albumId,
+                    expectedAccountUin: scope.uin,
+                    expectedAccountConfigId: scope.configId,
+                  });
+                  await current();
+                  if (
+                    !rows.some(
+                      (row) => row.video?.id === upload.videoId && row.uploader === scope.uin,
+                    )
                   )
-                )
-                  throw new Error('暂未在该相册读到原视频，仍需核对，请勿重复上传');
-                localBackgroundTasks.resume(task.id);
-                localBackgroundTasks.finish(task.id, 'completed', {
-                  note: '视频已发布到群相册并读回确认',
-                });
-                localBackgroundTasks.setActions(task.id, []);
-                rememberWindowTask(task.id, upload);
+                    throw new Error('暂未在该相册读到原视频，仍需核对，请勿重复上传');
+                  localBackgroundTasks.resume(task.id);
+                  localBackgroundTasks.finish(task.id, 'completed', {
+                    note: '视频已发布到群相册并读回确认',
+                  });
+                  localBackgroundTasks.setActions(task.id, []);
+                  rememberWindowTask(task.id, upload);
+                },
               },
-            },
-          ]
-        : [];
+            ]
+          : [];
     localBackgroundTasks.project(
       {
         ...task,
-        status: interrupted ? (unknown ? 'paused' : 'cancelled') : task.status,
-        statusLabel: unknown ? '结果待核对' : interrupted ? '已中断，尚未提交' : task.statusLabel,
-        note: unknown
-          ? `上次窗口已中断，可能已提交的操作请核对；不会自动再次执行。${task.note ? ` ${task.note}` : ''}`
-          : interrupted
-            ? '未提交给 QQ；可重新选择视频。'
-            : task.note,
+        status: canContinue
+          ? 'paused'
+          : finished
+            ? 'completed'
+            : interrupted
+              ? unknown
+                ? 'paused'
+                : 'cancelled'
+              : task.status,
+        statusLabel: canContinue
+          ? '等待继续转发'
+          : finished
+            ? '转发完成'
+            : unknown
+              ? '结果待核对'
+              : interrupted
+                ? '已中断，尚未提交'
+                : task.statusLabel,
+        ...(finished ? { progress: 100, finishedAt: task.updatedAt } : {}),
+        needsConfirmation: task.needsConfirmation || unknown,
+        note: canContinue
+          ? '只继续尚未提交的消息，已发送和结果待核对的消息会跳过。'
+          : finished
+            ? '全部消息已确认发送。'
+            : unknown
+              ? `上次窗口已中断，可能已提交的操作请核对；不会自动再次执行。${task.note ? ` ${task.note}` : ''}`
+              : interrupted
+                ? '未提交给 QQ；可重新选择视频。'
+                : task.note,
         actions: [],
       },
       actions,

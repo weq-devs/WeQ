@@ -17,7 +17,7 @@ import { QzoneMediaNavigationContext } from '../lib/qzoneNavigation';
 import { isOrdinaryQzonePost, type QzoneHomeAlbumMedia } from '../lib/qzonePublic';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { IS_WEB } from '../lib/target.shared';
-import { notifyTaskCreated } from '../lib/taskNotifications';
+import { rememberTaskCreated } from '../lib/taskNotifications';
 import { useTransferProgress } from '../lib/transferActivity';
 import { client } from '../trpc/client';
 import { QzoneAlbumPreviewAction } from './qzoneShared';
@@ -133,7 +133,9 @@ export function QzoneVideoGrid({
     if (pending.current || !canExport || !save.binding || !save.isCurrent()) return;
     const items = tiles.flatMap((tile) => {
       const url = tile.source ?? tile.cover;
-      return url && selectedIds.has(tile.id) ? [{ id: tile.id, name: tile.name, url }] : [];
+      return url && selectedIds.has(tile.id)
+        ? [{ id: tile.id, name: tile.name, url, video: Boolean(tile.source) }]
+        : [];
     });
     if (!items.length) return;
     pending.current = true;
@@ -150,7 +152,7 @@ export function QzoneVideoGrid({
         items,
         savePolicy: policy,
       });
-      if (taskId && save.isCurrent()) notifyTaskCreated(taskId, '正在导出空间视频');
+      if (taskId && save.isCurrent()) rememberTaskCreated(taskId);
     } catch (reason) {
       if (save.isCurrent())
         pushToast({
@@ -193,6 +195,7 @@ export function QzoneVideoGrid({
               name={tile.name}
               cover={tile.cover ? albumMediaUrl(tile.cover) : ''}
               coverAlt="视频"
+              videoPreviewSource={tile.source ? albumMediaUrl(tile.source) : ''}
               subtitle={
                 <>
                   <QzoneTime value={tile.uploadedAt} interactive={false} />

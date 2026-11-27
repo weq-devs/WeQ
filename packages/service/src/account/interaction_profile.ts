@@ -15,6 +15,7 @@ import type {
 import type { SuggestionMessage } from './intent_suggestion_prompt';
 import { segmentWords } from './text_segment';
 import { extractJsonBlock } from './intent_json';
+import { automaticAiRestricted } from '../common/transfer_policy';
 
 const MBTI_AXIS_LABELS: Record<MbtiDim['key'], [string, string]> = {
   EI: ['外向 E', '内向 I'],
@@ -45,6 +46,7 @@ export class InteractionProfileService {
       kind: 'c2c',
       peerUid: string,
       limit: number,
+      automatic?: boolean,
     ) => Promise<SuggestionMessage[]>,
     private readonly endpoint: (ref: AgentLabModelSelection | null) => AgentLabEndpoint | null,
     private readonly opts: {
@@ -208,13 +210,16 @@ export class InteractionProfileService {
    * 本地统计为主、引擎提示增强；无引擎结果时全部走启发式（heuristic 标记）。
    * 当前统计范围内没有可分析的对方文本时返回 null，不用默认分数生成画像。
    */
-  getProfile(peerUid: string, options?: { cachedOnly?: boolean }): Promise<IntentProfile | null> {
+  getProfile(
+    peerUid: string,
+    options?: { cachedOnly?: boolean; automatic?: boolean },
+  ): Promise<IntentProfile | null> {
     if (!this.config.profileEnabled) return Promise.resolve(null);
     if (options?.cachedOnly) return Promise.resolve(this.cached.get(peerUid) ?? null);
     const existing = this.inFlight.get(peerUid);
     if (existing) return existing;
     const revision = this.profileRevision;
-    const task = this.computeProfile(peerUid)
+    const task = this.computeProfile(peerUid, options?.automatic)
       .then((result) => {
         if (revision === this.profileRevision) {
           this.cached.delete(peerUid);
@@ -231,11 +236,16 @@ export class InteractionProfileService {
     return task;
   }
 
-  private async computeProfile(peerUid: string): Promise<IntentProfile | null> {
+  private async computeProfile(
+    peerUid: string,
+    automatic?: boolean,
+  ): Promise<IntentProfile | null> {
     if (!this.config.profileEnabled) return null;
     const revision = this.profileRevision;
-    const rows = await this.loadMessages('c2c', peerUid, this.config.profileMessages);
+    const rows = await this.loadMessages('c2c', peerUid, this.config.profileMessages, automatic);
     if (revision !== this.profileRevision) throw new Error('互动画像设置已更改，请重新读取');
+    if (automatic && this.config.profileEngine === 'api' && automaticAiRestricted())
+      return this.cached.get(peerUid) ?? null;
     if (!rows.some((row) => !row.mine && row.text)) return null;
     const samples = rows.filter((row) => !row.mine && row.text).slice(-this.config.profileSamples);
     const reused = new Map<number, NonNullable<ProfileHints['emotions']>[number]>();

@@ -74,18 +74,17 @@ try {
       [dark, accent, background],
     );
     const invalid = await page.evaluate(() =>
-      [...document.querySelectorAll('.weq-task-quick-actions button')].some((button) => {
-        const rect = button.getBoundingClientRect();
-        return (
-          rect.width !== 30 ||
-          rect.height !== 30 ||
-          !button.title ||
-          !button.getAttribute('aria-label') ||
-          button.textContent.trim()
-        );
+      [...document.querySelectorAll('.weq-task-quick-actions button')].flatMap((button) => {
+        const { width, height } = button.getBoundingClientRect();
+        const label = button.getAttribute('aria-label');
+        const text = button.textContent.trim();
+        return width !== 30 || height !== 32 || !button.title || !label || text
+          ? [{ width, height, label, title: button.title, text }]
+          : [];
       }),
     );
-    if (invalid) throw new Error('快捷按钮尺寸、图标或提示不符合预期');
+    if (invalid.length)
+      throw new Error(`快捷按钮尺寸、图标或提示不符合预期：${JSON.stringify(invalid)}`);
     const report = page.locator('.weq-long-task-entry').filter({ hasText: '合成报告取消' });
     if (await report.getByRole('button', { name: '暂停', exact: true }).count())
       throw new Error('一次性报告不应提供暂停图标');
@@ -126,7 +125,7 @@ try {
     if (
       !(await cancelled
         .getByRole('button', { name: '重新下载', exact: true })
-        .locator('svg.lucide-rotate-cw')
+        .locator('svg.lucide-refresh-cw')
         .count())
     )
       throw new Error('取消后可重试的下载应显示重新下载图标');
@@ -180,7 +179,7 @@ try {
   const single = page.locator('.weq-long-task-entry').filter({ hasText: '合成下载-single' });
   await single.getByRole('button', { name: '打开文件', exact: true }).click();
   await single.getByRole('button', { name: '在文件夹中显示', exact: true }).click();
-  const batch = page.locator('.weq-long-task-entry').filter({ hasText: '合成下载-batch' });
+  const batch = page.getByRole('group', { name: /下载闪传文件.*2 个文件/ });
   if (await batch.getByRole('button', { name: '打开文件', exact: true }).count())
     throw new Error('多文件任务不应直接打开文件');
   await batch.getByRole('button', { name: '打开下载目录', exact: true }).click();
@@ -193,7 +192,7 @@ try {
   )
     throw new Error(`结果快捷操作调用异常: ${JSON.stringify(calls)}`);
   const resource = page.locator('.weq-long-task-entry').filter({ hasText: '合成暂停文件下载.zip' });
-  const mail = page.locator('.weq-long-task-entry').filter({ hasText: '合成邮件续作' });
+  const mail = page.getByRole('group', { name: '导出邮件', exact: true });
   await mail.getByRole('button', { name: '暂停', exact: true }).click();
   if (
     !(await mail
@@ -222,14 +221,14 @@ try {
   await exported.getByRole('button', { name: '取消', exact: true }).focus();
   await page.keyboard.press('Enter');
   await openMore(exported);
-  await page.getByRole('menuitem', { name: '删除导出缓存', exact: true }).click();
-  if (await exported.count()) throw new Error('导出删除后仍在列表中');
+  await page.getByRole('menuitem', { name: '归档', exact: true }).click();
+  if (await exported.count()) throw new Error('导出归档后仍在列表中');
   const forwarding = page.locator('.weq-long-task-entry').filter({ hasText: '合成目标群逐条转发' });
   await forwarding.getByRole('button', { name: '停止向此会话发送', exact: true }).click();
   await forwarding.getByText('已停止后续转发', { exact: false }).waitFor();
   await openMore(forwarding);
-  await page.getByRole('menuitem', { name: '移除任务', exact: true }).click();
-  if (await forwarding.count()) throw new Error('转发删除后仍在列表中');
+  await page.getByRole('menuitem', { name: '归档', exact: true }).click();
+  if (await forwarding.count()) throw new Error('转发归档后仍在列表中');
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(
     '小菜单任务快捷操作：4 组主题/宽窄屏、结果打开/定位/报告且不重复保存、闪传单文件/目录、任务控制、更多菜单及键盘操作通过',

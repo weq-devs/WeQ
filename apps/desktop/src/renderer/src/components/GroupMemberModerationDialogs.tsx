@@ -48,6 +48,7 @@ export function GroupMemberTitleDialog({
 }): ReactElement {
   return (
     <OverlayLayer
+      fade
       presentation="popover"
       title="编辑专属头衔"
       className="modal-scrim group-member-scrim"
@@ -85,6 +86,7 @@ export function GroupMemberRenameDialog({
 
   return (
     <OverlayLayer
+      fade
       presentation="popover"
       className="modal-scrim group-member-scrim"
       onClose={onCancel}
@@ -142,7 +144,7 @@ export function GroupMemberKickDialog({
   onConfirm: () => void;
 }): ReactElement {
   return (
-    <OverlayLayer className="modal-scrim group-member-scrim" onClose={onCancel}>
+    <OverlayLayer fade className="modal-scrim group-member-scrim" onClose={onCancel}>
       <section
         className="group-member-dialog is-confirm"
         role="dialog"

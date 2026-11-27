@@ -197,21 +197,21 @@ it.each([
   }
 });
 
-it('联系人高亮重复的原文命中，也展示拼音命中的别名和群名片', () => {
+it.each(['xmdx', '厦m大xue'])('联系人搜索 %s 高亮重复原文及别名、群名片', (keyword) => {
   const f = mount(
     h(SearchResultCard, {
       hit: contactSearchHit({
-        nick: 'xMdX / XMDX',
-        aliases: ['厦门大学旧昵称'],
+        nick: `${keyword} / ${keyword.toUpperCase()}`,
+        aliases: ['🌊 厦门大学旧昵称'],
         groups: [{ groupCode: '20001', groupName: '同学群', display: '厦门大学同学' }],
       }),
-      keyword: 'xmdx',
+      keyword,
     }),
   );
   try {
     expect([...f.host.querySelectorAll('mark')].map((node) => node.textContent)).toEqual([
-      'xMdX',
-      'XMDX',
+      keyword,
+      keyword.toUpperCase(),
       '厦门大学',
       '厦门大学',
     ]);

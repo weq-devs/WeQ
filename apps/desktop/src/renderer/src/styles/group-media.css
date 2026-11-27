@@ -3,7 +3,7 @@
  *
  * 这些组件都是 WeQ 自己的，样式原先却写在 `im-template/styles/chat.css` 里 ——
  * 模板目录只该放上游 IM 层的样式，WeQ 的弹窗样式放这里，改起来不必动 vendored 代码。
- * 由 `styles/index.css` 统一 @import（主窗口与导出窗口都走它）。
+ * 群资源和分析组件加载时一并引入，账号选择页无需加载。
  */
 
 .group-album-scrim {

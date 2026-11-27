@@ -56,8 +56,12 @@
   padding-inline: 5px;
   background: var(--weq-bg-surface);
 }
-.weq-export-content-row .weq-segmented button + button {
-  border-left: 0;
+/* 相邻两段共用一条分隔线，选中时由选中项绘制。 */
+.weq-export-content-row .weq-segmented button + button:not([aria-checked='true']) {
+  border-inline-start-width: 0;
+}
+.weq-export-content-row .weq-segmented button:has(+ button[aria-checked='true']) {
+  border-inline-end-width: 0;
 }
 .weq-export-content-row .weq-segmented button:first-child {
   border-radius: 4px 0 0 4px;
@@ -66,6 +70,7 @@
   border-radius: 0 4px 4px 0;
 }
 .weq-export-content-row .weq-segmented button[aria-checked='true'] {
+  border-color: var(--weq-accent-solid);
   background: color-mix(in srgb, var(--weq-accent-effective) 15%, var(--weq-bg-surface));
   color: var(--weq-fg-primary);
 }

@@ -116,13 +116,13 @@ async function mount() {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = async (active = true) =>
+  const render = async (active = true, favoriteRevision?: number) =>
     act(async () =>
       root.render(
         h(
           PageSnapshots,
           { scope: `10001:${f.configId}` },
-          h(TabActivity, { active }, h(ResourceManagementSection)),
+          h(TabActivity, { active }, h(ResourceManagementSection, { favoriteRevision })),
         ),
       ),
     );
@@ -144,6 +144,22 @@ async function mount() {
     )!;
   return { host, render, view, button };
 }
+it('收藏表情任务可从资源管理的其他视图打开收藏表情', async () => {
+  f.configId = 'synthetic-favorite-result';
+  const page = await mount();
+  await page.view('qq-storage-cleanup');
+  await page.render(true, 1);
+  expect(f.browse).toHaveBeenLastCalledWith(
+    { category: 'customEmoji', favoriteRevision: 1 },
+    expect.any(Number),
+  );
+  await page.view('qq-storage-analysis');
+  await page.render(true, 2);
+  expect(f.browse).toHaveBeenLastCalledWith(
+    { category: 'customEmoji', favoriteRevision: 2 },
+    expect.any(Number),
+  );
+});
 it('直接承载概览、清理和浏览，共享一次扫描，表情子目标不再计入总量', async () => {
   const page = await mount();
   expect(page.host.querySelector('.weq-ra-tile-value')?.textContent).toBe('80 B');

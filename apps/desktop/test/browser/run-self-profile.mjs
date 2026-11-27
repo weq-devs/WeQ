@@ -112,7 +112,14 @@ try {
   assert.equal(await nickname.locator('svg').count(), 0);
   assert.equal(await nickname.locator('button').count(), 0);
   const statusTrigger = page.getByRole('button', { name: '编辑在线状态', exact: true });
-  assert.equal(await statusTrigger.locator('..').getAttribute('class'), 'weq-contact-title-line');
+  assert.ok(
+    await statusTrigger.evaluate((button) => {
+      const heading = button.closest('.weq-contact-title-line');
+      const name = heading?.querySelector('.weq-contact-name');
+      return name && button.getBoundingClientRect().top >= name.getBoundingClientRect().bottom;
+    }),
+    '本人在线状态应在昵称下方的独立一行',
+  );
   assert.ok((await statusTrigger.textContent()).includes('在线'));
   assert.equal(await page.locator('[data-profile-field="扩展在线状态"]').count(), 0);
   await statusTrigger.click();

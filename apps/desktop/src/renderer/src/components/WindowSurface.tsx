@@ -9,7 +9,12 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { MoveDiagonal2 } from 'lucide-react';
-import { OverlayLayerContext, hasActiveModal, useOverlayLayerScope } from '../lib/overlayStack';
+import {
+  OVERLAY_BASE_LAYER,
+  OverlayLayerContext,
+  hasActiveModal,
+  useOverlayLayerScope,
+} from '../lib/overlayStack';
 import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor.shared';
 import { useRenderDocument } from '../lib/renderDocument';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
@@ -92,7 +97,8 @@ export function WindowSurface({
 }) {
   const document = useRenderDocument();
   const view = document.defaultView;
-  const active = useTabActive() && open;
+  const tabActive = useTabActive();
+  const active = tabActive && open;
   const card = useRef<HTMLDivElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
   useMobileWebViewport(layerRef, active && IS_WEB);
@@ -260,9 +266,11 @@ export function WindowSurface({
     <div
       ref={layerRef}
       className="weq-window-layer"
+      data-weq-surface-motion={tabActive ? 'exit' : undefined}
       hidden={!active}
       inert={!active}
-      style={{ zIndex: layer, display: active ? undefined : 'none' }}
+      aria-hidden={!active || undefined}
+      style={{ zIndex: active ? layer : OVERLAY_BASE_LAYER, display: active ? undefined : 'none' }}
     >
       <div
         ref={card}

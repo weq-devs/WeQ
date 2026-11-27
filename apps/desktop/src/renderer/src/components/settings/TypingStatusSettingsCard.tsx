@@ -14,6 +14,7 @@ import { Keyboard, Pencil, Save } from 'lucide-react';
 import { classifyChatType } from '@weq/codec';
 import { useTypingStatusSettings } from '../../hooks/useTypingStatusSettings';
 import { useTabActive } from '../RetainedTabs.shared';
+import { SegmentedControl } from '../SegmentedControl';
 import { ToolSurface } from '../ToolSurface';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { PageShell } from '../PageShell';
@@ -23,7 +24,6 @@ import { Card, Row, QueryError } from './controls';
 import { BeforeLoginSettingsContext } from './controls.shared';
 import { ConversationPicker } from '../../views/export/ConversationPicker';
 import { convAvatarUrl, fmtCount, type PickItem } from '../../views/export/types';
-import { cn } from '../../im-template/template/classNames';
 import '../../styles/typing-status-settings.css';
 
 type TypingMode = 'off' | 'selected' | 'all';
@@ -172,21 +172,13 @@ export function TypingStatusSettingsCard() {
                 : '默认向对方展示正在输入状态。'
           }
           control={
-            <div className="weq-set-seg" role="radiogroup" aria-label="隐藏正在输入状态启用范围">
-              {MODE_OPTIONS.map((option) => (
-                <button
-                  type="button"
-                  role="radio"
-                  key={option.value}
-                  aria-checked={mode === option.value}
-                  className={cn('weq-set-seg-item', mode === option.value && 'is-on')}
-                  disabled={disabled || query.isLoading}
-                  onClick={() => void preferences.setMode(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              label="隐藏正在输入状态启用范围"
+              value={mode}
+              options={MODE_OPTIONS}
+              disabled={disabled || query.isLoading}
+              onChange={(mode) => void preferences.setMode(mode)}
+            />
           }
         />
         {mode === 'selected' ? (

@@ -187,28 +187,34 @@ export function ContactIdentity({
         <ContactFieldHistoryButton field="avatar" label="头像" />
         <div className="weq-profile-heading">
           <div className="weq-contact-title-line">
-            <SelfProfileSlot field="nickname" inline renderValue={renderName}>
-              {renderName(title)}
-            </SelfProfileSlot>
-            <ContactFieldHistoryButton field="nick" label="昵称" />
+            <div className="weq-contact-name-line">
+              <SelfProfileSlot field="nickname" inline renderValue={renderName}>
+                {renderName(title)}
+              </SelfProfileSlot>
+              <ContactFieldHistoryButton field="nick" label="昵称" />
+            </div>
             {showStatus ? (
-              /^u_/.test(person.uid || person.id) ? (
-                <OnlineStatus
-                  uid={person.uid || person.id}
-                  showBaseStatus
-                  fallbackText={fallbackStatus}
-                  selfUin={relationship === 'self' ? person.identityValue : undefined}
-                />
-              ) : relationship === 'self' ? (
-                <SelfOnlineStatus uin={person.identityValue}>
-                  <span className="weq-contact-status">{fallbackStatus}</span>
-                </SelfOnlineStatus>
-              ) : (
-                <span className="weq-contact-status">{fallbackStatus}</span>
-              )
-            ) : null}
-            {showStatus && !self ? (
-              <ContactFieldHistoryButton field="status" label="在线状态" />
+              <div className="weq-contact-status-line">
+                {/^u_/.test(person.uid || person.id) ? (
+                  <OnlineStatus
+                    uid={person.uid || person.id}
+                    showBaseStatus
+                    fallbackText={fallbackStatus}
+                    selfUin={relationship === 'self' ? person.identityValue : undefined}
+                  />
+                ) : relationship === 'self' ? (
+                  <SelfOnlineStatus uin={person.identityValue}>
+                    <span className="weq-contact-status" title={fallbackStatus}>
+                      {fallbackStatus}
+                    </span>
+                  </SelfOnlineStatus>
+                ) : fallbackStatus ? (
+                  <span className="weq-contact-status" title={fallbackStatus}>
+                    {fallbackStatus}
+                  </span>
+                ) : null}
+                {!self ? <ContactFieldHistoryButton field="status" label="在线状态" /> : null}
+              </div>
             ) : null}
           </div>
           <div className="weq-contact-meta">
@@ -370,7 +376,7 @@ function QqShowRow({ person }: { person: ProfilePerson }) {
           uin={person.identityValue}
           anchor={anchor.current}
           name={displayUserName(person)}
-          currentRevision={url ? Number(/\/(\d+)\.png/.exec(url)?.[1]) || null : null}
+          currentRevision={Number(/\/(\d+)\.png/.exec(url)?.[1]) || null}
           onClose={() => {
             setOpen(false);
             anchor.current?.focus({ preventScroll: true });

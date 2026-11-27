@@ -1,3 +1,4 @@
+import { formatDateTime } from '@weq/time';
 import { ASSISTANT_BASE_SPECS, ANALYZE_ATTACHED_IMAGE_SPEC } from './assistant_local_tools';
 import {
   exactLightweightGroups,
@@ -45,19 +46,25 @@ import {
   ApiHttpError,
   isApiCancellation,
   apiErrorMessage,
+  apiErrorExcerpt,
   pickMessageText,
   imageOutcomeAnnotation,
+  imageRequestContent,
+  directImageBudget,
+  isImageInputRejected,
   ConversationContextCompactor,
   estimateContextTokens,
   type AgentLabEndpoint,
   type AgentLabModelSelection,
   normalizeModelSelection,
   type AgentLabUsage,
+  type AiContentPart,
 } from '@weq/agentlab';
 import type { TokenUsageStore } from './agentlab_usage';
 import type { ConversationStore, ConversationTurn } from './agentlab_conversation';
 import { sessionTitleFromText } from './agentlab_session';
 import { JsonStore } from '../common/json_store';
+import { automaticAiRestricted, watchTransferPolicy } from '../common/transfer_policy';
 import type { PreferencePersistence } from '../common/shared_preferences';
 import { assistantCapabilityGuidance } from './assistant_capabilities';
 import { AssistantToolTimeoutError, withAssistantToolDeadline } from './assistant_tool_deadline';
@@ -428,8 +435,10 @@ interface AssistantAttachment {
 function assistantImageContent(text: string, outcomes: AiImageOutcome[], ids: string[]): string {
   return [
     text,
-    ...outcomes.map((outcome, index) =>
-      imageOutcomeAnnotation({ ...outcome, id: ids[index] ?? outcome.id }),
+    ...outcomes.flatMap((outcome, index) =>
+      outcome.status === 'direct'
+        ? []
+        : [imageOutcomeAnnotation({ ...outcome, id: ids[index] ?? outcome.id })],
     ),
   ]
     .filter(Boolean)
@@ -1435,8 +1444,16 @@ export class AssistantService {
       this.pendingTitles.has(id)
     )
       return;
+    if (automaticAiRestricted()) {
+      session.titlePending = false;
+      this.persistSessions();
+      return;
+    }
     const controller = new AbortController();
     this.pendingTitles.set(id, controller);
+    const unwatch = watchTransferPolicy(() => {
+      if (automaticAiRestricted()) controller.abort();
+    });
     void this.generateTitle(text, reply, controller.signal)
       .then((title) => {
         if (!title || controller.signal.aborted) return;
@@ -1449,6 +1466,7 @@ export class AssistantService {
         /* 标题失败时保留临时标题，不影响回答。 */
       })
       .finally(() => {
+        unwatch();
         if (this.pendingTitles.get(id) === controller) this.pendingTitles.delete(id);
       });
   }
@@ -1580,12 +1598,14 @@ export class AssistantService {
       );
       const toolTokens = estimateContextTokens(JSON.stringify(specs));
       const preparedImages = new WeakMap<ApiMessage, string>();
+      const directImages = new WeakMap<ApiMessage, string | AiContentPart[]>();
       const attachmentIds = new WeakMap<ApiMessage, string[]>();
       const imageToolResults = new Map<
         string,
         Awaited<ReturnType<AssistantService['analyzeAttachedImage']>>
       >();
       let nextImageId = 0;
+      let allowDirectImages = true;
       for (let loop = 0; loop < TOOL_LOOP_LIMIT; loop += 1) {
         throwIfAborted(ac.signal);
         this.consumeSupplements(sessionId, state);
@@ -1600,6 +1620,8 @@ export class AssistantService {
         );
         const prefix = state.partialText ?? '';
         const sourceMessages = this.buildRoundMessages(state, capabilityGuidance);
+        // 图片属于真实用户输入，运行资料不参与附件目标选择。
+        const latestUser = state.messages.findLast((message) => message.role === 'user');
         if (prefix) {
           sourceMessages.push(
             { role: 'assistant', content: prefix },
@@ -1612,6 +1634,7 @@ export class AssistantService {
         }
         const roundMessages: ApiMessage[] = [];
         const attachments = new Map<string, AssistantAttachment>();
+        let sentDirectImages = false;
         for (const message of sourceMessages) {
           const {
             images: refs,
@@ -1631,7 +1654,9 @@ export class AssistantService {
             attachmentIds.set(message, ids);
           }
           let content = preparedImages.get(message);
-          if (content === undefined) {
+          let directContent =
+            allowDirectImages && message === latestUser ? directImages.get(message) : undefined;
+          if (content === undefined && !directContent) {
             if (
               outcomes?.length === refs.length &&
               outcomes.every(
@@ -1646,20 +1671,35 @@ export class AssistantService {
                 feature: 'assistant',
                 text,
                 images: refs,
+                ...(allowDirectImages && message === latestUser
+                  ? { endpoint, direct: true, directBudget: directImageBudget() }
+                  : {}),
                 signal: ac.signal,
               });
               content = assistantImageContent(text, prepared.outcomes, ids);
-              this.rememberImageOutcomes(sessionId, state.taskId, message, prepared.outcomes);
+              if (prepared.directImages?.length) {
+                directContent = imageRequestContent(
+                  content,
+                  prepared.directImages.map((image) => ({
+                    ...image,
+                    id: ids[refs.findIndex((ref) => ref.id === image.id)] ?? image.id,
+                  })),
+                );
+                directImages.set(message, directContent);
+              } else {
+                this.rememberImageOutcomes(sessionId, state.taskId, message, prepared.outcomes);
+              }
               const report = prepared.outcomes.flatMap((outcome) => outcome.notes).join('\n');
               if (report && message.imageReport !== report)
                 record({ kind: 'thinking', text: report });
               message.imageReport = report;
             }
-            preparedImages.set(message, content);
+            if (!directContent) preparedImages.set(message, content);
           }
           for (const [index, image] of refs.entries())
             attachments.set(ids[index]!, { image, message, ids });
-          roundMessages.push({ ...plain, content });
+          sentDirectImages ||= Boolean(directContent);
+          roundMessages.push({ ...plain, content: directContent ?? content });
         }
         // 最后一轮强制关闭工具，逼模型给出文字结论，避免"用尽轮数"硬中断。
         const allowTools = specs.length > 0 && loop < TOOL_LOOP_LIMIT - 1;
@@ -1669,19 +1709,33 @@ export class AssistantService {
         if (mailbox) mailbox.request = requestController;
         const requestSignal = AbortSignal.any([ac.signal, requestController.signal]);
         let response: Awaited<ReturnType<AssistantService['callApiStream']>>;
+        let streamed = false;
         try {
           response = await this.callApiStream(
             endpoint,
             roundMessages,
             allowTools ? roundSpecs : [],
             (step) => {
-              if (!requestSignal.aborted) emit(step);
+              if (requestSignal.aborted) return;
+              if (step.kind === 'text_delta' || step.kind === 'reasoning_delta') streamed = true;
+              emit(step);
             },
             requestSignal,
           );
         } catch (error) {
           ac.signal.throwIfAborted();
           if (requestController.signal.aborted && this.consumeSupplements(sessionId, state)) {
+            loop--;
+            continue;
+          }
+          if (
+            sentDirectImages &&
+            !requestSignal.aborted &&
+            !streamed &&
+            isImageInputRejected(error)
+          ) {
+            allowDirectImages = false;
+            record({ kind: 'thinking', text: '模型未接受随请求发送的图片，改用图片解读后继续。' });
             loop--;
             continue;
           }
@@ -1979,18 +2033,26 @@ export class AssistantService {
       );
   }
 
-  /** 每轮发送前的消息组装：把动态注入段（摘要 + 调查计划/工作笔记）拼进 system。 */
+  /** 固定规则保留在前缀，本轮时间、摘要和工作笔记在历史之后集中注入。 */
   private buildRoundMessages(state: AssistantRunState, capabilityGuidance = ''): ApiMessage[] {
-    const blocks: string[] = capabilityGuidance ? [capabilityGuidance] : [];
+    const blocks = [
+      `当前时间：${formatDateTime(Date.now())}（北京时间）。相对日期按本轮时间和原消息时间判断。`,
+    ];
     if (state.summary) blocks.push(summaryBlock(state.summary));
     const ws = workspaceBlock(state.workspace);
     if (ws) blocks.push(ws);
     return [
       {
         role: 'system',
-        content: blocks.length ? `${state.basePrompt}\n\n${blocks.join('\n\n')}` : state.basePrompt,
+        content: capabilityGuidance
+          ? `${state.basePrompt}\n\n${capabilityGuidance}`
+          : state.basePrompt,
       },
       ...state.messages.slice(1),
+      {
+        role: 'user',
+        content: `【本轮运行资料】（用于继续当前任务，不是新的用户请求）\n${blocks.join('\n\n')}`,
+      },
     ];
   }
 
@@ -2145,8 +2207,6 @@ export class AssistantService {
   }
 
   private systemPrompt(userText = '', evidenceFollowUp = false): string {
-    const today = new Date();
-    const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     // 报告排版指南（rp-* 那一大段）只在用户这轮确有「写报告/网页/看板」意图时才注入，
     // 否则整段剔除：省 token，也避免几十行排版细节稀释调查方法论指令。
     const wantsReport = REPORT_INTENT_PATTERN.test(userText);
@@ -2157,7 +2217,7 @@ export class AssistantService {
       : '';
     return [
       '你是 WeQ 助手，运行在 WeQ 应用里，是一个**任务执行者**：你的职责是亲自把用户的问题查清楚、把授权范围内的任务做完，而不是告诉用户"你可以自己去搜索/查看"。',
-      `今天是 ${dateStr}。涉及"哪天/什么时候"等时间问题时，结合聊天记录里的日期与今天推算。`,
+      '涉及日期和时间时，使用本轮运行资料中的北京时间，并结合原消息时间理解相对日期。',
       // 证据追问命中：置顶一条硬规则，强制本轮重新取证，压住"复述旧结论/嘴硬辩护"的倾向。
       evidenceFollowUp
         ? '\n⚠️【本轮特别要求：这是对上一条结论的证据追问】\n' +
@@ -2174,11 +2234,12 @@ export class AssistantService {
       '- 提到某个人名/群名（如"小枳壳"）时，先用 find_contact 把名字解析成会话（私聊对方 uid 或群号），再用 get_messages / search_in_conversation 在该会话里查；不要把人名本身当关键词去全文搜索。',
       '- search_messages 一次没命中，要换同义词/更短的关键词/不同 scope 多试几次；也可以直接 get_messages 把相关会话最近的消息读出来自己判断。',
       '- 群里找某个人的发言：先 find_contact 或 list_group_members 把昵称解析成 uid，再定位。',
+      '- 当前证据已经覆盖用户问题、必要操作已有明确结果时，直接交付；只有具体缺项、矛盾或结果未知时继续查证，不为凑查询次数重复取数。',
       '- 多轮推进：每一步先想清楚下一步查什么，再调用工具；拿到结果后据此决定继续查还是作答。',
       '- 优先使用现成的聚合、排行和日期工具，一次专用查询能回答的问题，不逐个遍历所有会话；跨工具计算可使用本轮可用的计算工具，宿主操作能力以本轮权限指引为准。复杂任务可用调查计划和工作笔记记录待办、范围与证据，简单问题直接查询作答。',
       '- **数据库是最后手段**：优先使用联系人、消息、时间线和统计等专用工具。只有它们确实不覆盖所需字段时，才按本轮工具定义列库、表、列确认结构，再执行只读查询；不猜库名和列号，不擅自写库。',
       '- 只有在合理地尝试过多种方式仍查不到时，才如实说明"没找到"，并简要说明你已经查过的范围，给出可能的下一步建议。绝不编造不存在的信息。',
-      '- **真实动作与查询分开**：发送工具会真的把消息发出去，本工具集没有消息撤回工具。只在用户明确要求时执行；用户给定原文就原样发送，要求代拟则按其意图撰写。目标与措辞已明确的群聊、@ 和引用不重复确认。检查业务返回的 ok / success / error / hint，失败不说成成功。',
+      '- **真实动作与查询分开**：发送工具会真的把消息发出去；撤回及其他操作是否可用，以本轮工具与能力目录的实际返回为准。只在用户明确要求时执行；用户给定原文就原样发送，要求代拟则按其意图撰写。目标与措辞已明确的群聊、@ 和引用不重复确认。检查业务返回的 ok / success / error / hint，失败不说成成功。',
       '',
       '【调查方法论】（关系/人物/结论类问题必须遵守，避免"看几句话就下判断"）',
       '- **引用 vs 推断分离**：工具返回的原话只能证明它字面直接支持的事实；任何关系亲疏、态度、动机、情绪的判断都属于你的推断，要另起一句标成"我的推断是……"，并说明依据与不确定性，别把推断当既定事实陈述。',
@@ -2583,8 +2644,10 @@ export class AssistantService {
     };
     const res = await requestResponse(withReasoning);
     if (!res.ok || !res.body) {
-      const detail = await rejectResponse(res);
-      throw new Error(httpErrorMessage(res.status, detail));
+      const detail = apiErrorExcerpt(await rejectResponse(res));
+      throw new Error(httpErrorMessage(res.status, detail), {
+        cause: new ApiHttpError('/chat/completions', res.status, detail),
+      });
     }
 
     let content = '';

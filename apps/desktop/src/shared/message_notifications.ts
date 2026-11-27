@@ -67,21 +67,29 @@ export function incomingMessageCopy(options: {
     }
   });
   const text = plainContentText(content).trim();
-  const fallback =
-    event === 'redPacket'
-      ? '发来一个红包'
-      : event === 'replyMe' || elements.some((el) => el.type === 'reply')
-        ? '引用了一条消息'
-        : event === 'mentionMe' || event === 'mentionAll'
-          ? ''
-          : '发来一条消息';
-  const body = text
-    ? [sender, text].filter(Boolean).join('：')
-    : fallback
-      ? `${sender}${fallback}`
-      : sender
-        ? `来自 ${sender}`
-        : '';
+  let body: string;
+  if (text) {
+    body = [sender, text].filter(Boolean).join('：');
+  } else {
+    switch (event) {
+      case 'mentionMe':
+      case 'mentionAll':
+        body = sender ? `来自 ${sender}` : '';
+        break;
+      case 'replyMe':
+        body = `${sender}回复了你`;
+        break;
+      case 'redPacket':
+        body = `${sender}发来一个红包`;
+        break;
+      default:
+        body =
+          (event === 'directMessage' || event === 'groupMessage') &&
+          elements.some((element) => element.type === 'reply')
+            ? `${sender}引用了一条消息`
+            : `${sender}发来一条消息`;
+    }
+  }
   return { title, body: notificationInlineText(body, 200), detail: body.slice(0, 2048) };
 }
 

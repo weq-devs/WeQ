@@ -7,7 +7,7 @@ import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import { AccountQqSync } from '../src/main/qq_sync/account';
 import { clientReadTargets } from '@weqbot/protocol/qq-sync';
-import { encode, FRIEND_RECALL, MSG_PUSH_ENVELOPE } from '@weqbot/protocol';
+import { encode, FRIEND_RECALL, INPUT_STATUS_NOTIFY, MSG_PUSH_ENVELOPE } from '@weqbot/protocol';
 import type { AntiRecallService } from '@weq/service';
 
 const f = vi.hoisted(() => ({ request: vi.fn(), history: vi.fn(), subscribe: vi.fn() }));
@@ -300,6 +300,7 @@ it('实时撤回唤醒持久队列，空闲时保留低频校准', async () => {
     directories.push(root);
     let enabled = true;
     const observePush = vi.fn(async () => {});
+    const onLiveUpdates = vi.fn();
     const entry = { id: 'notice', at: Date.now(), events: [] };
     const session = { context: { uin: '10001' }, selfUid: 'u_self' } as unknown as AccountSession;
     const protection = () => ({ enabled: true, method: 'proxy', mode: 'all', targets: [] });
@@ -331,6 +332,7 @@ it('实时撤回唤醒持久队列，空闲时保留低频校准', async () => {
       enabled: () => false,
       liveEnabled: () => enabled,
       onLiveMessages: () => {},
+      onLiveUpdates,
       current: () => ({ pid: 123, key: '07'.repeat(16) }),
     });
     services.push(service);
@@ -367,6 +369,29 @@ it('实时撤回唤醒持久队列，空闲时保留低频校准', async () => {
       recallFrames: 1,
       interactionTargets: 1,
     });
+    deliver(
+      Buffer.from(
+        encode(MSG_PUSH_ENVELOPE, {
+          messages: [
+            {
+              contentHead: { msgType: 528, subType: 277 },
+              body: {
+                msgContent: encode(INPUT_STATUS_NOTIFY, {
+                  fromUid: 'u_peer',
+                  toUid: 'u_self',
+                  notifyItem: { eventType: 1 },
+                }),
+              },
+            },
+          ],
+        }),
+      ),
+    );
+    expect(onLiveUpdates).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        business: [expect.objectContaining({ kind: 'input-status', uid: 'u_peer' })],
+      }),
+    );
     pending = false;
     enabled = false;
     service.refreshLive();

@@ -6,18 +6,25 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { ExportLightbox } from '../src/renderer/src/views/export/ExportLightbox';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  trpc: { account: { exportCalendar: { useQuery: () => ({ data: [] }) } } },
+  trpc: {
+    account: { exportCalendar: { useQuery: () => ({ data: [] }) } },
+    bootstrap: { localModelResources: { useQuery: () => ({ data: undefined }) } },
+  },
   client: {
+    wonderfulTools: {
+      captureSupport: { query: async () => ({ available: true, elevated: true }) },
+    },
     account: {
-      getGroupAlbumAccessState: { query: async () => ({ qqOnline: true, attachEnabled: true }) },
+      getGroupAlbumAccessState: { query: async () => ({ qqOnline: false, attachEnabled: false }) },
+      onlineTranscribeStatus: { query: async () => ({ armed: false }) },
       onlineTranscribeDisarm: { mutate: async () => undefined },
     },
     bootstrap: {
       ocrModels: { query: async () => ({ models: [] }) },
       getSettings: {
         query: async () => ({
-          ocr: { onlineConcurrency: 8 },
-          voiceTranscribe: { modelId: 'test-voice', onlineConcurrency: 3 },
+          ocr: { onlineConcurrency: 8, priority: 'local' },
+          voiceTranscribe: { modelId: 'test-voice', onlineConcurrency: 3, priority: 'qq' },
         }),
       },
       voiceModels: { query: async () => [{ id: 'test-voice', downloaded: true }] },
@@ -112,9 +119,7 @@ it.each([false, true])('设为默认按钮可撤销，确认时携带对应保�
       [...host.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
     ).not.toContain('转录并发');
     expect(host.querySelector('.weq-model')).toBeNull();
-    expect(host.textContent).toContain(
-      '识别并发、筛图模型和转录并发请在「设置 → AI 功能」中调整。',
-    );
+    expect(host.textContent).toContain('识别设置');
     expect(host.textContent).not.toContain('设为此类内容的默认配置');
     expect(button('撤销')).toBeUndefined();
     act(() => button('设为默认').click());
@@ -140,7 +145,12 @@ it.each([false, true])('设为默认按钮可撤销，确认时携带对应保�
     expect(confirm).toHaveBeenCalledWith(
       expect.objectContaining({
         saveAsDefault: !undo,
-        options: expect.objectContaining({ ocrConcurrency: 8, onlineConcurrency: 3 }),
+        options: expect.objectContaining({
+          ocrConcurrency: 8,
+          onlineConcurrency: 3,
+          ocrPriority: 'local',
+          voicePriority: 'qq',
+        }),
       }),
     );
   } finally {

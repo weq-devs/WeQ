@@ -80,21 +80,6 @@ html[data-theme] :is(.weq-settings-nav-item.is-active, .weq-tools-child-menu > b
   color: var(--weq-accent-ink, var(--weq-fg-primary));
 }
 
-html[data-theme] .weq-set-seg {
-  border-color: var(--weq-border-subtle);
-  background: color-mix(in srgb, var(--weq-accent-effective) 7%, transparent);
-}
-
-html[data-theme] .weq-set-seg-item {
-  color: var(--weq-fg-secondary);
-}
-
-html[data-theme] .weq-set-seg-item.is-on {
-  background: var(--weq-accent-solid, var(--weq-accent-effective));
-  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
-  box-shadow: inset 0 0 0 1px var(--weq-accent-ink, var(--weq-fg-primary));
-}
-
 html[data-theme] :is(.composer-send:not(:disabled), .message-action-button.primary),
 html[data-theme]
   .mobile-composer-expanded

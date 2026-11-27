@@ -21,7 +21,6 @@ const state = vi.hoisted(() => ({
   monitor: {} as MonitorSettings,
   intent: {} as Record<string, unknown>,
   proxyEnabled: false,
-  qqSync: { enabled: false, liveMessages: false },
   notifications: {} as Record<string, unknown>,
   nativeDebug: false,
   remote: { enabled: false, tailscaleEnabled: false },
@@ -135,8 +134,6 @@ vi.mock('../src/main/ipc/routers/bootstrap', () => ({
             if (name === 'getSettings')
               return {
                 ...state.settings,
-                qqClientSyncEnabled: state.qqSync.enabled,
-                qqLiveMessagesEnabled: state.qqSync.liveMessages,
               };
             if (name === 'getAutostartStatus') return state.autostart;
             state.calls.push([name, input]);
@@ -149,9 +146,13 @@ vi.mock('../src/main/ipc/routers/bootstrap', () => ({
               ).priority;
             if (name === 'setCallRecording') Object.assign(state.settings.callRecording, input);
             if (name === 'setSsePushTuning') Object.assign(state.settings.ssePush, input);
-            if (name === 'setQqProxyEnabled') state.proxyEnabled = false;
-            if (name === 'setQqClientSyncEnabled') state.qqSync.enabled = false;
-            if (name === 'setQqLiveMessagesEnabled') state.qqSync.liveMessages = false;
+            if (name === 'setQqCapabilityMode') {
+              state.proxyEnabled = false;
+              state.settings.qqCapabilityMode = (
+                input as { mode: AppSettings['qqCapabilityMode'] }
+              ).mode;
+              return { status: 'saved' };
+            }
             if (name === 'setAutostart') {
               state.autostart = { enabled: false, registered: false, requiresApproval: false };
               return state.autostart;
@@ -219,7 +220,6 @@ beforeEach(() => {
   state.monitor = { ...DEFAULT_MONITOR_SETTINGS };
   state.intent = structuredClone(DEFAULT_INTENT_SENSE_CONFIG);
   state.proxyEnabled = false;
-  state.qqSync = { enabled: false, liveMessages: false };
   state.notifications = {};
   state.nativeDebug = false;
   state.remote = { enabled: false, tailscaleEnabled: false };
@@ -282,22 +282,23 @@ describe('分级恢复默认', () => {
       ],
     ]);
   });
-  it('预览后新启用的 QQ 代理须重新确认才会停用', async () => {
+  it('预览后切至完整模式时须重读档位再恢复', async () => {
     const api = rawCaller();
-    const target = { page: 'account', card: 'qq-client-sync' } as const;
+    const target = { page: 'account', card: 'attach' } as const;
     const preview = await api.preview(target);
     state.proxyEnabled = true;
+    state.settings.qqCapabilityMode = 'complete';
     await expect(
       api.restore({ ...target, source: preview.source, revision: preview.revision }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
     expect(state.proxyEnabled).toBe(true);
     const reread = await api.preview(target);
     expect(reread.items).toContainEqual(
-      expect.objectContaining({ id: 'qq-client-sync:proxy', current: true, stopsService: true }),
+      expect.objectContaining({ id: 'attach:qqCapabilityMode', current: 'complete' }),
     );
     expect(
       await api.restore({ ...target, source: reread.source, revision: reread.revision }),
-    ).toEqual([{ id: 'qq-client-sync:proxy', ok: true }]);
+    ).toEqual([{ id: 'attach:qqCapabilityMode', ok: true }]);
     expect(state.proxyEnabled).toBe(false);
   });
   it('开机自启正在等待系统批准时可以取消已登记的登录项', async () => {
@@ -379,23 +380,17 @@ describe('分级恢复默认', () => {
     expect(state.settings.sharedPreferences.assistant).toEqual(defaults);
     expect(state.settings.aiImages.assistant).toBe(DEFAULT_APP_SETTINGS.aiImages.assistant);
   });
-  it('按当前账号读取 QQ 同步偏好，拒绝用旧账号的预览恢复', async () => {
+  it('QQ 能力档位在宿主内共用，切换账号后仍恢复同一份设定', async () => {
     state.account = true;
-    state.proxyEnabled = true;
-    state.qqSync = { enabled: true, liveMessages: true };
-    const input = { page: 'account', card: 'qq-client-sync' } as const;
-    const preview = await caller().preview(input);
-    expect(
-      preview.items
-        .filter(({ current, defaultValue }) => current !== defaultValue)
-        .map(({ id }) => id),
-    ).toEqual(['qq-client-sync:proxy', 'qq-client-sync:enabled', 'qq-client-sync:live']);
+    state.settings.qqCapabilityMode = 'complete';
+    const target = { page: 'account', card: 'attach' } as const;
+    const api = rawCaller();
+    const preview = await api.preview(target);
     state.source = 'other-source';
-    await expect(caller().restore({ ...input, source: preview.source })).rejects.toThrow('已切换');
-    expect(state.qqSync).toEqual({ enabled: true, liveMessages: true });
-    await caller().restore({ ...input, source: (await caller().preview(input)).source });
-    expect(state.proxyEnabled).toBe(false);
-    expect(state.qqSync).toEqual({ enabled: false, liveMessages: false });
+    expect(
+      await api.restore({ ...target, source: preview.source, revision: preview.revision }),
+    ).toEqual([{ id: 'attach:qqCapabilityMode', ok: true }]);
+    expect(state.settings.qqCapabilityMode).toBe('local');
   });
   it('通知页清除当前账号的事件提醒范围，保留会话免打扰', async () => {
     state.account = true;

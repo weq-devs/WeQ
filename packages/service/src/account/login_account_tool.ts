@@ -1,3 +1,4 @@
+import { assertQqDatabaseWriteAllowed, withQqDatabaseWrite } from '@weq/db';
 /**
  * QQ 登录账号管理 —— `login.db` 的**写**侧。
  *
@@ -245,27 +246,29 @@ export class LoginAccountToolService {
 
   /** 对一个账号在**每个** login.db 上跑同一条写语句。 */
   private async writeAll(sql: string, uin: string): Promise<LoginAccountWriteResult> {
-    const result: LoginAccountWriteResult = { changedFiles: 0, changedRows: 0 };
-    for (const dbPath of this.deps.loginDbPaths) {
-      const algo = await this.resolveAlgo(dbPath);
-      if (!algo) continue;
-      try {
-        const rows = await this.deps.nt.executeSqlWriteWithKey(dbPath, sql, LOGIN_DB_KEY, algo, [
-          uin,
-        ]);
-        if (rows > 0) {
-          result.changedFiles++;
-          result.changedRows += rows;
+    return withQqDatabaseWrite(async () => {
+      const result: LoginAccountWriteResult = { changedFiles: 0, changedRows: 0 };
+      for (const dbPath of this.deps.loginDbPaths) {
+        const algo = await this.resolveAlgo(dbPath);
+        if (!algo) continue;
+        try {
+          const rows = await this.deps.nt.executeSqlWriteWithKey(dbPath, sql, LOGIN_DB_KEY, algo, [
+            uin,
+          ]);
+          if (rows > 0) {
+            result.changedFiles++;
+            result.changedRows += rows;
+          }
+        } catch (error) {
+          logger.warn('login.db write failed', {
+            event: 'login-account-write-failed',
+            dbPath,
+            ...logErrorContext(error),
+          });
         }
-      } catch (error) {
-        logger.warn('login.db write failed', {
-          event: 'login-account-write-failed',
-          dbPath,
-          ...logErrorContext(error),
-        });
       }
-    }
-    return result;
+      return result;
+    });
   }
 
   /** 移除快登：清掉该账号缓存的 A1（`[1004]`）。 */
@@ -311,6 +314,7 @@ export class LoginAccountToolService {
    * 必须已经确认没有 QQ 实例在跑（由上层把关）。
    */
   async rotateGuid(): Promise<string | null> {
+    assertQqDatabaseWriteAllowed();
     const root = this.deps.dataRoot;
     if (!root) throw new Error('没有解析出 QQ 数据根路径，无法更换设备 guid。');
     const write = this.deps.nt.writeDeviceGuid;

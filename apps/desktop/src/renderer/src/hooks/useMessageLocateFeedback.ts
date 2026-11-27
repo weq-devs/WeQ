@@ -1,44 +1,37 @@
-import { useCallback, useLayoutEffect, useRef } from 'react';
-import { useToastApi } from '../components/Toast.shared';
-import type { NotificationSource } from '../lib/notificationNavigation';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 
-/** 定位任务独占一条进度提示；换会话或后续定位会使旧任务失效。 */
+/** 同一会话只展示最近一次定位的进度。 */
 export function useMessageLocateFeedback(scope: string) {
-  const notificationToast = useToastApi();
-  const active = useRef<{ id: number; scope: string } | null>(null);
+  const active = useRef<object | null>(null);
   const currentScope = useRef(scope);
   currentScope.current = scope;
-  const clear = useCallback(() => {
-    if (active.current) notificationToast.remove(active.current.id);
+  const [pendingScope, setPendingScope] = useState<string | null>(null);
+  const cancel = useCallback(() => {
     active.current = null;
-  }, [notificationToast]);
-  useLayoutEffect(() => clear, [scope, clear]);
+    setPendingScope(null);
+  }, []);
+  useLayoutEffect(() => {
+    cancel();
+    return () => {
+      active.current = null;
+    };
+  }, [scope, cancel]);
 
   const run = useCallback(
-    async <T>(
-      work: (isCurrent: () => boolean) => Promise<T>,
-      source?: NotificationSource,
-    ): Promise<T> => {
-      clear();
-      const task = {
-        scope: currentScope.current,
-        id: notificationToast.push({
-          title: '正在加载目标消息…',
-          detail: '正在读取目标消息及附近记录',
-          loading: true,
-          dismissible: false,
-          source,
-        }),
-      };
+    async <T>(work: (isCurrent: () => boolean) => Promise<T>): Promise<T> => {
+      const started = currentScope.current;
+      const task = {};
       active.current = task;
-      const isCurrent = () => active.current === task && currentScope.current === task.scope;
+      setPendingScope(started);
+      const isCurrent = () => active.current === task && currentScope.current === started;
       try {
         return await work(isCurrent);
       } finally {
-        if (active.current === task) clear();
+        if (active.current === task) cancel();
       }
     },
-    [clear, notificationToast],
+    [cancel],
   );
-  return { run, cancel: clear };
+
+  return { run, cancel, locating: pendingScope === scope };
 }

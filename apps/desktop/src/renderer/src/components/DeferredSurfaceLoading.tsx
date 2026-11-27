@@ -11,11 +11,15 @@ export function DeferredSurfaceLoading({
   presentation = 'modal',
   anchor,
   width,
+  centered,
   embedded,
   open = true,
   standalone,
   keepMobileNavigation,
-}: Pick<ComponentProps<typeof Modal>, 'onClose' | 'presentation' | 'anchor' | 'width' | 'open'> & {
+}: Pick<
+  ComponentProps<typeof Modal>,
+  'onClose' | 'presentation' | 'anchor' | 'width' | 'open' | 'centered'
+> & {
   title: string;
   embedded?: boolean;
   standalone?: boolean;
@@ -52,6 +56,7 @@ export function DeferredSurfaceLoading({
       presentation={presentation}
       anchor={anchor}
       width={width}
+      centered={centered}
       onClose={onClose}
     >
       {body}

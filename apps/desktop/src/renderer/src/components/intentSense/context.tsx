@@ -14,6 +14,7 @@ import { NumericText } from '../NumericText';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { trpc, client } from '../../trpc/client';
 import { modelSelectionKey } from '@weq/agentlab/model-selection';
+import { useAutomaticAiRestricted } from '../../lib/dataSaver';
 import { RefreshCw } from 'lucide-react';
 import type { IntentAnalysisProgress } from '@weq/service';
 import {
@@ -75,6 +76,9 @@ export function IntentSenseProvider({
 
   const status = useIntentSenseStatus();
   const statusData = status.data;
+  const restricted = useAutomaticAiRestricted();
+  const analysisPaused = restricted && statusData?.engine === 'api';
+  const profilePaused = restricted && statusData?.profileEngine === 'api';
   const suggestAfterSelf = useRef(false);
   suggestAfterSelf.current = statusData?.suggestAfterSelf === true;
   const overridden = statusData?.conversationOverrides?.[`${kind}:${conv}`];
@@ -82,7 +86,12 @@ export function IntentSenseProvider({
     statusData?.engine === 'local' ? !!statusData.localReady : !!statusData?.apiConfigured;
   const effective = !!statusData?.enabled && overridden !== false && engineOk;
   useEffect(() => {
-    if (kind !== 'c2c' || !statusData?.profileEnabled || statusData.profileMode === 'manual')
+    if (
+      profilePaused ||
+      kind !== 'c2c' ||
+      !statusData?.profileEnabled ||
+      statusData.profileMode === 'manual'
+    )
       return;
     const timer = setTimeout(() => {
       void utils.account.intentSense.getProfile.invalidate({ peerUid: conv });
@@ -95,9 +104,11 @@ export function IntentSenseProvider({
     roamingMessageKey,
     statusData?.profileEnabled,
     statusData?.profileMode,
+    profilePaused,
     utils,
   ]);
   const autoAnalysisAllowed =
+    !analysisPaused &&
     statusData?.analysisMode !== 'manual' &&
     (latestPeerMsgId !== null || !analysisMessageId || statusData?.analyzeAfterSelf !== false);
 
@@ -132,7 +143,7 @@ export function IntentSenseProvider({
 
   const requestAnalysis = useCallback(
     (msgId: string) => {
-      if (statusData?.analysisMode === 'manual') return;
+      if (analysisPaused || statusData?.analysisMode === 'manual') return;
       const expected = `${kind}:${conv}:${engineKey}`;
       if (prevConvKeyRef.current !== expected) return;
       if (
@@ -165,7 +176,7 @@ export function IntentSenseProvider({
           return false;
         });
     },
-    [kind, conv, engineKey, merge, bump, statusData?.analysisMode],
+    [kind, conv, engineKey, merge, bump, statusData?.analysisMode, analysisPaused],
   );
 
   // 会话或配置变化时拉齐缓存；增量分析由下方独立目标驱动。
@@ -384,7 +395,7 @@ export function IntentSenseProvider({
   const value = useMemo<IntentSenseContextValue>(
     () => ({
       active: effective,
-      automatic: statusData?.analysisMode !== 'manual',
+      automatic: !analysisPaused && statusData?.analysisMode !== 'manual',
       persistentDisplay: statusData?.persistentDisplay !== false,
       hoverDisplay: statusData?.hoverDisplay !== false,
       loadingAnimation: statusData?.loadingAnimation !== false,
@@ -407,6 +418,7 @@ export function IntentSenseProvider({
     [
       effective,
       statusData?.analysisMode,
+      analysisPaused,
       statusData?.persistentDisplay,
       statusData?.hoverDisplay,
       statusData?.loadingAnimation,

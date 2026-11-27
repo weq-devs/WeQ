@@ -11,11 +11,18 @@ import { networkFetch } from '@weq/network';
  */
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { createWriteStream, constants } from 'node:fs';
+import { constants } from 'node:fs';
 import { readFile, mkdir, lstat, readdir, copyFile, rm } from 'node:fs/promises';
 import { join, dirname, isAbsolute, resolve } from 'node:path';
-import { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
+import { ManagedDownload, TransferDeferredError } from '../../common/managed_download';
+import { networkScope, transferBehavior } from '../../common/network_scope';
+import { shouldPauseTransfer } from '../../common/data_saver';
+import {
+  transferCanResume,
+  transferOwner,
+  transferRestricted,
+  watchTransferPolicy,
+} from '../../common/transfer_policy';
 import { getLogger, logErrorContext } from '../../common/logger';
 import { safeRelSegments, sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import { writeFileAtomic } from '../../common/atomic_write';
@@ -40,74 +47,18 @@ const FINISHED_FLASH_STATUSES: ReadonlySet<FlashTaskStatus> = new Set([
 ]);
 
 const CONCURRENCY = 4;
-const DL_RETRIES = 3;
-const DL_BACKOFF_BASE_MS = 300;
 /** 同名文件在同一目录下的去重后缀（保留原始目录结构的前提）。 */
 const MAX_NAME_LEN = 120;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-function backoffMs(n: number): number {
-  const base = DL_BACKOFF_BASE_MS * 2 ** n;
-  return base + Math.floor(Math.random() * base * 0.4);
-}
-
-/** 流式下载到 dest，回调已收到的字节数；可被 AbortController 中断。 */
-async function downloadWithProgress(
-  url: string,
-  dest: string,
-  signal: AbortSignal,
-  onProgress: (received: number, total: number) => void,
-): Promise<void> {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      const res = await networkFetch(url, { signal });
-      if (res.status === 429 || res.status >= 500) {
-        if (attempt < DL_RETRIES) {
-          await sleep(backoffMs(attempt));
-          continue;
-        }
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const ct = res.headers.get('content-type') ?? '';
-      if (!res.ok || !res.body || ct.startsWith('text/') || ct.includes('json')) {
-        throw new Error(`HTTP ${res.status} ct=${ct || 'n/a'}`);
-      }
-      const total = Number(res.headers.get('content-length') ?? 0) || 0;
-      await mkdir(dirname(dest), { recursive: true });
-      let received = 0;
-      const counter = new Transform({
-        transform(chunk: Buffer, _enc, cb) {
-          received += chunk.length;
-          onProgress(received, total);
-          cb(null, chunk);
-        },
-      });
-      await pipeline(
-        Readable.fromWeb(res.body as import('node:stream/web').ReadableStream),
-        counter,
-        createWriteStream(dest),
-        { signal },
-      );
-      return;
-    } catch (error) {
-      if (
-        attempt < DL_RETRIES &&
-        !(error instanceof Error && /^HTTP 4/.test(error.message)) &&
-        !isAbortError(error)
-      ) {
-        await sleep(backoffMs(attempt));
-        continue;
-      }
-      throw error;
-    }
+const fetchFlashFile: typeof fetch = async (url, options) => {
+  const response = await networkFetch(url, options);
+  const type = response.headers.get('content-type') ?? '';
+  if (response.ok && (type.startsWith('text/') || type.includes('json'))) {
+    await response.body?.cancel();
+    throw new Error('闪传返回的内容不是文件');
   }
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
-}
+  return response;
+};
 
 export class FlashTransferDownloadManager extends EventEmitter {
   private readonly tasksPath: string;
@@ -115,6 +66,13 @@ export class FlashTransferDownloadManager extends EventEmitter {
   private readonly aborts = new Map<string, AbortController>();
   private readonly running = new Set<string>();
   private readonly publishing = new Set<string>();
+  private readonly cleaning = new Set<string>();
+  private readonly transfers = new Map<string, ManagedDownload>();
+  private readonly requests = new Map<
+    string,
+    { owner?: string; batch: boolean; override: boolean }
+  >();
+  private unwatchQueue?: () => void;
   private pumping = false;
   private loading: Promise<void> | undefined;
   private writes = Promise.resolve();
@@ -160,6 +118,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
                 ...task,
                 status: 'failed',
                 interrupted: true,
+                pausedByPolicy: undefined,
                 finishedAt: now,
                 downloadedBytes: 0,
                 error: '上次下载已中断，可重试未完成文件。',
@@ -235,10 +194,14 @@ export class FlashTransferDownloadManager extends EventEmitter {
       .map((task) => ({
         ...task,
         canRetry:
-          task.files.some((file) => file.status === 'failed' || file.status === 'cancelled') &&
-          task.files.every(
-            (file) => FINISHED_FLASH_STATUSES.has(file.status) && !this.running.has(file.id),
-          ),
+          task.pausedByPolicy ||
+          (task.files.some((file) => file.status === 'failed' || file.status === 'cancelled') &&
+            task.files.every(
+              (file) =>
+                FINISHED_FLASH_STATUSES.has(file.status) &&
+                !this.running.has(file.id) &&
+                !this.cleaning.has(file.id),
+            )),
       }))
       .sort((a, b) => b.createdAt - a.createdAt);
   }
@@ -258,15 +221,30 @@ export class FlashTransferDownloadManager extends EventEmitter {
   }
 
   /** 只重试失败或取消的文件；旧下载完全退出后才复用任务身份与路径。 */
-  retry(taskId: string): Promise<boolean> {
+  retry(taskId: string, { background = false }: { background?: boolean } = {}): Promise<boolean> {
+    const owner = transferOwner();
     const request = this.startQueue.then(async () => {
       await this.loading;
       const batch = this.list().find((task) => task.id === taskId);
       if (!batch?.canRetry) return false;
+      if (batch.pausedByPolicy) {
+        const previous = this.requests.get(taskId);
+        this.requests.set(taskId, {
+          ...previous,
+          batch: previous?.batch ?? batch.files.length > 1,
+          override: true,
+        });
+        for (const file of batch.files) this.transfers.get(file.id)?.continue();
+        this.pump();
+        return true;
+      }
       const files = batch.files.filter(
         (file) => file.status === 'failed' || file.status === 'cancelled',
       );
-      const previous = files.map((file) => ({ ...file }));
+      const previous = (background ? batch.files : files).map(
+        (file) => [file, { ...file }] as const,
+      );
+      if (background) for (const file of batch.files) delete file.foreground;
       for (const file of files) {
         file.status = 'pending';
         delete file.interrupted;
@@ -278,11 +256,16 @@ export class FlashTransferDownloadManager extends EventEmitter {
       try {
         await this.persist(true);
       } catch (error) {
-        for (const [index, file] of files.entries()) Object.assign(file, previous[index]);
+        for (const [file, snapshot] of previous) Object.assign(file, snapshot);
         throw error;
       }
+      this.requests.set(taskId, {
+        owner,
+        batch: files.length > 1,
+        override: batch.pausedByUser === true,
+      });
       for (const file of files) this.emitTask(file);
-      void this.pump();
+      this.pump();
       return true;
     });
     this.startQueue = request.catch(() => {});
@@ -299,9 +282,19 @@ export class FlashTransferDownloadManager extends EventEmitter {
     selections: FlashSelection[],
     directory: string,
     viewFilesetId?: string,
+    browserOutput = false,
   ): Promise<{ started: number; errors: string[]; taskId?: string }> {
+    const owner = transferOwner();
     const request = this.startQueue.then(() =>
-      this.enqueue(filesetName, filesetId, selections, directory, viewFilesetId),
+      this.enqueue(
+        filesetName,
+        filesetId,
+        selections,
+        directory,
+        viewFilesetId,
+        browserOutput,
+        owner,
+      ),
     );
     this.startQueue = request.catch(() => {});
     return request;
@@ -334,7 +327,9 @@ export class FlashTransferDownloadManager extends EventEmitter {
     filesetId: string,
     selections: FlashSelection[],
     directory: string,
-    viewFilesetId?: string,
+    viewFilesetId: string | undefined,
+    browserOutput: boolean,
+    owner?: string,
   ) {
     await this.loading;
     if (!isAbsolute(directory) || !(await lstat(directory)).isDirectory())
@@ -372,6 +367,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
         id: randomUUID(),
         batchId,
         ...(viewFilesetId ? { viewFilesetId, foreground: true } : {}),
+        ...(browserOutput ? { browserOutput: true } : {}),
         filesetId: f.filesetId || filesetId,
         filesetName: filesetName || '闪传下载',
         name: f.name,
@@ -394,8 +390,11 @@ export class FlashTransferDownloadManager extends EventEmitter {
       this.tasks = this.tasks.filter((task) => !ids.has(task.id));
       throw error;
     }
-    for (const task of newTasks) this.emitTask(task);
-    void this.pump();
+    if (newTasks.length) {
+      this.requests.set(batchId, { owner, batch: newTasks.length > 1, override: false });
+      for (const task of newTasks) this.emitTask(task);
+      this.pump();
+    }
     return { started: newTasks.length, errors, taskId: newTasks.length ? batchId : undefined };
   }
 
@@ -414,13 +413,18 @@ export class FlashTransferDownloadManager extends EventEmitter {
       task.status = 'failed';
       task.interrupted = true;
       task.pausedByUser = true;
+      delete task.pausedByPolicy;
       task.downloadedBytes = 0;
       task.finishedAt = Date.now();
       task.error = '已手动暂停；继续时只重试未完成文件。';
       this.aborts.get(task.id)?.abort();
       this.emitTask(task);
     }
+    await Promise.all(
+      files.filter((task) => !this.running.has(task.id)).map((task) => this.removePartial(task)),
+    );
     await this.persist(true);
+    this.pump();
     return true;
   }
 
@@ -439,6 +443,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
         continue;
       this.aborts.get(task.id)?.abort();
       task.status = 'cancelled';
+      delete task.pausedByPolicy;
       if (task.interrupted) {
         delete task.interrupted;
         delete task.pausedByUser;
@@ -447,6 +452,11 @@ export class FlashTransferDownloadManager extends EventEmitter {
       task.finishedAt = Date.now();
       this.emitTask(task);
     }
+    await Promise.all(
+      tasks
+        .filter((task) => task.status === 'cancelled' && !this.running.has(task.id))
+        .map((task) => this.removePartial(task)),
+    );
     await this.persist();
     return true;
   }
@@ -499,18 +509,76 @@ export class FlashTransferDownloadManager extends EventEmitter {
 
   // ---- 后台调度 ----------------------------------------------------------
 
-  private async pump(): Promise<void> {
+  private partialPath(task: FlashDownloadTask) {
+    return `${task.targetPath}.weq-part-${task.id}`;
+  }
+
+  private async removePartial(task: FlashDownloadTask) {
+    this.cleaning.add(task.id);
+    const path = this.partialPath(task);
+    try {
+      await Promise.all(
+        [`${path}.part`, `${path}.resume.json`].map((file) =>
+          rm(file, { force: true }).catch((error: unknown) =>
+            logger.warn('清理闪传临时文件失败', { error: String(error) }),
+          ),
+        ),
+      );
+    } finally {
+      this.cleaning.delete(task.id);
+    }
+  }
+
+  private updateQueuedPolicy(task: FlashDownloadTask) {
+    const request = this.requests.get(task.batchId ?? task.id);
+    const behavior = transferBehavior();
+    const restricted =
+      transferRestricted(request?.owner) ||
+      (task.pausedByPolicy && !transferCanResume(request?.owner));
+    const paused =
+      !request?.override &&
+      (shouldPauseTransfer(
+        Boolean(restricted),
+        request?.batch ?? false,
+        task.fileSize,
+        task.downloadedBytes,
+        behavior,
+      ) ||
+        (task.pausedByPolicy && !behavior.dataSaverAutoResume));
+    if (Boolean(task.pausedByPolicy) !== Boolean(paused)) {
+      task.pausedByPolicy = paused || undefined;
+      this.emitTask(task);
+    }
+    return paused;
+  }
+
+  private pump(): void {
     if (this.pumping) return;
     this.pumping = true;
     try {
-      for (;;) {
-        const nextTask = this.tasks.find((t) => t.status === 'pending' && !this.running.has(t.id));
-        if (!nextTask || this.running.size >= CONCURRENCY) break;
-        this.running.add(nextTask.id);
-        void this.runTask(nextTask).finally(() => {
-          this.running.delete(nextTask.id);
-          void this.pump();
-        });
+      const live = new Set<string>();
+      let queued = false;
+      for (const task of this.tasks) {
+        const batchId = task.batchId ?? task.id;
+        if (this.running.has(task.id)) live.add(batchId);
+        else if (task.status === 'pending' && this.requests.has(batchId)) {
+          live.add(batchId);
+          if (this.updateQueuedPolicy(task) || this.running.size >= CONCURRENCY) {
+            queued = true;
+            continue;
+          }
+          this.running.add(task.id);
+          void this.runTask(task).finally(() => {
+            this.running.delete(task.id);
+            this.pump();
+          });
+        }
+      }
+      for (const id of this.requests.keys()) if (!live.has(id)) this.requests.delete(id);
+      if (queued) this.unwatchQueue ??= watchTransferPolicy(() => this.pump());
+      else {
+        this.unwatchQueue?.();
+        this.unwatchQueue = undefined;
       }
     } finally {
       this.pumping = false;
@@ -519,7 +587,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
 
   private async runTask(task: FlashDownloadTask): Promise<void> {
     const abort = new AbortController();
-    const partialPath = `${task.targetPath}.weq-part-${task.id}`;
+    const partialPath = this.partialPath(task);
     this.aborts.set(task.id, abort);
     let finished = false;
     try {
@@ -529,22 +597,50 @@ export class FlashTransferDownloadManager extends EventEmitter {
       // 1) 换直链
       task.status = 'resolving';
       task.error = undefined;
-      task.downloadedBytes = 0;
       this.emitTask(task);
       const url = await this.client.getDownloadUrl(task.physicalId);
       if (abort.signal.aborted || (task.status as FlashTaskStatus) === 'cancelled') return;
 
-      // 2) 流式下载
+      const request = this.requests.get(task.batchId ?? task.id);
+      const transfer = networkScope.run(
+        {
+          restricted: false,
+          intent: 'batch',
+          clientId: request?.owner,
+          override: request?.override,
+        },
+        () =>
+          new ManagedDownload({
+            batch: request?.batch,
+            total: task.fileSize,
+            signal: abort.signal,
+            deferOnPolicyPause: true,
+            fetcher: fetchFlashFile,
+            maxAttempts: 4,
+            attemptsPerSource: 4,
+            retryBaseMs: 300,
+            state: ({ paused, total, received }) => {
+              if (abort.signal.aborted) return;
+              if (total > 0) task.fileSize = total;
+              if (paused) task.downloadedBytes = received;
+              if (Boolean(task.pausedByPolicy) === paused) return;
+              task.pausedByPolicy = paused || undefined;
+              this.emitTask(task);
+            },
+            publish: async (part) => {
+              this.publishing.add(task.id);
+              await copyFile(part, task.targetPath, constants.COPYFILE_EXCL);
+            },
+          }),
+      );
+      this.transfers.set(task.id, transfer);
       task.status = 'downloading';
       this.emitTask(task);
-      await downloadWithProgress(url, partialPath, abort.signal, (received) => {
+      await mkdir(dirname(partialPath), { recursive: true });
+      await transfer.file([url], partialPath, {}, (received) => {
         task.downloadedBytes = received;
         this.emitTask(task);
       });
-      if (abort.signal.aborted) return;
-      // 成品仅排他创建；重试写自己的临时文件，不覆盖用户已有文件。
-      this.publishing.add(task.id);
-      await copyFile(partialPath, task.targetPath, constants.COPYFILE_EXCL);
       if (abort.signal.aborted) return;
 
       task.status = 'done';
@@ -552,6 +648,10 @@ export class FlashTransferDownloadManager extends EventEmitter {
       task.finishedAt = Date.now();
       finished = true;
     } catch (error) {
+      if (error instanceof TransferDeferredError && !abort.signal.aborted) {
+        task.status = 'pending';
+        return;
+      }
       if (abort.signal.aborted) {
         task.status = task.interrupted ? 'failed' : 'cancelled';
       } else {
@@ -562,9 +662,11 @@ export class FlashTransferDownloadManager extends EventEmitter {
       finished = true;
     } finally {
       this.publishing.delete(task.id);
-      await rm(partialPath, { force: true }).catch((error: unknown) =>
-        logger.warn('清理闪传临时文件失败', { error: String(error) }),
-      );
+      this.transfers.delete(task.id);
+      if (task.status !== 'pending') {
+        delete task.pausedByPolicy;
+        await this.removePartial(task);
+      }
       this.aborts.delete(task.id);
       // 结束通知应在临时文件收尾及任务记录保存之后交付。
       if (finished) this.recordTaskLog(task);

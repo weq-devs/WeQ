@@ -10,6 +10,51 @@ import {
 import type { TaskQuickAction } from './TaskQuickActions';
 
 export function backgroundTaskNavigation(task: BackgroundTask): TaskQuickAction | null {
+  const binding = task.scope?.configId
+    ? { expectedAccountUin: task.scope.uin, expectedAccountConfigId: task.scope.configId }
+    : undefined;
+  if (task.messageTarget && binding) {
+    const target = task.messageTarget;
+    return {
+      id: 'open-message',
+      label: '查看消息',
+      icon: <ExternalLink size={14} />,
+      run: () =>
+        openNotificationSource(
+          notificationSource(
+            { kind: 'conversation', ...target, dismissTaskPanel: true },
+            '查看消息',
+            binding,
+          ),
+        ),
+    };
+  }
+  if (task.forwardTargets?.length && binding) {
+    const targets = task.forwardTargets.map((target) => ({ ...target, avatarUrl: '' }));
+    const label = targets.length === 1 ? '打开转发会话' : '选择转发会话';
+    return {
+      id: 'open-forward-target',
+      label,
+      icon: <ExternalLink size={14} />,
+      run: () =>
+        openNotificationSource(
+          notificationSource({ kind: 'forwarded-conversations', targets, binding }, label, binding),
+        ),
+    };
+  }
+  if (task.qzonePost || (task.kind === 'qzone-share' && task.needsConfirmation && task.scope)) {
+    const target = task.qzonePost
+      ? { kind: 'post' as const, ...task.qzonePost }
+      : { kind: 'space' as const, uin: task.scope!.uin };
+    const label = task.qzonePost ? '查看原帖' : '打开 QQ 空间';
+    return {
+      id: 'open-qzone-post',
+      label,
+      icon: <ExternalLink size={14} />,
+      run: () =>
+        openNotificationSource(notificationSource({ kind: 'qzone', target }, label, binding)),
+    };
+  }
   if (task.groupAlbum) {
     const { groupCode, albumId } = task.groupAlbum;
     return {
@@ -29,6 +74,26 @@ export function backgroundTaskNavigation(task: BackgroundTask): TaskQuickAction 
               },
             },
             '打开群相册',
+            binding,
+          ),
+        ),
+    };
+  }
+  if (task.kind === 'favorite-import' && task.status === 'completed' && binding) {
+    const label = '打开收藏表情';
+    return {
+      id: 'open-favorite-emoji',
+      label,
+      icon: <ExternalLink size={14} />,
+      run: () =>
+        openNotificationSource(
+          notificationSource(
+            {
+              kind: 'app',
+              target: { kind: 'setting', section: 'qq-storage', settingId: 'favorite-emoji' },
+            },
+            label,
+            binding,
           ),
         ),
     };

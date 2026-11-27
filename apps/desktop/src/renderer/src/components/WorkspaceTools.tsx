@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { CalendarTaskNavigationContext } from '../lib/calendarNavigation';
+import { TaskResultNavigationContext } from '../lib/taskResultNavigation';
+import { onNotificationNavigation } from '../lib/notificationNavigation.shared';
 import { getCloneTasks, subscribeCloneTasks } from '../views/agentlab/cloneTaskStore';
 import type { GeneratedSearchHit } from './search/types';
 import type { ToolSearchRequest } from './search/appSearchCatalog';
@@ -47,6 +49,7 @@ import type {
 import type { Conversation } from '../im-template/template/types';
 import type { RoamingTarget } from '@weq/service';
 import { conversationAnalysisTarget } from '../lib/conversationActions';
+import { useTaskArchive, useTaskArchiveChanges } from '../hooks/useTaskArchive';
 import { useBackgroundTasks, backgroundTaskId } from '../hooks/useBackgroundTasks';
 import type { ContentSelection } from '../../../shared/content_selection';
 import type { ExportMode } from '../views/export/types';
@@ -95,6 +98,7 @@ export function WorkspaceTools({
   onOpenClone,
   onOpenAssistant,
   onOpenCalendarTask,
+  onOpenAnalysisReport,
 }: {
   accountScope: string;
   footerControls: ReactNode;
@@ -111,6 +115,7 @@ export function WorkspaceTools({
   onOpenClone?: (id: string) => void;
   onOpenAssistant?: (target?: GeneratedSearchHit) => void;
   onOpenCalendarTask?: (taskId: string) => Promise<boolean>;
+  onOpenAnalysisReport?: (id: string) => Promise<boolean>;
 }) {
   const mobile = useMobileWebLayout();
   const announcementBadge = useWorkspaceAnnouncementBadge();
@@ -223,7 +228,17 @@ export function WorkspaceTools({
   }, [assistantSearchTarget, closeMenu, onOpenAssistant]);
   const selection = useCurrentContentSelection();
   const { enabled: readTasks } = useQQReadActivity(!hidden, { onlineOnly: false });
-  const background = useBackgroundTasks(readTasks);
+  const taskConfig = trpc.account.getAccountConfig.useQuery(undefined, { enabled: readTasks });
+  const taskBinding =
+    taskConfig.data?.uin === accountKey && taskConfig.data?.configId
+      ? {
+          expectedAccountUin: taskConfig.data.uin,
+          expectedAccountConfigId: taskConfig.data.configId,
+        }
+      : null;
+  const archive = useTaskArchive(taskBinding, readTasks);
+  useTaskArchiveChanges(taskBinding, readTasks);
+  const background = useBackgroundTasks(readTasks, archive.entries);
   const taskQueryOptions = {
     enabled: readTasks,
     refetchInterval: readTasks ? 5000 : (false as const),
@@ -265,8 +280,10 @@ export function WorkspaceTools({
     roamingTasks.data !== undefined &&
     flashTasks.data !== undefined &&
     (!background.scope?.uin || Boolean(background.scope.configId)) &&
-    background.query.data !== undefined;
+    background.query.data !== undefined &&
+    archive.ready;
   const { running, items: taskItems } = summarizeWorkspaceTasks({
+    archive: archive.entries,
     exports: tasks.data,
     clones: cloneTasks.filter((task) => task.accountId === accountKey),
     roaming: roamingTasks.data?.jobs,
@@ -291,6 +308,15 @@ export function WorkspaceTools({
     setExpanded(false);
   };
   const close = () => setOpen(false);
+  useEffect(
+    () =>
+      onNotificationNavigation((target) => {
+        if (target.kind !== 'conversation' || !target.dismissTaskPanel) return;
+        closeMenu();
+        setExpanded(false);
+      }),
+    [closeMenu],
+  );
   const toolPage = mobile && tool !== 'analysis-reports';
   const ctx: WorkspaceContext = workspace ?? {
     view: 'messages',
@@ -508,40 +534,56 @@ export function WorkspaceTools({
         <div className="weq-workspace-menu-body">
           <RetainedTabs snapshotKey="workspace-tools" activeKey="tasks">
             {!hidden && (anchor || expanded) ? (
-              <CalendarTaskNavigationContext.Provider
-                value={
-                  onOpenCalendarTask
-                    ? async (taskId) => {
-                        if (await onOpenCalendarTask(taskId)) {
-                          close();
-                          closeWorkspace();
-                        }
-                      }
-                    : null
-                }
+              <TaskResultNavigationContext.Provider
+                value={{
+                  dismiss: () => {
+                    close();
+                    closeWorkspace();
+                  },
+                  openCalendar: onOpenCalendarTask,
+                  openAnalysisReport: onOpenAnalysisReport,
+                }}
               >
-                <ExportTool
-                  key={accountScope}
-                  surface="tasks"
-                  taskLayout={expanded ? (mobile ? 'page' : 'split') : 'compact'}
-                  onTaskExpand={() => setExpanded(true)}
-                  taskTabRequest={
-                    taskTabRequest && taskTabRequest.scope === accountScope
-                      ? taskTabRequest.tab
-                      : undefined
+                <CalendarTaskNavigationContext.Provider
+                  value={
+                    onOpenCalendarTask
+                      ? async (taskId) => {
+                          if (await onOpenCalendarTask(taskId)) {
+                            close();
+                            closeWorkspace();
+                          }
+                        }
+                      : null
                   }
-                  onTaskTabRequestApplied={() =>
-                    setTaskTabRequest((current) => (current === taskTabRequest ? null : current))
-                  }
-                  taskToolbarAction={
-                    !expanded && !mobile ? (
-                      <TaskToolbarAction onExpand={() => setExpanded(true)} />
-                    ) : null
-                  }
-                  onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
-                  onOpenClone={(id) => leave(() => onOpenClone?.(id))}
-                />
-              </CalendarTaskNavigationContext.Provider>
+                >
+                  <ExportTool
+                    key={accountScope}
+                    surface="tasks"
+                    taskLayout={expanded ? (mobile ? 'page' : 'split') : 'compact'}
+                    onTaskExpand={() => setExpanded(true)}
+                    onOpenArchivedTasks={() => {
+                      useWorkspaceMenu.setState({ taskFocusId: null });
+                      setTaskTabRequest({ scope: accountScope, tab: 'archived' });
+                      setExpanded(true);
+                    }}
+                    taskTabRequest={
+                      taskTabRequest && taskTabRequest.scope === accountScope
+                        ? taskTabRequest.tab
+                        : undefined
+                    }
+                    onTaskTabRequestApplied={() =>
+                      setTaskTabRequest((current) => (current === taskTabRequest ? null : current))
+                    }
+                    taskToolbarAction={
+                      !expanded && !mobile ? (
+                        <TaskToolbarAction onExpand={() => setExpanded(true)} />
+                      ) : null
+                    }
+                    onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
+                    onOpenClone={(id) => leave(() => onOpenClone?.(id))}
+                  />
+                </CalendarTaskNavigationContext.Provider>
+              </TaskResultNavigationContext.Provider>
             ) : null}
           </RetainedTabs>
         </div>

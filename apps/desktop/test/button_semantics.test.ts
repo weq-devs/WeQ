@@ -33,7 +33,7 @@ function buttonClass(file: string, marker: string): string {
 it.each([
   ['components/settings/DatabaseManagementSection.tsx', '打开数据库浏览'],
   ['components/settings/ResourceManagementSection.tsx', "setView('browse')"],
-  ['components/settings/RemotePanel.tsx', 'onClick={onCopy}'],
+  ['components/settings/RemotePairingDialog.tsx', '复制配对链接'],
   ['components/settings/McpServerSection.tsx', 'copiedConfig'],
   ['components/settings/OneBotSection.tsx', '复制地址'],
   ['components/settings/BackupSection.tsx', 'data-setting-id="backup-import"'],

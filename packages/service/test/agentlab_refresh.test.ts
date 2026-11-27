@@ -355,13 +355,56 @@ it('克隆回复默认不覆盖生成参数，只发送所选模型声明的思�
   expect(supported.reasoning_effort).toBe('high');
   expect(supported).not.toHaveProperty('temperature');
   expect(supported).not.toHaveProperty('max_tokens');
-  expect(supported.messages.slice(1, -1)).toEqual(
+  expect(supported.messages.slice(1, -2)).toEqual(
     history.map(({ role, text }) => ({ role, content: text })),
   );
   expect(await generate(['low'])).not.toHaveProperty('reasoning_effort');
   expect(await generate()).not.toHaveProperty('reasoning_effort');
   f.service.updatePersona(f.persona.id, { generation: { reasoningEffort: 'off' } });
   expect(await generate(['high'])).not.toHaveProperty('reasoning_effort');
+});
+
+it('克隆本轮资料变化不改固定前缀、历史和最终用户输入', async () => {
+  const persona = makeBackupPersona();
+  persona.styleVariants = ['合成备用风格'];
+  const fetch = vi.fn(
+    async (_url: unknown, _init: RequestInit) =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: '[{"type":"text","content":"合成回复"}]' } }],
+        }),
+      ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  const history = [{ role: 'user' as const, text: '原历史' }];
+  const generate = async (note: string, now: number) => {
+    await runPersonaChat(
+      { baseUrl: 'https://synthetic.invalid', apiKey: '', model: 'fixture' },
+      null,
+      {
+        persona,
+        pairs: [],
+        history,
+        input: '本轮原话',
+        now,
+        conversationKind: 'group',
+        notes: { corrections: [note], episodes: [] },
+      },
+    );
+    return JSON.parse(String(fetch.mock.lastCall?.[1].body)).messages;
+  };
+  const first = await generate('纠正甲', Date.parse('2026-11-26T16:01:00Z'));
+  const second = await generate('纠正乙', Date.parse('2026-11-27T16:01:00Z'));
+  expect(first[0]).toEqual(second[0]);
+  expect(first[0].content).not.toContain('纠正甲');
+  expect(first.at(-2).content).toContain('纠正甲');
+  expect(second.at(-2).content).toContain('纠正乙');
+  expect(second.at(-2).content).not.toContain('纠正甲');
+  expect(first.at(-2).content).toContain('2026年11月27日');
+  expect(second.at(-2).content).toContain('2026年11月28日');
+  expect(first.slice(1, -2)).toEqual([{ role: 'user', content: '原历史' }]);
+  expect(first.at(-1)).toEqual({ role: 'user', content: '本轮原话' });
+  expect(history).toEqual([{ role: 'user', text: '原历史' }]);
 });
 
 it.each([

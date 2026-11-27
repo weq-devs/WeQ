@@ -21,6 +21,8 @@ export type ExportFormat =
   | 'json'
   | 'jsonl'
   | 'jsonl.gz'
+  | 'chatlab.json'
+  | 'chatlab.jsonl'
   | 'txt'
   | 'csv'
   | 'xlsx'

@@ -49,6 +49,10 @@ export function updateClientNetwork(clientId: string, cost: NetworkCost) {
 export function transferRestricted(clientId?: string) {
   return dataSaverSession.status(clientId).enabled;
 }
+/** 自动 AI 的上游请求从宿主发出，使用宿主的网络状态。 */
+export function automaticAiRestricted() {
+  return transferRestricted() && behavior.dataSaverPauseAi !== false;
+}
 export function transferOwner() {
   return networkScope.getStore()?.clientId;
 }

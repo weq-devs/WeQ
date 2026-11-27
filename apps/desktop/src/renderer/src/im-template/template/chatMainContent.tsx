@@ -37,6 +37,7 @@ export function ChatMainContent({
   groupWorkspaceLocation,
   activeConversation,
   messages,
+  peerTyping,
   composerActions,
   messageRenderers,
   profileActions: _profileActions,
@@ -46,6 +47,7 @@ export function ChatMainContent({
   loadError,
   pagingLoadError,
   loadingNewer,
+  locatingMessage,
   initialReadingPosition,
   atLatest,
   latestMessageSeq,
@@ -93,7 +95,7 @@ export function ChatMainContent({
   onDraftClear,
   onSentSpeechDraft,
   onBackConversation,
-  onEditRaw,
+  onMessageRecordEdited,
   onDeleteMessage,
   onDismissUnsentMessage,
   onStartOutgoingMessage,
@@ -145,11 +147,13 @@ export function ChatMainContent({
   ChatPaneProps,
   | 'user'
   | 'messages'
+  | 'peerTyping'
   | 'composerActions'
   | 'messageRenderers'
   | 'loadError'
   | 'pagingLoadError'
   | 'loadingNewer'
+  | 'locatingMessage'
   | 'initialReadingPosition'
   | 'atLatest'
   | 'latestMessageSeq'
@@ -191,7 +195,7 @@ export function ChatMainContent({
   | 'onDraftChange'
   | 'onDraftClear'
   | 'onSentSpeechDraft'
-  | 'onEditRaw'
+  | 'onMessageRecordEdited'
   | 'onDeleteMessage'
   | 'onDismissUnsentMessage'
   | 'onStartOutgoingMessage'
@@ -346,6 +350,7 @@ export function ChatMainContent({
 
   return (
     <ChatPane
+      peerTyping={peerTyping}
       user={user}
       conversation={activeConversation}
       messages={messages}
@@ -359,6 +364,7 @@ export function ChatMainContent({
       loadError={loadError}
       pagingLoadError={pagingLoadError}
       loadingNewer={loadingNewer}
+      locatingMessage={locatingMessage}
       initialReadingPosition={initialReadingPosition}
       atLatest={atLatest}
       latestMessageSeq={latestMessageSeq}
@@ -403,7 +409,7 @@ export function ChatMainContent({
       onDraftClear={onDraftClear}
       onSentSpeechDraft={onSentSpeechDraft}
       onBack={onBackConversation}
-      onEditRaw={onEditRaw}
+      onMessageRecordEdited={onMessageRecordEdited}
       onDeleteMessage={onDeleteMessage}
       onDismissUnsentMessage={onDismissUnsentMessage}
       onStartOutgoingMessage={onStartOutgoingMessage}

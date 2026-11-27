@@ -1,10 +1,19 @@
 const PREFIX = 'weq:composer-draft:v1:';
+const RAW_SNAPSHOT = '2\n';
 
 type DraftStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>;
 
 export type ComposerDraftSnapshot = { body: string; baseVersion: string | null };
 
 function readSnapshot(raw: string): ComposerDraftSnapshot {
+  if (raw.startsWith(RAW_SNAPSHOT)) {
+    const headerEnd = raw.indexOf('\n', RAW_SNAPSHOT.length);
+    if (headerEnd < 0) throw new Error('草稿恢复快照损坏');
+    const baseVersion: unknown = JSON.parse(raw.slice(RAW_SNAPSHOT.length, headerEnd));
+    if (baseVersion !== null && typeof baseVersion !== 'string')
+      throw new Error('草稿恢复快照损坏');
+    return { body: raw.slice(headerEnd + 1), baseVersion };
+  }
   const value: unknown = JSON.parse(raw);
   if (
     !value ||
@@ -25,8 +34,11 @@ function readSnapshot(raw: string): ComposerDraftSnapshot {
 /** 每次输入同步交给浏览器持久存储；空串是清空记录，不能当作没有快照。 */
 export function createComposerDraftRecovery(
   source: DraftStorage | (() => DraftStorage) = () => localStorage,
+  watchOtherWindows?: (invalidate: (name: string | null) => void) => void,
 ) {
   const storage = () => (typeof source === 'function' ? source() : source);
+  let watching = false;
+  let lastWrite: { store: DraftStorage; name: string; snapshot: ComposerDraftSnapshot } | undefined;
   const accountPrefix = (account: string) => `${PREFIX}${encodeURIComponent(account)}:`;
   const key = (account: string, conversation: string) =>
     `${accountPrefix(account)}${encodeURIComponent(conversation)}`;
@@ -83,12 +95,22 @@ export function createComposerDraftRecovery(
       if (!account || !conversation) return;
       const store = storage();
       const name = key(account, conversation);
-      const previous = store.getItem(name);
-      if (previous !== null) {
-        const snapshot = readSnapshot(previous);
-        if (snapshot.body === body && snapshot.baseVersion === baseVersion) return;
+      if (watchOtherWindows && !watching) {
+        watchOtherWindows((changed) => {
+          if (changed === null || lastWrite?.name === changed) lastWrite = undefined;
+        });
+        watching = true;
       }
-      store.setItem(name, JSON.stringify({ version: 1, body, baseVersion }));
+      let previous: ComposerDraftSnapshot | undefined;
+      if (lastWrite?.store === store && lastWrite.name === name) previous = lastWrite.snapshot;
+      else {
+        const raw = store.getItem(name);
+        if (raw !== null) previous = readSnapshot(raw);
+      }
+      if (previous?.body === body && previous.baseVersion === baseVersion) return;
+      // 单键提交保留强退恢复与跨窗口确认。只有版本头走 JSON，正文原样存储。
+      store.setItem(name, `${RAW_SNAPSHOT}${JSON.stringify(baseVersion)}\n${body}`);
+      if (watching) lastWrite = { store, name, snapshot: { body, baseVersion } };
     },
     confirm(
       account: string,
@@ -98,6 +120,8 @@ export function createComposerDraftRecovery(
     ): void {
       const store = storage();
       const name = key(account, conversation);
+      // 保存回执始终读取最新磁盘值，避免删除其它窗口随后写入的版本。
+      if (lastWrite?.store === store && lastWrite.name === name) lastWrite = undefined;
       const raw = store.getItem(name);
       if (raw === null) return;
       const snapshot = readSnapshot(raw);
@@ -106,4 +130,8 @@ export function createComposerDraftRecovery(
   };
 }
 
-export const composerDraftRecovery = createComposerDraftRecovery();
+export const composerDraftRecovery = createComposerDraftRecovery(undefined, (invalidate) => {
+  window.addEventListener('storage', (event) => {
+    if (event.storageArea === localStorage) invalidate(event.key);
+  });
+});

@@ -56,6 +56,8 @@ export function comparableMessages<
     sendTime: string;
     elements: unknown[];
     localSent?: boolean;
+    sentFromWeq?: true;
+    livePush?: true;
     source?: string;
     sourceFormat?: string;
     ntSeqVerified?: boolean;
@@ -85,6 +87,8 @@ export function comparableMessages<
       row.sendTime,
       row.elements,
       row.localSent,
+      row.sentFromWeq,
+      row.livePush,
       row.source,
       row.sourceFormat,
       row.ntSeqVerified,

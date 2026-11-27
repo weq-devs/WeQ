@@ -1,3 +1,4 @@
+import { withQqFileWrite } from '@weq/db';
 /**
  * `account.dressup.*` —— 个性装扮(气泡 / 字体 / 头像挂件 / 聊天背景 / 浮屏挂件)。
  *
@@ -25,6 +26,7 @@ import {
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { pickedBrowserFiles } from '../../browser_files';
 import { writeFile } from 'node:fs/promises';
+import { runResumableExport } from '../../resumable_exports';
 import { join } from 'node:path';
 import { observable } from '@trpc/server/observable';
 import {
@@ -204,6 +206,15 @@ async function findDressById(
     name: installed?.name || (metadata.id === itemId ? metadata.name : '') || '',
     previewUrl: installed?.previewUrl || (metadata.id === itemId ? metadata.preview : '') || '',
   };
+}
+
+export async function resolveCallBackground(
+  services: AccountServices,
+  itemId: number,
+  video: boolean,
+) {
+  const item = await findDressById(services, 'callbg', itemId);
+  return video ? item?.videoUrl : item?.previewLargeUrl || item?.previewUrl;
 }
 
 /**
@@ -720,6 +731,7 @@ export const dressupRouter = router({
             z.object({
               itemId: z.number().int().positive(),
               name: z.string().max(512),
+              video: z.boolean().optional(),
               mediaUrl: z
                 .string()
                 .url()
@@ -776,8 +788,18 @@ export const dressupRouter = router({
       );
       if (!policy) return null;
       check();
+      const resume =
+        kind !== 'callbg' || items.every((item) => typeof item.video === 'boolean')
+          ? {
+              type: 'dress-download' as const,
+              kind,
+              items: items.map(({ itemId, name, video }) => ({ itemId, name, video })),
+              bundleName,
+            }
+          : undefined;
       return services.exportManager.startResourceExport({
         kind: 'decoration',
+        resume,
         name,
         display: { action: '下载装扮', subject: name },
         output: { kind: 'file', name, extension: '' },
@@ -841,7 +863,9 @@ export const dressupRouter = router({
         });
         if (!target) return { mode: 'cancelled' as const };
         current();
-        await writeFile(target.path, exportFile.bytes, { flag: 'wx' });
+        await withQqFileWrite(target.path, () =>
+          writeFile(target.path, exportFile.bytes, { flag: 'wx' }),
+        );
         current();
         return {
           mode: 'browser' as const,
@@ -866,19 +890,15 @@ export const dressupRouter = router({
       if (!policy) return { mode: 'cancelled' as const };
       current();
       const fileName = exportOutputFileName(output);
+      const resume = { type: 'decoration' as const, fileName };
       const taskId = await services.exportManager.startResourceExport({
         kind: 'decoration',
+        resume,
+        stagedInput: exportFile.bytes,
         name: output.name,
         output,
         savePolicy: policy,
-        run: async ({ directory, signal }) => {
-          current();
-          signal.throwIfAborted();
-          await writeFile(join(directory, fileName), exportFile.bytes, { flag: 'wx', signal });
-          current();
-          signal.throwIfAborted();
-          return { total: 1, ok: 1, failed: [], fileName };
-        },
+        run: (context) => runResumableExport(services, resume, context, current),
       });
       return { mode: 'task' as const, taskId };
     }),

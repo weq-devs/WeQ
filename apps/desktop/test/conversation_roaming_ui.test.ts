@@ -25,10 +25,16 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    taskArchive: {
+      summaries: {
+        useQuery: () => ({ data: { generation: 'fixture', revision: 0, entries: {} } }),
+      },
+    },
     useUtils: () => ({
       account: { roamingBackfill: { list: { invalidate: fixture.invalidate } } },
     }),
     account: {
+      getAccountConfig: { useQuery: () => ({ data: undefined }) },
       listConversationsWithCount: { useQuery: fixture.contacts },
       // 固定范围的真人头像要按 uid 补一次资料；日期密度用导出页日历。
       getProfilesByUids: { useQuery: () => ({ data: [] }) },

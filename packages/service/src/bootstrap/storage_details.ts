@@ -23,6 +23,7 @@ type Layout = {
 
 export const CACHE_DETAILS: Readonly<Record<string, Detail>> = {
   avatar: { label: '头像缓存', category: 'media' },
+  album: { label: '相册与空间图片缓存', category: 'media' },
   media: { label: '图片与视频缓存', category: 'media' },
   marketface: { label: '商城表情缓存', category: 'dress' },
   marketpack: { label: '商城表情包缓存', category: 'dress' },

@@ -109,6 +109,27 @@ function fixture() {
     clone: (id: string) => join(cache, 'agentlab', id),
   };
 }
+it('旧备份的在线开关与代理同开迁移为完整档位，显式只读可往返', () => {
+  const f = fixture();
+  const restore = (files: WeqBackupFile[]) => {
+    stageWeqBackupRestore(f.root, buildWeqBackup(files, undefined, ['device', 'services']), {
+      parts: ['settings'],
+      conflict: 'overwrite',
+    });
+    expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+    return new UserConfigService({ appDataRoot: () => f.root });
+  };
+  const migrated = restore([
+    file('settings/app.json', { autoAttachQq: true }),
+    file('settings/host.json', { services: { qqProxyEnabled: true } }),
+  ]);
+  expect(migrated.getSetting('qqCapabilityMode')).toBe('complete');
+  expect(
+    restore([file('settings/app.json', { qqCapabilityMode: 'read-only' })]).getSetting(
+      'qqCapabilityMode',
+    ),
+  ).toBe('read-only');
+});
 it('恢复默认在账号偏好写入中途失败时完整回滚，重试保留数据并完成恢复', () => {
   const f = fixture();
   const accountPath = f.account('10001');

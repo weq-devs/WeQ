@@ -70,9 +70,8 @@ it('基础与扩展动作重新分组，不再使用固定四列格位', async (
     onExport: vi.fn(),
     intentAction: slot('意图感知'),
     state: { message: { ...message, decoration: { bubbleId: 1 } }, x: 10, y: 10 },
-    onViewDecoration: vi.fn(),
+    onViewDetails: vi.fn(),
     revealAction: slot('在文件夹中显示'),
-    onEditRaw: vi.fn(),
     onDelete: vi.fn(),
     onSaveMedia: vi.fn(),
   });
@@ -94,11 +93,10 @@ it('基础与扩展动作重新分组，不再使用固定四列格位', async (
     '显示 Markdown',
     '另存为',
     '在文件夹中显示',
-    '查看装扮',
+    '查看详情',
     '意图感知',
     '设为精华',
     '设为群待办',
-    '修改本地记录',
     '撤回',
     '本地删除',
   ]);
@@ -135,7 +133,9 @@ it('缺失动作与异步返回空内容不留占位按钮', async () => {
     '设为群待办',
     '导出',
     '意图感知',
+    '查看详情',
     '查看装扮',
+    '复制 JSON',
     '另存为',
     '修改本地记录',
     '本地删除',
@@ -240,6 +240,32 @@ it('方向键在三行按钮间移动，Esc 关闭并归还焦点', async () => 
   expect(close).toHaveBeenCalledOnce();
   expect(document.activeElement).toBe(origin);
   origin.remove();
+});
+
+it('菜单底部的序号可以用方向键选中，复制完整序号并保留菜单', async () => {
+  const seq = '9007199254740993';
+  const writeText = vi.spyOn(window.navigator.clipboard, 'writeText').mockResolvedValue();
+  const close = vi.fn();
+  const copyMessage = vi.fn();
+  await render({
+    metadataPrecision: 'second',
+    metadataSequence: seq,
+    onClose: close,
+    onCopy: copyMessage,
+  });
+  act(() =>
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowUp' }),
+    ),
+  );
+  const button = document.activeElement as HTMLButtonElement;
+  expect(button.getAttribute('role')).toBe('menuitem');
+  expect(button.textContent).toBe(seq);
+  await act(async () => button.click());
+  expect(writeText.mock.calls).toEqual([[seq]]);
+  expect(button.querySelector('[role="status"]')?.textContent).toBe('已复制');
+  expect(copyMessage).not.toHaveBeenCalled();
+  expect(close).not.toHaveBeenCalled();
 });
 
 it('快捷回应显示选中态，再次点击发出取消，更多仍可进入', async () => {

@@ -1,47 +1,124 @@
 .weq-message-batch-dialog {
   max-width: calc(100vw - 24px);
   overflow: hidden;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
 }
+
 .weq-message-batch-dialog .weq-dialog {
   padding-bottom: 0;
 }
-.weq-message-batch-dialog .weq-dialog-head {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
+
 .weq-message-batch-dialog .weq-dialog-title {
-  min-width: 0;
   overflow-wrap: anywhere;
 }
-.weq-message-batch-dialog .weq-action-soft {
-  color: var(--weq-fg-primary);
-  border-color: var(--weq-border-strong);
+
+.weq-message-batch-dialog .weq-message-batch-groups {
+  max-height: min(60dvh, 550px);
+  overflow: auto;
+  padding-block: 4px;
 }
-.weq-message-batch-dialog .weq-dialog-body button {
-  display: inline-flex;
+
+.weq-message-batch-group {
+  position: relative;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-message-batch-group:last-child {
+  border-bottom: 0;
+}
+
+.weq-message-batch-group .weq-message-batch-summary {
+  display: flex;
+  gap: 8px;
   align-items: center;
-  gap: 6px;
+  min-height: 46px;
+  padding: 8px;
+  cursor: pointer;
+  list-style: none;
+  overflow-wrap: anywhere;
 }
+
+.weq-message-batch-summary[data-switch] {
+  padding-inline-end: 60px;
+}
+
+.weq-message-batch-summary::before,
+.weq-message-batch-summary::marker,
+.weq-message-batch-summary::-webkit-details-marker {
+  display: none;
+  content: none;
+}
+
+.weq-message-batch-summary:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+}
+
+.weq-message-batch-chevron {
+  flex: none;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-message-batch-group details[open] .weq-message-batch-chevron {
+  transform: rotate(90deg);
+}
+
+.weq-message-batch-blocked {
+  margin-inline-start: auto;
+  flex: none;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-message-batch-group .weq-message-batch-switch {
+  position: absolute;
+  top: 12px;
+  inset-inline-end: 8px;
+  padding: 0;
+  border: 0;
+  background: var(--weq-border-strong);
+}
+
+.weq-message-batch-group .weq-message-batch-switch.on {
+  background: var(--weq-accent-effective);
+}
+
+.weq-message-batch-expanded {
+  padding: 0 8px 8px;
+}
+
+.weq-message-batch-reply-excerpt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px 12px 32px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-message-batch-expanded > p,
+.weq-message-batch-note {
+  margin: 0 0 8px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-message-batch-preview.message-scroll {
+  display: block;
+  max-height: min(38dvh, 280px);
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+}
+
+.weq-message-batch-preview-row {
+  padding: 6px 10px;
+  overflow-wrap: anywhere;
+}
+
 .weq-message-batch-dialog > .weq-dialog-foot {
   padding: 12px 16px;
   border-top: 1px solid var(--weq-border-subtle);
   flex-wrap: wrap;
-}
-.weq-message-batch-dialog .weq-private-preview-inline {
-  height: min(580px, 65dvh);
-  min-height: 0;
-}
-.weq-message-batch-dialog .weq-preview-message-note {
-  overflow-wrap: anywhere;
-}
-.weq-message-batch-dialog .weq-action-primary {
-  border-color: var(--weq-accent-effective);
-  color: var(--weq-fg-primary);
-  background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
-}
-.weq-message-batch-dialog .weq-action-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--weq-accent-effective) 28%, var(--weq-bg-surface));
-}
-html[data-theme='dark'] .weq-message-batch-dialog {
-  color: var(--weq-fg-primary);
-  background: var(--weq-bg-surface);
 }

@@ -10,6 +10,7 @@ import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigat
 import { AnnouncementUnread } from '../src/renderer/src/lib/announcementPresentation';
 import { useUpdateStore } from '../src/renderer/src/state/update';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
+
 import { DialogHost } from '../src/renderer/src/components/Dialog';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { REMOTE_ACCOUNT_ACCESS } from '../src/shared/remote_account_switch';
@@ -252,7 +253,13 @@ it('更多底栏从列表角标汇总，按邮箱数字、红点、任务进度�
     );
   try {
     await act(async () => {
-      useWorkspaceMenu.setState({ running: 2, finished: 1, unreadFailed: 1 });
+      useWorkspaceMenu.setState({
+        running: 2,
+        finished: 1,
+        unreadFailed: 1,
+        taskScope: 'fixture-task-scope',
+        taskItems: [{ id: 'one', result: 'failed:1', failed: true, activity: 'finished' }],
+      });
       useUpdateStore.setState({ packsAvailable: true });
     });
     await render(3, 1);
@@ -276,7 +283,9 @@ it('更多底栏从列表角标汇总，按邮箱数字、红点、任务进度�
     await act(async () => useWorkspaceMenu.setState({ running: 0 }));
     expect(task.querySelector('.weq-reminder-dot')).not.toBeNull();
     expect(moreTab.querySelector('.weq-reminder-dot')).not.toBeNull();
-    await act(async () => useWorkspaceMenu.getState().readTasks());
+    await act(async () =>
+      useWorkspaceMenu.getState().readTask('fixture-task-scope', 'one', 'failed:1'),
+    );
     expect(task.querySelector('.weq-reminder-dot')).toBeNull();
     expect(moreTab.querySelector('.weq-reminder')).toBeNull();
 

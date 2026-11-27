@@ -15,7 +15,9 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useMobileBack } from '../hooks/useMobileNavigation';
+import { useClosingContent } from '../hooks/useClosingContent';
 import { useOverlayLayer } from '../lib/overlayStack';
+import { surfaceMotionTiming } from '../lib/surfaceMotion';
 import { useTabActive } from './RetainedTabs.shared';
 import '../styles/form-select.css';
 
@@ -47,7 +49,11 @@ function readOptions(children: ReactNode) {
   let current: OptionGroup | undefined;
   function visit(nodes: ReactNode, group?: OptionGroup, disabled = false) {
     Children.forEach(nodes, (node) => {
-      if (!isValidElement<ComponentProps<'option'> & { 'data-placeholder'?: boolean }>(node))
+      if (
+        !isValidElement<
+          ComponentProps<'option'> & { 'data-placeholder'?: boolean; 'data-detail'?: string }
+        >(node)
+      )
         return;
       const props = node.props;
       if (node.type === 'optgroup') {
@@ -65,6 +71,7 @@ function readOptions(children: ReactNode) {
         target?.options.push({
           value: String(props.value ?? text),
           label: props.label ?? text,
+          detail: props['data-detail'],
           title: props.title,
           disabled: disabled || props.disabled,
           placeholder: props['data-placeholder'],
@@ -108,7 +115,13 @@ function useOptionPopup<T extends HTMLElement>(options: Option[], enabled: boole
   const list = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [active, setActive] = useState(-1);
-  const open = expanded && enabled && options.length > 0;
+  const available = enabled && options.length > 0;
+  const open = expanded && available;
+  const visible = useClosingContent(
+    open ? true : null,
+    available ? id : undefined,
+    surfaceMotionTiming.exit,
+  );
   const layer = useOverlayLayer(open);
   const close = useCallback(() => setExpanded(false), []);
   const reveal = useCallback((index = -1) => {
@@ -141,7 +154,7 @@ function useOptionPopup<T extends HTMLElement>(options: Option[], enabled: boole
     view.visualViewport?.addEventListener('resize', update);
     view.visualViewport?.addEventListener('scroll', update);
     return () => {
-      menu.hidePopover?.();
+      // 定位和关闭监听立即结束，顶层浮层随节点卸载一并移除。
       document.removeEventListener('pointerdown', outside, true);
       document.removeEventListener('focusin', focus);
       view.removeEventListener('scroll', update, true);
@@ -180,6 +193,7 @@ function useOptionPopup<T extends HTMLElement>(options: Option[], enabled: boole
     trigger,
     layer,
     open,
+    visible,
     active,
     close,
     reveal,
@@ -210,7 +224,7 @@ function OptionList({
   label: string;
 }) {
   const anchor = popup.trigger.current;
-  if (!popup.open || !anchor) return null;
+  if (!popup.visible || !anchor) return null;
   const host =
     anchor.closest(
       '[data-field-popup-host], [role="dialog"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer',
@@ -226,6 +240,8 @@ function OptionList({
       popover="manual"
       role="listbox"
       aria-label={label}
+      inert={!popup.open}
+      aria-hidden={!popup.open || undefined}
       style={{ zIndex: popup.layer }}
     >
       {groups.map((group) => {

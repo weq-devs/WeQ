@@ -1,9 +1,6 @@
 /* Tailwind v4 — single-line import; no tailwind.config.js, no PostCSS needed. */
 @import 'tailwindcss';
 @import '../im-template/styles.css';
-/* 群相册 / 群文件 / 群分析这些 WeQ 弹窗的样式。原先夹在 im-template/styles/chat.css 里，
-   2026-10-17 整块搬回 WeQ 侧（主窗口与导出窗口都 import 本文件，所以只在这里引入一次）。 */
-@import './group-media.css';
 /* 全局隐私遮罩（只写在 WeQ 侧，挂钩模板稳定 class）。放在模板样式之后以覆盖。 */
 @import './privacy.css';
 /* ARK Feed 公众号/服务号消息流样式 */
@@ -991,6 +988,7 @@ html[data-theme='dark'] .weq-shimmer-block {
 :root {
   --weq-motion-switch: 120ms;
   --weq-motion-enter: 160ms;
+  --weq-motion-exit: 120ms;
   --weq-motion-page: 220ms;
   --weq-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -1062,7 +1060,87 @@ html[data-theme='dark'] .weq-shimmer-block {
   }
 }
 
-/* 灯箱：遮罩淡入 + 舞台轻微放大。关闭仍是即时（媒体预览的卸载由调用方掌握）。 */
+@keyframes weq-surface-switch {
+  from {
+    opacity: 0.86;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-weq-surface-motion] {
+    transition: opacity var(--weq-motion-enter) var(--weq-motion-ease);
+  }
+
+  [data-weq-surface-motion='fade']:not([hidden]),
+  [data-weq-surface-motion='enter']:not([hidden]) {
+    @starting-style {
+      opacity: 0;
+    }
+  }
+
+  [data-weq-surface-motion='fade'][data-closing] {
+    opacity: 0;
+    transition: opacity var(--weq-motion-exit) ease-in;
+  }
+
+  /* hidden 和 inert 立即退出焦点和浮层处理，display 在淡出完成后离散切换。 */
+  :is([data-weq-surface-motion='fade'], [data-weq-surface-motion='exit'])[hidden] {
+    opacity: 0;
+    transition:
+      opacity var(--weq-motion-exit) ease-in,
+      display var(--weq-motion-exit) allow-discrete;
+  }
+
+  .weq-surface-switch {
+    animation: weq-surface-switch var(--weq-motion-switch) ease-out;
+  }
+}
+
+.weq-surface-exiting,
+.weq-surface-exiting * {
+  pointer-events: none !important;
+  animation: none !important;
+  transition: none !important;
+}
+
+/* 短折叠组共用一套网格轨道，可保留内容到收拢结束。 */
+.weq-disclosure-panel {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+}
+.weq-disclosure-panel > div {
+  display: flow-root;
+  min-height: 0;
+  overflow: clip;
+}
+[data-weq-disclosure][data-closing] .weq-disclosure-panel,
+.weq-disclosure-panel[data-closing] {
+  grid-template-rows: minmax(0, 0fr);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .weq-disclosure-panel {
+    transition: grid-template-rows var(--weq-motion-enter) var(--weq-motion-ease);
+    @starting-style {
+      grid-template-rows: minmax(0, 0fr);
+    }
+  }
+  [data-weq-disclosure][data-closing] .weq-disclosure-panel,
+  .weq-disclosure-panel[data-closing] {
+    transition: grid-template-rows var(--weq-motion-exit) ease-in;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-dialog-layer > .weq-modal.weq-anim-pop {
+    animation: none;
+  }
+}
+
+/* 灯箱：遮罩淡入 + 舞台轻微放大。 */
 .weq-lightbox-layer {
   animation: weq-lightbox-in var(--weq-motion-enter) ease-out both;
 }
@@ -4039,7 +4117,6 @@ html[data-theme='dark'] .app-title-bar-user {
   font-style: italic;
   font-family: Georgia, 'Nimbus Roman No9 L', 'Songti SC', 'KaiTi', '楷体', serif;
   color: #5c7c99;
-  margin-left: 12px;
   max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4315,7 +4392,6 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .app-shell .notice-card:hover {
   background: rgba(255, 255, 255, 0.9);
   border-color: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
-  transform: translateX(2px);
 }
 
 .app-shell .notice-card .avatar {
@@ -5459,51 +5535,6 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .weq-set-row-ctrl:has(> .weq-set-toggle:only-child) {
   display: flex;
   align-items: center;
-}
-
-/* Segmented single-select (e.g. 空闲自动锁定时长). */
-.weq-set-seg {
-  display: inline-flex;
-  padding: 2px;
-  gap: 2px;
-  border-radius: 8px;
-  border: 1px solid rgba(0, 153, 255, 0.18);
-  background: rgba(0, 153, 255, 0.05);
-}
-
-.weq-set-seg-item {
-  padding: 4px 10px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #51677c;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.4;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    color 140ms ease,
-    background-color 140ms ease;
-}
-
-.weq-set-seg-item:hover:not(:disabled):not(.is-on) {
-  color: #0f2d4c;
-  background: rgba(255, 255, 255, 0.6);
-}
-
-.weq-set-seg-item.is-on {
-  color: #ffffff;
-  background: #0099ff;
-}
-
-.weq-set-seg-item:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.weq-set-seg-item svg.is-spin {
-  animation: weq-set-spin 0.8s linear infinite;
 }
 
 @keyframes weq-set-spin {
@@ -8569,6 +8600,17 @@ html[data-theme='dark'] .chat-empty-logo {
   object-fit: cover;
   z-index: 0;
 }
+.weq-card-load-image {
+  border: 0;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+.weq-ark-map-img.weq-card-load-image {
+  inset: auto 8px 8px auto;
+  width: auto;
+  height: auto;
+  z-index: 2;
+}
 .weq-ark-map-pin {
   position: relative; /* 抬到静态图 (absolute) 之上 */
   z-index: 1;
@@ -8848,9 +8890,25 @@ html[data-theme='dark'] .message-line.mine .message-content .qq-at-element {
   font-weight: 600;
 }
 
-/* 链接卡片：复用 ark 卡片的外壳，只调几处间距 + 页脚图标。 */
+.weq-link-card-layout {
+  display: contents;
+}
+.weq-link-card {
+  display: block;
+  padding: 0;
+  text-align: start;
+}
+.weq-link-card .weq-ark-content {
+  display: block;
+  overflow-wrap: anywhere;
+}
 .weq-link-card .weq-link-desc {
   margin-bottom: 0;
+}
+.weq-link-card .weq-ark-footer > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .weq-link-footer-icon {
   flex-shrink: 0;
@@ -9877,7 +9935,6 @@ html[data-theme='dark'] .weq-call-recording-play {
     color-mix(in srgb, var(--weq-accent-effective) 4%, transparent)
   );
   border-color: color-mix(in srgb, var(--weq-accent-effective) 25%, transparent);
-  transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
@@ -10328,7 +10385,7 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
 }
 
 .weq-agentlab-field .weq-select-trigger,
-.weq-agentlab-field input,
+.weq-agentlab-field input:where(:not([type='checkbox'], [type='radio'], [type='range'])),
 .weq-agentlab-field textarea {
   width: 100%;
   border: 1px solid var(--weq-border-subtle);
@@ -10340,14 +10397,18 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
 }
 
 .weq-agentlab-field .weq-select-trigger,
-.weq-agentlab-field input {
+.weq-agentlab-field input:where(:not([type='checkbox'], [type='radio'], [type='range'])) {
   min-height: 40px;
   padding: 0 12px;
 }
 
+.weq-agentlab-field input[type='range'] {
+  width: 100%;
+}
+
 /* 选中输入框：边框统一走主题色（聊天 composer / 各配置面板 / 克隆体设置）。 */
 .weq-agentlab-field .weq-select-trigger:focus,
-.weq-agentlab-field input:focus,
+.weq-agentlab-field input:where(:not([type='checkbox'], [type='radio'], [type='range'])):focus,
 .weq-agentlab-field textarea:focus {
   outline: none;
   border-color: var(--weq-accent-effective);
@@ -11639,7 +11700,7 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
 .weq-clone-config > * {
   flex-shrink: 0;
 }
-.weq-clone-config input,
+.weq-clone-config input:where(:not([type='checkbox'], [type='radio'], [type='range'])),
 .weq-clone-config textarea {
   width: 100%;
   border: 1px solid var(--weq-border-subtle);
@@ -11651,7 +11712,7 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
   font-size: 13px;
   resize: vertical;
 }
-.weq-clone-config input:focus,
+.weq-clone-config input:where(:not([type='checkbox'], [type='radio'], [type='range'])):focus,
 .weq-clone-config textarea:focus,
 .weq-clone-config .weq-select-trigger:focus {
   outline: none;
@@ -11990,7 +12051,7 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
   resize: vertical;
 }
 .weq-persona-form textarea:focus,
-.weq-persona-form input:focus {
+.weq-persona-form input:where(:not([type='checkbox'], [type='radio'], [type='range'])):focus {
   outline: none;
   border-color: var(--weq-accent-effective);
 }
@@ -12179,12 +12240,6 @@ html[data-theme='dark'] .weq-provider-modal {
    */
   gap: calc(var(--weq-tag-radius) + 37px - (var(--weq-orb-size) / 2) + 12px);
   text-align: center;
-}
-
-/* 没有个性标签时环不存在，上面那份避让间距就成了纯空白 —— 退回普通间距，
-   问候语与打字机随之整体上移。 */
-.weq-chathome.is-notags .weq-chathome-hero {
-  gap: clamp(20px, 4vh, 36px);
 }
 
 /* ── ① 名片背景 ──
@@ -17961,7 +18016,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
 }
 
-.weq-qzal-album-cover > img {
+.weq-qzal-album-cover > :is(img, video) {
   position: absolute;
   inset: 0;
   display: block;
@@ -18120,7 +18175,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   width: 100%;
 }
 
-.weq-qzal-media-thumb img {
+.weq-qzal-media-thumb > :is(img, video) {
   display: block;
   width: 100%;
   aspect-ratio: 1 / 1;

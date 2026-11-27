@@ -27,6 +27,7 @@ vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
   useDialog: (select) => select({ showError() {}, confirm: async () => true }),
 }));
 vi.mock('../src/renderer/src/trpc/client', async () => {
+  const { createTRPCClientProxy } = await import('@trpc/client');
   const { createTRPCReact } = await import('@trpc/react-query');
   const { observable } = await import('@trpc/server/observable');
   const trpc = createTRPCReact();
@@ -35,6 +36,10 @@ vi.mock('../src/renderer/src/trpc/client', async () => {
       () =>
         ({ op }) =>
           observable((observer) => {
+            if (op.path === 'backgroundTasks.onTaskPage') {
+              observer.next({ result: { data: 'group-refresh-page' } });
+              return () => {};
+            }
             // 故意不发送任何订阅通知，验证查询缓存能够自行恢复。
             if (op.type === 'subscription') return () => {};
             let data: unknown;
@@ -61,7 +66,7 @@ vi.mock('../src/renderer/src/trpc/client', async () => {
           }),
     ],
   });
-  return { trpc, trpcClient };
+  return { trpc, trpcClient, client: createTRPCClientProxy(trpcClient) };
 });
 
 const cleanup: Array<() => void> = [];

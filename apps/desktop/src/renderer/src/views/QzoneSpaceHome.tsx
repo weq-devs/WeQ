@@ -1,5 +1,5 @@
 import type { QzoneShare } from '@weqbot/protocol/web';
-import { useContext, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
+import { useContext, useEffect, useMemo, useRef, type ComponentType } from 'react';
 import { Eye, MessageCircle, Repeat2, ThumbsUp } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import {
@@ -35,6 +35,9 @@ import { QzoneAutoPage } from './QzonePagination';
 import { QzoneMediaGrid, State } from './qzoneShared';
 import { QzonePageContext, type QzoneHomeDestination } from './qzoneShared.shared';
 import { qzoneNickname } from '../lib/qzonePeople';
+import { QzoneVirtualRows } from './QzoneVirtualRows';
+import { useQzoneRefresh } from './qzoneRefresh';
+import { useFeedCardState } from './qzoneCardState';
 
 function FeedContent({ feed, share }: { feed: PublicFeedView; share?: QzoneShare }) {
   const preview = projectQzoneHomeFeed(feed);
@@ -171,7 +174,7 @@ function HomeFeedCard({
   onSpace: OpenSpace;
 }) {
   const { type } = projectQzoneHomeFeed(feed);
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useFeedCardState('preview-comments');
   const comments = projectPublicCommentsPage(feed.feed).comments;
   const counts = [
     [ThumbsUp, '赞', feed.likeCount],
@@ -257,6 +260,26 @@ function homeShareKey(uin: string, id: string) {
   return `share:${uin}:${id}`;
 }
 
+function projectHomePage(feeds: readonly unknown[]) {
+  return feeds.flatMap((raw, index) => {
+    const feed = projectPublicFeed(raw, index);
+    if (!feed || feed.advertisement) return [];
+    const { detailId: tid, title } = projectQzoneHomeFeed(feed);
+    return [
+      {
+        feed,
+        tid,
+        title,
+        blogId: qzoneHomeBlogId(feed),
+        shareId: qzoneHomeShareId(feed),
+        album: tid ? qzoneHomeAlbumMedia(feed) : undefined,
+      },
+    ];
+  });
+}
+
+const homePageProjections = new WeakMap<readonly unknown[], ReturnType<typeof projectHomePage>>();
+
 function homeRows(
   pages: readonly { feeds: readonly unknown[] }[],
   blogs: readonly QzoneBlog[],
@@ -272,13 +295,14 @@ function homeRows(
   let blogFloor = Number.POSITIVE_INFINITY;
   let shareFloor = Number.POSITIVE_INFINITY;
   for (const [pageIndex, page] of pages.entries()) {
-    for (const [index, raw] of page.feeds.entries()) {
-      const feed = projectPublicFeed(raw, index);
-      if (!feed || feed.advertisement) continue;
+    let projected = homePageProjections.get(page.feeds);
+    if (!projected) {
+      projected = projectHomePage(page.feeds);
+      homePageProjections.set(page.feeds, projected);
+    }
+    for (const { feed, tid, title, blogId, shareId, album } of projected) {
       if (feed.time > 0) feedFloor = Math.min(feedFloor, feed.time);
-      const { detailId: tid, title } = projectQzoneHomeFeed(feed);
       if (tid && deletedPosts.has(tid)) continue;
-      const blogId = qzoneHomeBlogId(feed);
       if (blogId) {
         const key = `blog:${feed.author.uin}:${blogId}`;
         if (rows.has(key)) continue;
@@ -294,7 +318,6 @@ function homeRows(
         rows.set(key, { kind: 'blog', blog, feed, time: feed.time || qzoneBlogSortTime(blog) });
         continue;
       }
-      const shareId = qzoneHomeShareId(feed);
       if (shareId) {
         const key = homeShareKey(feed.author.uin, shareId);
         if (rows.has(key)) continue;
@@ -318,7 +341,6 @@ function homeRows(
           ? `${pageIndex}:${feed.key}`
           : feed.key;
       if (!rows.has(key)) {
-        const album = tid ? qzoneHomeAlbumMedia(feed) : undefined;
         if (tid && album?.hostUin === hostUin) postAlbums.set(tid, album);
         rows.set(key, { kind: 'feed', feed, tid, time: feed.time, album });
       }
@@ -397,7 +419,38 @@ export function QzoneSpaceHome({
       homeRows(query.data?.pages ?? [], blogIndex.items, shareIndex.items, hostUin, deletedPosts),
     [query.data?.pages, blogIndex.items, shareIndex.items, hostUin, deletedPosts],
   );
+  const virtualRows = useMemo(
+    () =>
+      rows.map(([key, row]) => ({
+        key,
+        row,
+        selectionId:
+          row.kind === 'feed' && row.tid && row.feed.author.uin === hostUin ? row.tid : undefined,
+      })),
+    [rows, hostUin],
+  );
   const configId = binding?.expectedAccountConfigId ?? '';
+  useQzoneRefresh(
+    async () => {
+      const [feeds, blogs, shares] = await Promise.allSettled([
+        available
+          ? query.refetch({ throwOnError: true }).then(({ data }) => data?.pages ?? [])
+          : (query.data?.pages ?? []),
+        blogIndex.configId ? blogIndex.reload() : blogIndex.items,
+        shareIndex.configId ? shareIndex.reload() : shareIndex.items,
+      ]);
+      if (feeds.status === 'rejected') throw feeds.reason;
+      if (blogs.status === 'rejected') throw blogs.reason;
+      if (shares.status === 'rejected') throw shares.reason;
+      const updated = homeRows(feeds.value, blogs.value, shares.value, hostUin, deletedPosts).rows;
+      const previous = new Set(rows.map(([key]) => key));
+      return updated.some(
+        ([key, row]) => !previous.has(key) && row.time >= (rows[0]?.[1].time ?? 0),
+      );
+    },
+    available || Boolean(blogIndex.configId || shareIndex.configId),
+    configId,
+  );
   useEffect(
     () => onPostAlbums({ configId, byPost: postAlbums }),
     [configId, onPostAlbums, postAlbums],
@@ -409,11 +462,8 @@ export function QzoneSpaceHome({
     if (ownerNick) onOwnerNickname(hostUin, ownerNick);
   }, [hostUin, ownerNick, onOwnerNickname]);
   const selectableIds = useMemo(
-    () =>
-      rows.flatMap(([, row]) =>
-        row.kind === 'feed' && row.tid && row.feed.author.uin === hostUin ? [row.tid] : [],
-      ),
-    [hostUin, rows],
+    () => virtualRows.flatMap(({ selectionId }) => (selectionId ? [selectionId] : [])),
+    [virtualRows],
   );
   const selection = useContentMultiSelect({ kind: 'qzone-posts', container: hostUin });
   const multi = useMultiSelection({
@@ -484,99 +534,118 @@ export function QzoneSpaceHome({
       ) : error ? (
         <State loading={false} error={error} empty="" retry={retry} />
       ) : null}
-      <div {...multi.rootProps}>
-        {rows.map(([key, row]) => {
-          if (row.kind === 'share') {
-            const { feed, share } = row;
-            return (
-              <QzoneSharePost
-                key={`${shareIndex.configId}:${key}`}
-                share={share}
-                refresh={shareIndex.refresh}
-                space={{
-                  selfUin,
-                  hostUin: feed?.author.uin ?? hostUin,
-                  nickname: feed?.author.nick || nickname,
-                  onSpace,
-                }}
-                timeline={{
-                  time: feed?.time ?? 0,
-                  portrait: feed?.author.portrait,
-                  content: feed ? <FeedContent feed={feed} share={share} /> : undefined,
-                  tools:
-                    feed && canShareQzoneFeed(feed.feed) ? (
-                      <div className="weq-qzn-post-tools">
-                        <QzoneFeedShareMenu selfUin={selfUin} feed={feed.feed} feedKey={feed.key} />
-                      </div>
-                    ) : undefined,
-                  counts: feed ? <FeedReadCounts feed={feed} /> : undefined,
-                  commentCount: feed?.commentCount,
-                  commentPreview: feed ? (
-                    <FeedCommentRows
-                      comments={projectPublicCommentsPage(feed.feed).comments}
-                      onSpace={onSpace}
-                    />
-                  ) : undefined,
-                }}
-              />
-            );
-          }
-          if (row.kind === 'blog') {
-            const { blog, feed } = row;
-            if (feed && !blogIndex.configId)
-              return <HomeFeedCard key={key} selfUin={selfUin} feed={feed} onSpace={onSpace} />;
-            return (
-              <QzoneBlogCard
-                key={key}
-                blog={blog}
-                input={feed ? { ...blogIndex.input, hostUin: feed.author.uin } : blogIndex.input}
-                nickname={feed ? feed.author.nick : nickname}
-                onSpace={onSpace}
-                timeline={{
-                  time: feed?.time ?? 0,
-                  portrait: feed?.author.portrait ?? '',
-                  preview:
-                    feed?.text && feed.text !== blog.title ? (
-                      <p className="weq-qzn-content" data-privacy-sensitive>
-                        <QzoneInlineText content={feed.text} />
-                      </p>
-                    ) : undefined,
-                  tools:
-                    feed && canShareQzoneFeed(feed.feed) ? (
-                      <div className="weq-qzn-post-tools">
-                        <QzoneFeedShareMenu selfUin={selfUin} feed={feed.feed} feedKey={feed.key} />
-                      </div>
-                    ) : undefined,
-                  counts: feed ? <FeedReadCounts feed={feed} /> : undefined,
-                }}
-              />
-            );
-          }
-          const { feed, tid, album } = row;
-          return tid && binding ? (
-            <PostCard
-              key={key}
-              selfUin={selfUin}
-              configId={binding.expectedAccountConfigId}
-              available={available}
-              feed={feed}
-              tid={tid}
-              album={album}
-              onSpace={onSpace}
-              onDeleted={(deletedTid) => {
-                if (selection.selectedIds.has(deletedTid))
-                  selection.setSelectedIds(
-                    (ids) => new Set([...ids].filter((id) => id !== deletedTid)),
-                  );
-                onDeleted(deletedTid);
-              }}
-              selectionProps={feed.author.uin === hostUin ? multi.itemProps(tid) : undefined}
-              selected={selection.selectedIds.has(tid)}
-            />
-          ) : (
-            <HomeFeedCard key={key} selfUin={selfUin} feed={feed} onSpace={onSpace} />
-          );
-        })}
+      <div {...multi.rootProps} data-qzone-refresh-start="">
+        {rows.length ? (
+          <QzoneVirtualRows
+            key={`${configId}:${hostUin}`}
+            rows={virtualRows}
+            active={active}
+            selectionMode={selection.selectionMode}
+            focusRequest={multi.focusRequest}
+            renderRow={({ key, row }) => {
+              if (row.kind === 'share') {
+                const { feed, share } = row;
+                return (
+                  <QzoneSharePost
+                    key={`${shareIndex.configId}:${key}`}
+                    share={share}
+                    refresh={shareIndex.refresh}
+                    space={{
+                      selfUin,
+                      hostUin: feed?.author.uin ?? hostUin,
+                      nickname: feed?.author.nick || nickname,
+                      onSpace,
+                    }}
+                    timeline={{
+                      time: feed?.time ?? 0,
+                      portrait: feed?.author.portrait,
+                      content: feed ? <FeedContent feed={feed} share={share} /> : undefined,
+                      tools:
+                        feed && canShareQzoneFeed(feed.feed) ? (
+                          <div className="weq-qzn-post-tools">
+                            <QzoneFeedShareMenu
+                              selfUin={selfUin}
+                              feed={feed.feed}
+                              feedKey={feed.key}
+                            />
+                          </div>
+                        ) : undefined,
+                      counts: feed ? <FeedReadCounts feed={feed} /> : undefined,
+                      commentCount: feed?.commentCount,
+                      commentPreview: feed ? (
+                        <FeedCommentRows
+                          comments={projectPublicCommentsPage(feed.feed).comments}
+                          onSpace={onSpace}
+                        />
+                      ) : undefined,
+                    }}
+                  />
+                );
+              }
+              if (row.kind === 'blog') {
+                const { blog, feed } = row;
+                if (feed && !blogIndex.configId)
+                  return <HomeFeedCard key={key} selfUin={selfUin} feed={feed} onSpace={onSpace} />;
+                return (
+                  <QzoneBlogCard
+                    key={key}
+                    blog={blog}
+                    input={
+                      feed ? { ...blogIndex.input, hostUin: feed.author.uin } : blogIndex.input
+                    }
+                    nickname={feed ? feed.author.nick : nickname}
+                    onSpace={onSpace}
+                    timeline={{
+                      time: feed?.time ?? 0,
+                      portrait: feed?.author.portrait ?? '',
+                      preview:
+                        feed?.text && feed.text !== blog.title ? (
+                          <p className="weq-qzn-content" data-privacy-sensitive>
+                            <QzoneInlineText content={feed.text} />
+                          </p>
+                        ) : undefined,
+                      tools:
+                        feed && canShareQzoneFeed(feed.feed) ? (
+                          <div className="weq-qzn-post-tools">
+                            <QzoneFeedShareMenu
+                              selfUin={selfUin}
+                              feed={feed.feed}
+                              feedKey={feed.key}
+                            />
+                          </div>
+                        ) : undefined,
+                      counts: feed ? <FeedReadCounts feed={feed} /> : undefined,
+                    }}
+                  />
+                );
+              }
+              const { feed, tid, album } = row;
+              return tid && binding ? (
+                <PostCard
+                  key={key}
+                  selfUin={selfUin}
+                  configId={binding.expectedAccountConfigId}
+                  available={available}
+                  feed={feed}
+                  tid={tid}
+                  album={album}
+                  onSpace={onSpace}
+                  onDeleted={(deletedTid) => {
+                    if (selection.selectedIds.has(deletedTid))
+                      selection.setSelectedIds(
+                        (ids) => new Set([...ids].filter((id) => id !== deletedTid)),
+                      );
+                    onDeleted(deletedTid);
+                  }}
+                  selectionProps={feed.author.uin === hostUin ? multi.itemProps(tid) : undefined}
+                  selected={selection.selectedIds.has(tid)}
+                />
+              ) : (
+                <HomeFeedCard key={key} selfUin={selfUin} feed={feed} onSpace={onSpace} />
+              );
+            }}
+          />
+        ) : null}
       </div>
       {blogIndex.error ? (
         <State loading={false} error={blogIndex.error} empty="" retry={blogIndex.retry} />

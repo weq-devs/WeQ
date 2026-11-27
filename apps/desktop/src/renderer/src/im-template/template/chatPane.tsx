@@ -10,7 +10,7 @@ import {
 } from './chatTimelineModel';
 import type { ConversationInteraction } from '../../../../shared/conversation_interaction';
 import { PICKED_BROWSER_FILE_MAX_BYTES } from '../../../../shared/browser_file_upload';
-import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
+import { accountBinding, preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import {
   searchSlashEmojis,
   type SlashEmojiFace,
@@ -31,6 +31,7 @@ import {
   conversationExportSelection,
   conversationAnalysisTarget,
   conversationSourceLabel,
+  readonlyConversationKind,
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import {
@@ -67,7 +68,11 @@ import { IS_WEB } from '../../lib/target.shared';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
 import '../../styles/unified-conversation.css';
-import { GroupProfileDialog, CloneMemberProfileCard } from '../../components/lazyMainPanels';
+import {
+  GroupProfileDialog,
+  CloneMemberProfileCard,
+  MessageDetails,
+} from '../../components/lazyMainPanels';
 import { activateProfile } from '../../lib/profileClick';
 import { ConversationMessageActions } from '../../components/ConversationMessageActions';
 import { QQMessageEssenceAction } from '../../components/QQMessageEssenceAction';
@@ -80,6 +85,7 @@ import { messageFavoriteEmojiUrl } from '../../lib/messageFavoriteEmoji';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useMessageSelectionFlow } from '../../hooks/useMessageSelectionFlow';
+import { useMessageBatchReview } from '../../hooks/useMessageBatchReview';
 import { messageImageAvailable, useMessageImage } from '../../hooks/useMessageImage';
 import { selectionGapId, parseSelectionGap, type SelectionGap } from '../../lib/messageSelection';
 import { createSelectionGapIndex } from '../../lib/selectionGapIndex';
@@ -137,7 +143,7 @@ import { groupPermission, recallPermission } from '@weq/service/qq-permissions';
 import { canDiscardFailedMessage, isUnpositionedFailure } from '../../lib/localOutgoing';
 import {
   messageBatchBlockReason,
-  partitionMessageBatch,
+  messageBatchLabels,
   type MessageBatchAction,
 } from '../../lib/messageBatchAction';
 import { MessageBatchActionDialog } from '../../components/MessageBatchActionDialog';
@@ -326,7 +332,8 @@ import { AvatarContextMenu, type AvatarContextMenuState } from './avatarContextM
 import { useGroupMemberUnmute } from '../../hooks/useGroupMemberUnmute';
 import { ReactionPicker } from './reactionPicker';
 import { useReactionFeedback } from '../../hooks/useReactionFeedback';
-import type { MessageContextMenuState } from './messageContextMenu';
+import type { MessageContextMenuState, MessageDetailsSelection } from './messageContextMenu';
+import type { MessageRecordEdited } from '../../components/MessageDetails';
 import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
 import { canRepeatMessage, repeatTarget } from '../../lib/messageRepeat';
@@ -376,7 +383,6 @@ import { dockStopTone, unreadDockKind, type UnreadDockKind } from './unreadDock'
 import { UnreadDockJumpButton, type ChatJumpStop } from './unreadDockButton';
 import { displayGroupName, displayUserName } from './user';
 import { OnlineStatus } from '../../components/OnlineStatus';
-import { MessageDecorationCard } from '../../components/MessageDecorationCard';
 import { client, trpc } from '../../trpc/client';
 import { useToast } from '../../components/Toast.shared';
 
@@ -385,6 +391,7 @@ import {
   composerHeightDefault,
   composerHeightMin,
   composerHeightMax,
+  composerPanelHeightMin,
 } from './composerLayout';
 const groupInfoCollapsedStorageKey = 'chat-template.layout.groupInfoCollapsed';
 const composerCollapsedStorageKey = 'chat-template.layout.composerCollapsed';
@@ -566,6 +573,7 @@ export type ChatPaneProps = {
   messageRenderers?: MessageRenderer[];
   loading: boolean;
   loadingNewer?: boolean;
+  locatingMessage?: boolean;
   initialReadingPosition?: ConversationReadingPosition;
   /** 是否为最新窗口；历史分页不触发新消息提示，分离窗口改由实时会话水位驱动。 */
   atLatest?: boolean;
@@ -660,7 +668,7 @@ export type ChatPaneProps = {
   onDraftClear: (conversationId: string) => void;
   onSentSpeechDraft?: (conversationId: string, text: string) => void;
   onBack: () => void;
-  onEditRaw?: (message: Message) => void;
+  onMessageRecordEdited?: MessageRecordEdited;
   onDeleteMessage?: (
     message: Message,
     conversation: Conversation,
@@ -750,8 +758,8 @@ export type ChatPaneProps = {
   /** Restore one WeQ-deleted message (the overlay's hover button). */
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
-  onMergeForward?: (messages: Message[], conversation: Conversation) => void;
-  onAddToComposition?: (messages: Message[]) => void;
+  onMergeForward?: (messages: Message[], conversation: Conversation) => Promise<boolean>;
+  onAddToComposition?: (messages: Message[], conversation?: Conversation) => void;
   onForwardMessages?: (messages: Message[], conversation: Conversation) => void;
   /**
    * 打开会话时从 msg_unread_info_table 读进内存的未读/高亮快照。上层在「读一次
@@ -800,6 +808,7 @@ function ChatPaneContent({
   messageRenderers,
   loading,
   loadingNewer = false,
+  locatingMessage,
   initialReadingPosition,
   atLatest = true,
   latestMessageSeq,
@@ -845,7 +854,7 @@ function ChatPaneContent({
   onDraftClear,
   onSentSpeechDraft,
   onBack,
-  onEditRaw,
+  onMessageRecordEdited,
   onDeleteMessage,
   onDismissUnsentMessage,
   onStartOutgoingMessage,
@@ -1354,18 +1363,17 @@ function ChatPaneContent({
   const requestAnalysis = useRequestContentAnalysis();
   const [selectionMenu, setSelectionMenu] = useState<{
     kind: 'copy' | 'forward';
+    anchor: HTMLElement;
     x: number;
     y: number;
   } | null>(null);
-  const selectionMenuTrigger = useRef<HTMLElement | null>(null);
   const closeSelectionMenu = useCallback(() => {
     setSelectionMenu(null);
-    selectionMenuTrigger.current?.focus({ preventScroll: true });
-  }, []);
+    selectionMenu?.anchor.focus({ preventScroll: true });
+  }, [selectionMenu]);
   const openSelectionMenu = (kind: 'copy' | 'forward', anchor: HTMLElement) => {
-    selectionMenuTrigger.current = anchor;
     const rect = anchor.getBoundingClientRect();
-    setSelectionMenu({ kind, x: rect.left, y: rect.top });
+    setSelectionMenu({ kind, anchor, x: rect.left, y: rect.top });
   };
   const exportMessageIds = (ids: string[]) => {
     if (ids.some((id) => parseSelectionGap(id))) {
@@ -1377,9 +1385,11 @@ function ChatPaneContent({
       requestExport({ ...scope, scope: { type: 'items', ids: [...ids] } });
     setContextMenu(null);
   };
-  const [decorationCard, setDecorationCard] = useState<{
-    decoration: { fontId: number; bubbleId: number; widgetId: number } | null;
-    anchor: { x: number; y: number };
+  const messageDetailsScope = JSON.stringify([user.id, conversation?.id, accountBinding()]);
+  const [messageDetails, setMessageDetails] = useState<{
+    scope: string;
+    selection: MessageDetailsSelection;
+    target?: Parameters<typeof client.account.messageRecordDetails.query>[0];
   } | null>(null);
   // Local "清空聊天记录" hide set (localStorage). Per-message delete no longer
   // touches this — deleted messages stay visible under an overlay; this set
@@ -1996,8 +2006,8 @@ function ChatPaneContent({
       if (recallScopeRef.current === recallScope) recallScopeRef.current = null;
     };
   }, [recallScope]);
-  const restorableSelection = selectionFlow.selectedMessages.filter(
-    (message) => deletedKeys.has(deletionIdentity(message.id)) || message.deletedKind === 'weq',
+  const selectionHasDeleted = selectionFlow.selectedMessages.some(
+    (message) => deletedKeys.has(deletionIdentity(message.id)) || message.deletedKind,
   );
   const selectionBlockedReason = selectionFlow.busy
     ? '正在加载所选范围'
@@ -2006,15 +2016,27 @@ function ChatPaneContent({
       : recallBusy
         ? '正在撤回所选消息'
         : null;
-  const [batchAction, setBatchAction] = useState<{
-    action: MessageBatchAction;
-    batch: ReturnType<typeof partitionMessageBatch>;
-  } | null>(null);
-  useEffect(() => {
-    setBatchAction(null);
-  }, [conversation?.id, user.id, tabActive, selectionMode]);
-  async function performBatchAction(action: MessageBatchAction, messages: Message[]) {
-    setBatchAction(null);
+  const batchReview = useMessageBatchReview(recallScope);
+  const reviewSelected = useStableCallback(
+    async (
+      action: MessageBatchAction,
+      picked?: Message[],
+      assess?: Parameters<typeof batchReview.ask>[2],
+    ) => {
+      const messages = picked ?? (await selectionFlow.prepare(messageBatchLabels[action]));
+      if (!messages?.length || recallScopeRef.current !== recallScope) return null;
+      const accepted = await batchReview.ask(action, messages, {
+        deleted: (message) => deletedKeys.has(deletionIdentity(message.id)),
+        ...assess,
+      });
+      return recallScopeRef.current === recallScope ? accepted : null;
+    },
+  );
+  async function performBatchAction(
+    action: 'export' | 'analysis' | 'delete' | 'recall' | 'restore',
+    messages: Message[],
+    approvedWarnings: ReadonlySet<string>,
+  ) {
     setContextMenu(null);
     if (!conversation || !tabActive || selectionBlockedReason || !selectionMode) return;
     if (action === 'export') exportMessageIds(messages.map((message) => message.id));
@@ -2025,7 +2047,8 @@ function ChatPaneContent({
           target,
           messages.map((message) => message.id),
         );
-    } else if (action === 'recall') await recallSelectedMessages(messages);
+    } else if (action === 'recall') await recallSelectedMessages(messages, approvedWarnings);
+    else if (action === 'restore') await restoreSelectedMessages(messages);
     else {
       if (deletionBusy) return;
       const hidden = await confirmMessageDeletion(messages.length);
@@ -2052,11 +2075,11 @@ function ChatPaneContent({
       }
     }
   }
-  async function restoreSelectedMessages() {
-    if (!onRestoreMessage || deletionBusy || !restorableSelection.length) return;
+  async function restoreSelectedMessages(messages: Message[]) {
+    if (!onRestoreMessage || deletionBusy || !messages.length) return;
     setDeletionBusy(true);
     const restored: string[] = [];
-    for (const message of restorableSelection) {
+    for (const message of messages) {
       if (actionScopeRef.current !== actionScope) break;
       try {
         await onRestoreMessage(message.id);
@@ -2075,41 +2098,35 @@ function ChatPaneContent({
     setContextMenu(null);
     let progressId: number | undefined;
     try {
-      const picked = messages ?? (await selectionFlow.prepare('意图感知'));
-      if (intentRun.current !== run || !picked?.length) return;
-      let targets = picked.filter(
-        (message) =>
-          !grayTipOf(message) && !isLocalOutgoingMessage(message) && messageHasIntentText(message),
-      );
-      setIntentBusy(true);
-      const batch = picked.length > 1;
-      if (batch && targets.length) {
+      const selected = messages ?? (await selectionFlow.prepare('意图感知'));
+      if (intentRun.current !== run || !selected?.length) return;
+      let picked = selected;
+      const batch = !messages;
+      if (batch) {
         const cached = await client.account.intentSense.listMessageAnalyses.query({
           kind: intentKind,
           conv: intentConv,
         });
         if (intentRun.current !== run) return;
-        const analyzed = new Set(cached.map((result) => result.msgId));
-        if (picked.every((message) => analyzed.has(message.id))) {
-          const confirmed = await useDialog
-            .getState()
-            .confirm(
-              '重新分析消息意图？',
-              `所选 ${picked.length} 条消息均已有结果，是否重新分析？`,
-              {
-                okLabel: '重新分析',
-              },
-            );
-          if (!confirmed || intentRun.current !== run) return;
-        } else targets = targets.filter((message) => !analyzed.has(message.id));
+        const accepted = await reviewSelected('intent', selected, {
+          analyzed: new Set(cached.map((result) => result.msgId)),
+        });
+        if (intentRun.current !== run || !accepted?.length) return;
+        picked = accepted;
       }
+      const targets = picked.filter(
+        (message) =>
+          !grayTipOf(message) && !isLocalOutgoingMessage(message) && messageHasIntentText(message),
+      );
+      const skipped = selected.length - targets.length;
+      setIntentBusy(true);
       if (batch)
         progressId = pushToast({
           tone: 'info',
           loading: true,
           dismissible: false,
           title: `正在分析消息意图 0/${targets.length}`,
-          detail: `跳过 ${picked.length - targets.length} 条已有结果或不可分析的消息`,
+          detail: `跳过 ${skipped} 条已有结果或不可分析的消息`,
         });
       setManualIntentPending({
         scope: `${intentKind}:${intentConv}`,
@@ -2142,7 +2159,7 @@ function ChatPaneContent({
           if (progressId !== undefined)
             useToast.getState().update(progressId, {
               title: `正在分析消息意图 ${succeeded + failed}/${targets.length}`,
-              detail: `成功 ${succeeded} 条，失败 ${failed} 条，跳过 ${picked.length - targets.length} 条`,
+              detail: `成功 ${succeeded} 条，失败 ${failed} 条，跳过 ${skipped} 条`,
             });
           setManualIntentPending((current) => {
             if (current?.run !== run) return current;
@@ -2165,7 +2182,7 @@ function ChatPaneContent({
               ? '意图感知完成'
               : '没有可分析的消息',
           detail: [
-            `成功 ${succeeded} 条，失败 ${failed} 条，跳过 ${picked.length - targets.length} 条`,
+            `成功 ${succeeded} 条，失败 ${failed} 条，跳过 ${skipped} 条`,
             ...failureReasons,
           ].join('\n'),
         } as const;
@@ -2197,33 +2214,39 @@ function ChatPaneContent({
       }
     }
   }
-  async function requestBatchAction(action: MessageBatchAction) {
+  async function requestBatchAction(
+    action: 'export' | 'analysis' | 'delete' | 'recall' | 'restore',
+  ) {
     if (selectionBlockedReason || !selectedIds.size) return;
-    const picked = await selectionFlow.prepare(
-      action === 'export'
-        ? '导出'
-        : action === 'analysis'
-          ? '分析'
-          : action === 'recall'
-            ? '撤回'
-            : '删除',
-    );
-    if (!picked?.length) return;
-    if (action === 'recall' && recallScopeRef.current !== recallScope) return;
-    const batch = partitionMessageBatch(
-      picked,
-      action,
-      action === 'recall'
-        ? (message) => {
-            const availability = latestRecallAvailability.current(message);
-            return availability.show
-              ? availability.reason
-              : '没有权限撤回这条消息，或该记录属于系统消息';
-          }
-        : undefined,
-    );
-    if (batch.unsupported.length) setBatchAction({ action, batch });
-    else performBatchAction(action, batch.supported);
+    const approvedWarnings = new Set<string>();
+    const picked = await reviewSelected(action, undefined, {
+      assess:
+        action === 'recall'
+          ? (message) => {
+              if (
+                grayTipOf(message) ||
+                message.recall ||
+                message.deletedKind ||
+                deletedKeys.has(deletionIdentity(message.id))
+              )
+                return undefined;
+              const availability = latestRecallAvailability.current(message);
+              if (!availability.show) return { label: '没有撤回权限的消息' };
+              if (availability.reason)
+                return { label: availability.reason, detail: availability.reason };
+              if (availability.warning) {
+                approvedWarnings.add(message.id);
+                return {
+                  label: '超过通常撤回时限的消息',
+                  include: false,
+                  detail: availability.warning,
+                };
+              }
+              return null;
+            }
+          : undefined,
+    });
+    if (picked?.length) await performBatchAction(action, picked, approvedWarnings);
   }
   const multi = useMultiSelection({
     ids: selectionOrder,
@@ -2276,7 +2299,7 @@ function ChatPaneContent({
       pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
       return;
     }
-    const picked = await selectionFlow.prepare('复制');
+    const picked = await reviewSelected('text');
     if (!picked?.length) return;
     try {
       const copied = await writeMentionClipboard(
@@ -2295,14 +2318,14 @@ function ChatPaneContent({
         detail: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [conversation, selectionFlow.prepare, user, pushToast, selectionBlockedReason]);
+  }, [conversation, reviewSelected, user, pushToast, selectionBlockedReason]);
   const copySelectedMessagesRich = useCallback(async () => {
     if (!conversation) return;
     if (selectionBlockedReason) {
       pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
       return;
     }
-    const picked = await selectionFlow.prepare('复制');
+    const picked = await reviewSelected('rich');
     if (!picked?.length) return;
     const value = messageRichClipboard(
       picked.map((message) => ({
@@ -2331,7 +2354,7 @@ function ChatPaneContent({
         detail: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [conversation, selectionFlow.prepare, user, pushToast, selectionBlockedReason]);
+  }, [conversation, reviewSelected, user, pushToast, selectionBlockedReason]);
   useLayoutEffect(() => {
     if (!tabActive || !selectionMode) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -3654,7 +3677,10 @@ function ChatPaneContent({
   const latestRecallAvailability = useRef(recallAvailability);
   latestRecallAvailability.current = recallAvailability;
 
-  async function recallSelectedMessages(messages: Message[]) {
+  async function recallSelectedMessages(
+    messages: Message[],
+    approvedWarnings: ReadonlySet<string>,
+  ) {
     if (
       !recallBinding ||
       recallScopeRef.current !== recallScope ||
@@ -3685,7 +3711,11 @@ function ChatPaneContent({
       let failed = 0;
       for (const message of messages) {
         if (!current()) break;
-        const ok = await latestRecallMessageFor.current(message, { binding, quiet: true });
+        const ok = await latestRecallMessageFor.current(message, {
+          binding,
+          quiet: true,
+          confirmedTimeWarning: approvedWarnings.has(message.id),
+        });
         if (ok) processed.push(message.id);
         else {
           failed++;
@@ -5477,7 +5507,7 @@ function ChatPaneContent({
   function enterSelection(message: Message) {
     if (message.generatedPending) return;
     setContextMenu(null);
-    setDecorationCard(null);
+    setMessageDetails(null);
     window.getSelection()?.removeAllRanges();
     setSelectionMode(true);
     selection.messageCache.set(message.id, message);
@@ -5502,8 +5532,9 @@ function ChatPaneContent({
     }
     const picked = await selectionFlow.prepare('合并转发');
     if (!picked?.length) return;
-    exitSelection();
-    onMergeForward?.(picked, conversation);
+    const scope = recallScope;
+    const accepted = await onMergeForward?.(picked, conversation);
+    if (accepted && recallScopeRef.current === scope) exitSelection();
   }
 
   async function forwardSelected() {
@@ -5514,7 +5545,7 @@ function ChatPaneContent({
 
   async function addSelectedToComposition() {
     const picked = await selectionFlow.prepare('添加到素材库');
-    if (picked?.length) onAddToComposition?.(picked);
+    if (picked?.length) onAddToComposition?.(picked, conversation ?? undefined);
   }
 
   function deleteSelectedMessages() {
@@ -5526,7 +5557,7 @@ function ChatPaneContent({
       pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
       return;
     }
-    const picked = await selectionFlow.prepare('复制');
+    const picked = await reviewSelected('json');
     if (!picked?.length) return;
     const payload = picked.map((message) => {
       const sender = resolveMessageSender(message, conversation as Conversation, user);
@@ -6040,7 +6071,7 @@ function ChatPaneContent({
       return;
     }
     setContextMenu(null);
-    setDecorationCard(null);
+    setMessageDetails(null);
     const hidden = await confirmMessageDeletion(1);
     if (hidden === null || actionScopeRef.current !== actionScope) return;
     if (canDiscardFailedMessage(message) && selectedIds.has(message.id)) {
@@ -6057,18 +6088,44 @@ function ChatPaneContent({
     }
   }
 
-  function viewDecoration(message: Message) {
-    setContextMenu(null);
-    const decoration = (message as any).decoration;
-    setDecorationCard({ decoration, anchor: { x: 0, y: 0 } });
-  }
-
-  function editMessageRaw(message: Message) {
-    if (isLocalOutgoingMessage(message)) return;
-    // Close the menu before the editor lightbox opens so it doesn't linger
-    // on top of / behind the modal.
-    setContextMenu(null);
-    onEditRaw?.(message);
+  function openMessageDetails(selection: MessageDetailsSelection) {
+    const { message } = selection;
+    const binding = accountBinding() ?? recallBinding;
+    const msgId = message.msgId ?? message.id;
+    const source = readonlyConversationKind(conversation);
+    let target: Parameters<typeof client.account.messageRecordDetails.query>[0] | undefined;
+    if (
+      binding?.expectedAccountUin === user.identityValue &&
+      conversation &&
+      !conversation.generated &&
+      !conversation.id.startsWith('virtual:') &&
+      source !== 'guild' &&
+      !message.forwardSnapshot &&
+      !isLocalOutgoingMessage(message) &&
+      /^-?\d{1,20}$/.test(msgId)
+    ) {
+      if (conversation.type === 'group') {
+        target = { ...binding, kind: 'group', conv: conversation.group.identityValue, msgId };
+      } else if (conversation.type === 'direct') {
+        const conv =
+          source === 'service'
+            ? conversation.id.replace(/^service:/, '')
+            : conversation.otherUser.id;
+        target = { ...binding, kind: source ?? 'c2c', conv, msgId };
+      }
+    }
+    if (target && (message.source === 'roaming' || message.recall?.retained)) {
+      if (target.kind === 'c2c' || target.kind === 'group') {
+        target.cache = {
+          format: message.sourceFormat,
+          retained: Boolean(message.recall?.retained),
+          seq: message.msgSeq && /^-?\d{1,20}$/.test(message.msgSeq) ? message.msgSeq : undefined,
+        };
+      } else {
+        target = undefined;
+      }
+    }
+    setMessageDetails({ scope: messageDetailsScope, selection, target });
   }
 
   function _requestClearConversationMessages() {
@@ -6256,19 +6313,23 @@ function ChatPaneContent({
       setLocationCardOpen(false);
     },
   };
-  // 输入区高度固定：语音条内联时就装在正文那一行里，不再临时抬高（避免开录音时
-  // 整个聊天区往下跳）。面板内容装不下时它自己在内部滚动。
-  //
+  // 引用和附件至少留下同样的一行正文，替换正文的面板则有独立的最小高度。
+  const composerPanelReplacesEditor =
+    pendingSuperEmoji !== null || voicePanelActive || flashPanelInline;
+  const composerContentMinHeight = composerPanelReplacesEditor
+    ? composerPanelHeightMin
+    : composerHeightMin + (mediaAttachments.length > 0 ? 76 : hasQuote ? 38 : 0);
+  const desktopComposerHeight = Math.max(
+    composerContentMinHeight,
+    Math.min(composerHeight, composerPaneHeight ? composerPaneHeight * 0.35 : composerHeight),
+  );
   // 收起时只清空网格占位，保留输入区原高用于退出过渡。把手和新消息提示随占位移动。
   // 多选时输入区让位给操作条 —— 只留一条矮栏（即使输入区本来是收起的也要露出来）。
   const expandedComposerHeight = selectionMode
     ? 64
     : !composerVisible
       ? 0
-      : Math.min(
-          composerHeight,
-          composerPaneHeight ? Math.max(96, composerPaneHeight * 0.35) : composerHeight,
-        ) + composerExtensionsHeight;
+      : desktopComposerHeight + composerExtensionsHeight;
   const paneStyle = {
     '--composer-height': `${composerCollapsed && !selectionMode ? 0 : expandedComposerHeight}px`,
     '--desktop-composer-height': `${expandedComposerHeight}px`,
@@ -6382,7 +6443,7 @@ function ChatPaneContent({
       pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
       return;
     }
-    const picked = await selectionFlow.prepare('复制图片');
+    const picked = await reviewSelected('image');
     const source = messageScrollRef.current;
     if (!source || !picked?.length) return;
     const positions = new Map(visibleMessages.map(({ id }, index) => [id, index]));
@@ -6551,15 +6612,23 @@ function ChatPaneContent({
                 <Sparkles size={12} />
               </small>
             ) : null}
-            {conversation.type === 'group' && conversation.group.luckyChar ? (
+            {conversation.type === 'group' &&
+            !conversation.generated &&
+            conversation.group.luckyChar ? (
               <img
-                className={cn('lucky-char-badge')}
+                className="lucky-char-badge"
                 src={dressUrl(
                   `https://tianquan.gtimg.cn/groupluckyword/item/${conversation.group.luckyChar.id}/pic-${conversation.group.luckyChar.litCount}.png`,
                 )}
                 alt=""
                 title={`幸运字符 · 已点亮 ${conversation.group.luckyChar.litCount} 人`}
                 referrerPolicy="no-referrer"
+                onError={(event) => {
+                  event.currentTarget.hidden = true;
+                }}
+                onLoad={(event) => {
+                  event.currentTarget.hidden = false;
+                }}
               />
             ) : null}
           </>
@@ -7007,6 +7076,11 @@ function ChatPaneContent({
           加载更早消息…
         </div>
       ) : null}
+      {locatingMessage ? (
+        <div className="weq-conversation-loading is-older" role="status">
+          正在加载目标消息…
+        </div>
+      ) : null}
       {loadingNewer ? (
         <div className="weq-conversation-loading" role="status" aria-label="正在加载后续消息">
           <Loader2 size={18} />
@@ -7265,6 +7339,9 @@ function ChatPaneContent({
           inert={composerCollapsed && !selectionMode && !compactHeader}
           className={cn(
             'composer',
+            !composerPanelReplacesEditor &&
+              desktopComposerHeight === composerContentMinHeight &&
+              'single-line-editor',
             hasComposerExtensions && !selectionMode && 'has-extensions',
             pendingSuperEmoji && 'has-single-send',
             mediaAttachments.length > 0 && 'has-media-attachments',
@@ -7433,14 +7510,14 @@ function ChatPaneContent({
               >
                 <Trash2 size={17} />
               </button>
-              {onRestoreMessage && restorableSelection.length > 0 ? (
+              {onRestoreMessage && selectionHasDeleted ? (
                 <button
                   type="button"
                   className="selection-action"
                   aria-label="恢复所选已删除消息"
                   title="恢复所选已删除消息"
                   disabled={deletionBusy || Boolean(selectionBlockedReason)}
-                  onClick={() => void restoreSelectedMessages()}
+                  onClick={() => requestBatchAction('restore')}
                 >
                   <RotateCcw size={17} />
                 </button>
@@ -7467,6 +7544,7 @@ function ChatPaneContent({
               label={selectionMenu.kind === 'copy' ? '复制格式' : '转发方式'}
               x={selectionMenu.x}
               y={selectionMenu.y}
+              scrollAnchor={selectionMenu.anchor}
               onClose={closeSelectionMenu}
               actions={
                 selectionMenu.kind === 'copy'
@@ -7513,19 +7591,19 @@ function ChatPaneContent({
               }
             />
           ) : null}
-          {batchAction ? (
+          {batchReview.review ? (
             <MessageBatchActionDialog
-              {...batchAction}
+              {...batchReview.review}
               conversation={conversation}
               user={user}
-              renderers={messageRenderers}
-              onClose={() => setBatchAction(null)}
-              onContinue={(messages) => performBatchAction(batchAction.action, messages)}
+              renderMessage={(message) => <MessageRow {...timelineMessageAppearance(message)} />}
+              onClose={() => batchReview.finish(null)}
+              onContinue={batchReview.finish}
             />
           ) : null}
           <ComposerResizeHandle
-            height={composerHeight}
-            minHeight={composerHeightMin}
+            height={desktopComposerHeight}
+            minHeight={composerContentMinHeight}
             maxHeight={composerHeightMax}
             onHeightChange={updateComposerHeight}
           />
@@ -7941,10 +8019,7 @@ function ChatPaneContent({
           ) : null}
           <div
             ref={composerEditorRef}
-            className={cn(
-              'composer-editor',
-              (pendingSuperEmoji || voicePanelActive || flashPanelInline) && 'composer-row-hidden',
-            )}
+            className={cn('composer-editor', composerPanelReplacesEditor && 'composer-row-hidden')}
             role="textbox"
             aria-multiline="true"
             aria-label="消息"
@@ -8369,14 +8444,7 @@ function ChatPaneContent({
               : undefined
           }
           deleteLabel={canDiscardFailedMessage(contextMenu.message) ? '移除失败消息' : '本地删除'}
-          onEditRaw={
-            onEditRaw &&
-            contextMenu.message.source !== 'roaming' &&
-            !isLocalOutgoingMessage(contextMenu.message)
-              ? editMessageRaw
-              : undefined
-          }
-          onViewDecoration={viewDecoration}
+          onViewDetails={openMessageDetails}
           onReply={restrictedSource ? undefined : startQuote}
           // 系统消息 / 缺少会话内序号不给引：菜单里那枚「引用」直接置灰并说明原因。
           replyBlockedReason={
@@ -8550,10 +8618,19 @@ function ChatPaneContent({
           onClose={() => setReactionPicker(null)}
         />
       ) : null}
-      {decorationCard ? (
-        <MessageDecorationCard
-          decoration={decorationCard.decoration}
-          onClose={() => setDecorationCard(null)}
+      {messageDetails && messageDetails.scope === messageDetailsScope ? (
+        <MessageDetails
+          key={messageDetails.selection.message.id}
+          selection={messageDetails.selection}
+          conversation={conversation ?? undefined}
+          user={user}
+          target={messageDetails.target}
+          onEdited={onMessageRecordEdited}
+          isSender={isSelfIdentity(
+            new Set(selfIdentityValues(user)),
+            messageDetails.selection.message.senderId,
+          )}
+          onClose={() => setMessageDetails(null)}
         />
       ) : null}
     </section>

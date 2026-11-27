@@ -11,6 +11,7 @@ import { bounded, networkFetch } from '@weq/network';
  *   weq-media://pic?t=<sendTimeMs>&name=<fileName>            → image bytes
  *   weq-media://pic?t=&name=&v=thumb                          → thumbnail bytes
  *   weq-media://video?t=&name=&v=thumb                        → cover image bytes
+ *   weq-media://file?msgId=&name=&token=                      → MOV chat attachment playback
  *   weq-media://ptt?t=&name=                                  → decoded WAV bytes
  *   weq-media://mface?pack=<emojiPackId>&hash=<marketEmoticonIdHex> → sticker bytes
  *   weq-media://mface?pack=&hash=&enc=tea&key=<opt> → 商城表情包 CDN 加密流 QQTEA 解密后 GIF（解密失败回退明文 raw GIF/PNG）
@@ -41,6 +42,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { toUSVString } from 'node:util';
 import { networkScope, scopedNetworkAllowed, transferBehavior } from '@weq/service/network-scope';
 import { hostDataSaver } from './data_saver';
+import { chatStickerMd5 } from '../shared/chat_sticker';
 import { ManagedDownload } from '@weq/service/managed-download';
 import { avatarResponse } from './avatar_response';
 import { aiImageAssetPath } from './ai_images';
@@ -60,6 +62,7 @@ import {
   managedMediaDownload as downloadUrlToFile,
   resolveChatpicFile,
   developmentDressToolsEnabled,
+  mediaSignature,
   favoriteEmojiFileRevision,
   chatpicRelPaths,
   type AvatarLocalFile,
@@ -72,6 +75,8 @@ import { redPackSkinField, resourceSkinCover } from './redpack_catalog';
 import { CallRecordingStore, recordingsRootFor } from './call_recording_store';
 import { videoPreviewResponse } from './video_preview_response';
 import { videoPreviewSource } from './video_preview_source';
+import { resolveRecordedChatFile } from './message_media_local';
+import { isMovFileName } from '@weq/service/message-filter';
 import { observeDownload, transferIdInput } from './ipc/routers/transfer_progress';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
@@ -101,6 +106,7 @@ export async function resolveVoiceSilk(
     fwdResId?: string;
   },
   check = () => mediaBinding.getStore()?.(),
+  localOnly = false,
 ): Promise<string | null> {
   check();
   const { source } = await services.fileSearch.findFile(input.t, input.name, 'ptt');
@@ -110,6 +116,7 @@ export async function resolveVoiceSilk(
   const downloaded = await services.mediaDownload.download(input.token, {
     ext: '.silk',
     rkeyTypes: PTT_RKEY_TYPES,
+    ...(localOnly ? { localOnly } : {}),
   });
   check();
   if (downloaded) return downloaded;
@@ -117,6 +124,7 @@ export async function resolveVoiceSilk(
   if (!boot) return null;
   const path = oidbCachePath(join(boot.userConfig.cacheDir('media'), 'ptt'), input.token, '.silk');
   if (existsSync(path)) return path;
+  if (localOnly) return null;
   const found = await findMediaElement(
     input.msgId,
     'ptt',
@@ -164,6 +172,7 @@ export async function findMediaElement(
   fwdMsgId = '',
   fwdKind?: 'group' | 'c2c',
   fwdResId?: string,
+  fileName?: string,
 ): Promise<{ element: MediaElement; conv: 'group' | 'c2c' | null } | null> {
   mediaBinding.getStore()?.();
   const services = getAppContext().services;
@@ -201,7 +210,9 @@ export async function findMediaElement(
     return services.gapHistory.findMediaElement(msgId, kind, token);
   }
   const matches = raw.elements.filter(
-    (e) => e.kind === kind || (kind === 'video' && e.kind === 'bubbleVideo'),
+    (e) =>
+      (e.kind === kind || (kind === 'video' && e.kind === 'bubbleVideo')) &&
+      (fileName === undefined || (e as { fileName?: string }).fileName === fileName),
   );
   const el = matches.find((e) => (e as { fileToken?: string }).fileToken === token) ?? matches[0];
   if (!el) return null;
@@ -252,6 +263,16 @@ const currentRequest = new AsyncLocalStorage<Request>();
 
 function fileResponse(path: string): Promise<Response> {
   return streamFile(path, currentRequest.getStore());
+}
+
+function movPlaybackResponse(response: Response): Response {
+  if (!response.ok) return response;
+  const headers = new Headers(response.headers);
+  headers.set('Content-Type', 'video/quicktime');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Content-Security-Policy', "default-src 'none'; sandbox");
+  headers.set('Cache-Control', 'no-store');
+  return new Response(response.body, { status: response.status, headers });
 }
 
 async function voiceResponse(
@@ -408,11 +429,6 @@ function flashPicUpstreamUrl(token: string, spec: string): string | null {
 }
 
 async function albumRemoteResponse(src: string): Promise<Response> {
-  if (!scopedNetworkAllowed())
-    return new Response('省流量模式：点击加载', {
-      status: 409,
-      headers: { 'Cache-Control': 'no-store' },
-    });
   if (!/^https?:\/\//i.test(src)) return notFound('album image needs remote url');
   const target = new URL(src);
   const host = target.hostname.toLowerCase();
@@ -437,6 +453,18 @@ async function albumRemoteResponse(src: string): Promise<Response> {
   // Range 转发给上游（否则一律回 200 全量 = 不可 seek 流，demuxer 打不开 moov 在
   // 末尾的文件，报 DEMUXER_ERROR_COULD_NOT_OPEN）。上游 CDN 支持 206。
   const incoming = currentRequest.getStore();
+  const range = incoming?.headers.get('range');
+  const cache = getAppContext().bootstrap?.avatarCache;
+  const local = !range && (await cache?.getLocal(src, 'album'));
+  if (local)
+    return new Response(new Uint8Array(local.data), {
+      headers: { 'Content-Type': local.contentType, 'Cache-Control': 'public, max-age=86400' },
+    });
+  if (!scopedNetworkAllowed())
+    return new Response('省流量模式：点击加载', {
+      status: 409,
+      headers: { 'Cache-Control': 'no-store', 'X-WeQ-Media-State': 'deferred' },
+    });
   const headers: Record<string, string> = {
     // Referer 的协议必须跟目标一致：Chromium 禁止 https→http 的 referrer 降级,
     // 撞上就是 ERR_BLOCKED_BY_CLIENT(资料卡精选图片走的 ugc.qpic.cn 只有 http)。
@@ -444,7 +472,6 @@ async function albumRemoteResponse(src: string): Promise<Response> {
     'User-Agent':
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari/537.36',
   };
-  const range = incoming?.headers.get('range');
   if (range) headers.Range = range;
   const res = await networkFetch(src, { headers, signal: incoming?.signal });
   if (!res.ok) return new Response(`album image http ${res.status}`, { status: res.status });
@@ -471,6 +498,9 @@ async function albumRemoteResponse(src: string): Promise<Response> {
   // 图片则重新组装：qpic 带 `connection: keep-alive` 这类逐跳头,原样回传会让
   // Chromium 的协议处理器直接 ERR_UNEXPECTED。只挑必要的头。
   const body = await res.arrayBuffer();
+  const bytes = Buffer.from(body);
+  if (cache && res.status === 200 && !range && mediaSignature(bytes, 'image'))
+    await cache.storeAlbumImage(src, bytes, contentType);
   return new Response(body, {
     status: 200,
     headers: { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=86400' },
@@ -604,11 +634,16 @@ export async function resolveChatImageFile(
   const services = getAppContext().services;
   if (!services) throw new Error('账号尚未打开');
   const picType = q.get('recv') === '1' ? 'emoji' : 'pic';
+  const name = q.get('name') ?? '';
+  const md5 = q.get('md5');
+  const stickerMd5 = picType === 'emoji' ? chatStickerMd5(md5, name) : undefined;
+  const sharedSticker = stickerMd5 ? services.mediaDownload.cachedChatSticker(stickerMd5) : null;
+  if (sharedSticker) return { path: sharedSticker, variant: 'downloaded' as const };
   const { source, thumb } = await services.fileSearch.findFile(
     Number(q.get('t') ?? '0'),
-    q.get('name') ?? '',
+    name,
     picType,
-    q.get('md5') ?? undefined,
+    stickerMd5 ?? md5 ?? undefined,
   );
   check();
   const originalOnly = q.get('v') === 'original' && picType !== 'emoji';
@@ -623,6 +658,9 @@ export async function resolveChatImageFile(
   if (path) return { path, variant: path === source ? ('original' as const) : ('thumb' as const) };
   const backup = resolveChatpicFallback(q.get('md5') ?? '', originalOnly);
   if (backup) return { path: backup, variant: 'unknown' as const };
+  const token = q.get('token') ?? '';
+  const sent = services.mediaDownload.sentMedia?.find('pic', token, md5 ?? '');
+  if (sent) return { path: sent, variant: 'original' as const };
   if (previewOnly) {
     const small = q.get('small');
     const thumbnail =
@@ -632,8 +670,12 @@ export async function resolveChatImageFile(
     check();
     return { path: thumbnail ?? null, variant: 'thumb' as const };
   }
-  const cached = services.mediaDownload.cachedFile(q.get('token') ?? '');
-  if (cached) return { path: cached, variant: 'downloaded' as const };
+  const cached = services.mediaDownload.cachedFile(token);
+  if (cached) {
+    if (stickerMd5) await services.mediaDownload.rememberChatSticker(stickerMd5, cached, signal);
+    check();
+    return { path: cached, variant: 'downloaded' as const };
+  }
   if (q.get('localOnly') === '1') return { path: null, variant: 'unknown' as const };
   const restricted = await hostDataSaver(q.get('ds') === '1');
   check();
@@ -660,15 +702,11 @@ export async function resolveChatImageFile(
     behavior.dataSaverImageLoading !== 'original'
   ) {
     const small = q.get('small');
-    const thumbnail =
-      small && small !== q.get('orig')
-        ? await services.mediaDownload.thumbnail?.(small, false, signal)
-        : null;
-    return thumbnail
-      ? { path: thumbnail, variant: 'thumb' as const }
-      : { path: null, variant: 'unknown' as const, deferred: true };
+    if (!small || small === q.get('orig'))
+      return { path: null, variant: 'unknown' as const, deferred: true };
+    const thumbnail = await services.mediaDownload.thumbnail?.(small, false, signal);
+    return { path: thumbnail ?? null, variant: 'thumb' as const };
   }
-  const token = q.get('token') ?? '';
   const transfer = originalOnly
     ? transferIdInput.safeParse(q.get('transferId') ?? undefined)
     : null;
@@ -707,6 +745,8 @@ export async function resolveChatImageFile(
           );
         })
       : await services.mediaDownload.download(token, opts);
+  if (downloaded && stickerMd5)
+    await services.mediaDownload.rememberChatSticker(stickerMd5, downloaded, signal);
   check();
   return { path: downloaded, variant: 'downloaded' as const };
 }
@@ -1055,15 +1095,22 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
           if (deferred)
             return new Response('省流量模式：点击加载', {
               status: 409,
-              headers: { 'Cache-Control': 'no-store', 'X-WeQ-Media-State': 'deferred' },
+              headers: {
+                'Cache-Control': 'no-store',
+                'X-WeQ-Media-State': 'deferred',
+                'Access-Control-Expose-Headers': 'X-WeQ-Media-State',
+              },
             });
           return path ? await respond(path) : notFound('pic not found');
         }
+        case 'file':
         case 'video': {
+          const attachment = kind === 'file';
+          if (attachment && !isMovFileName(name)) return notFound('unsupported file preview');
           // ?v=thumb → cover image (rkey is fine for covers); otherwise →
           // original mp4, completed via OIDB (rkey doesn't work for video
           // originals, so it's intentionally not attempted).
-          if (wantThumb) {
+          if (!attachment && wantThumb) {
             const { thumb } = await services.fileSearch.findFile(tMs, name, 'video');
             mediaBinding.getStore()?.();
             if (thumb) return fileResponse(thumb);
@@ -1074,16 +1121,12 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
             mediaBinding.getStore()?.();
             return dl ? fileResponse(dl) : notFound('video cover not found');
           }
-          const { source } = await services.fileSearch.findFile(tMs, name, 'video');
-          mediaBinding.getStore()?.();
-          if (source) return fileResponse(source);
-
-          // 本地缺片时现签 URL 并按播放器 Range 流式读取；完整收取后才发布缓存。
-          const boot = getAppContext().bootstrap;
-          if (!boot || !token) return notFound('video not found');
-          const cacheDir = join(boot.userConfig.cacheDir('media'), 'video');
-          const cachePath = oidbCachePath(cacheDir, token, '.mp4');
-          if (existsSync(cachePath)) return fileResponse(cachePath);
+          if (!attachment) {
+            const { source } = await services.fileSearch.findFile(tMs, name, 'video');
+            mediaBinding.getStore()?.();
+            const local = source ?? services.mediaDownload?.sentMedia?.find('video', token);
+            if (local) return fileResponse(local);
+          }
 
           const msgId = q.get('msgId') ?? '';
           const conv = q.get('conv') ?? '';
@@ -1113,7 +1156,52 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
             request.signal.throwIfAborted();
             checkBinding();
           };
+          checkPlayback();
+          const file = attachment
+            ? await findMediaElement(msgId, 'file', token, fwdMsgId, fwdKind, fwdResId, name)
+            : null;
+          checkPlayback();
+          if (attachment) {
+            if (
+              !file ||
+              file.element.fileName !== name ||
+              (token && file.element.fileToken !== token)
+            )
+              return notFound('video attachment not found');
+            const local = await resolveRecordedChatFile(
+              services,
+              { kind: 'chat-file', msgId, name, token, conv, fwdMsgId, fwdKind, fwdResId },
+              file,
+              { exact: true },
+            );
+            checkPlayback();
+            if (local) return movPlaybackResponse(await fileResponse(local.path));
+          }
+          // 本地缺片时现签 URL 并按播放器 Range 流式读取；完整收取后才发布缓存。
+          const boot = getAppContext().bootstrap;
+          if (!boot || (!file && !token)) return notFound('video not found');
+          const cacheDir = join(boot.userConfig.cacheDir('media'), 'video');
+          const identity = JSON.stringify([
+            scope,
+            token,
+            msgId,
+            groupId,
+            fwdMsgId,
+            fwdKind,
+            fwdResId,
+          ]);
+          const key = file ? JSON.stringify(['file', identity, name]) : identity;
+          const cachePath = oidbCachePath(cacheDir, file ? key : token, file ? '.mov' : '.mp4');
+          if (existsSync(cachePath)) {
+            const response = await fileResponse(cachePath);
+            return file ? movPlaybackResponse(response) : response;
+          }
           const sign = async () => {
+            if (file) {
+              return file.conv === null
+                ? accountServices.mediaUrl.resolveFileUrlUnknownScene(groupId, file.element, name)
+                : accountServices.mediaUrl.resolveFileUrl(file.conv, groupId, file.element, name);
+            }
             const found = await findMediaElement(
               msgId,
               'video',
@@ -1140,13 +1228,18 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
           const play = async (url: Promise<string | null>) => {
             const signed = await bounded(url, request.signal);
             checkPlayback();
-            return signed
-              ? videoPreviewResponse(signed, cachePath, request, checkBinding, cacheVideo, scope)
-              : notFound('video OIDB returned empty url');
+            if (!signed) return notFound('video OIDB returned empty url');
+            const response = await videoPreviewResponse(
+              signed,
+              cachePath,
+              request,
+              checkBinding,
+              cacheVideo,
+              scope,
+            );
+            return file ? movPlaybackResponse(response) : response;
           };
-          checkPlayback();
           if (cacheVideo === false) return await play(sign());
-          const key = JSON.stringify([scope, token, msgId, groupId, fwdMsgId, fwdKind, fwdResId]);
           const signed = videoPreviewSource(accountServices, key, sign);
           const response = await play(signed.url);
           if (!signed.reused || response.status !== 502) return response;

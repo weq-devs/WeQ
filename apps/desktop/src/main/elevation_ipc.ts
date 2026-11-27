@@ -12,7 +12,9 @@ import { accountRuntimeState } from './context/account_runtime';
 import { accountIpc } from './window_account_runtime';
 import { getLogger, SharedPrompt } from '@weq/service';
 import { getMainWindow } from './main_window';
+import { getBootstrapSettingsWindow } from './bootstrap_settings_window';
 import { setSudoPasswordPrompt } from './sudo_prompt';
+import type { WebContents } from 'electron';
 
 const logger = getLogger().child({ scope: 'elevation' });
 
@@ -24,6 +26,7 @@ const PROMPT_TIMEOUT_MS = 10 * 60 * 1000;
 
 const state = accountRuntimeState(() => ({
   pendingResolve: null as ((password: string | null) => void) | null,
+  pendingSender: null as WebContents | null,
   prompt: new SharedPrompt<string | null>(null),
   pendingToken: 0,
 }));
@@ -31,16 +34,18 @@ const state = accountRuntimeState(() => ({
 /** 注册 IPC 监听（main/index.ts 启动时调用一次）。 */
 export function registerElevationIpc(): void {
   accountIpc.on(RESPOND_CHANNEL, (event, raw: unknown) => {
-    if (event.sender !== getMainWindow()?.webContents || !state().pendingResolve) return;
+    const request = state();
+    if (event.sender !== request.pendingSender || event.senderFrame !== event.sender.mainFrame)
+      return;
     const payload = (raw ?? {}) as { token?: unknown; password?: unknown };
-    if (typeof payload.token !== 'number' || payload.token !== state().pendingToken) return;
+    if (typeof payload.token !== 'number' || payload.token !== request.pendingToken) return;
     const password =
       typeof payload.password === 'string' && payload.password.length > 0 ? payload.password : null;
     logger.info('elevation password answered', {
       event: 'elevation-password-answered',
       ok: password !== null,
     });
-    state().pendingResolve?.(password);
+    request.pendingResolve?.(password);
   });
   setSudoPasswordPrompt((title, message, signal) =>
     requestSudoPasswordImpl(title, message, signal),
@@ -59,20 +64,26 @@ function requestSudoPasswordImpl(
   const request = state();
   return request.prompt.request((finish) => {
     const token = ++request.pendingToken;
-    const win = getMainWindow();
+    const owner = getMainWindow();
+    const settings = getBootstrapSettingsWindow(owner);
+    const win = settings?.isFocused() ? settings : owner;
     if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
       finish(null);
       return () => {};
     }
     const onClosed = (): void => finish(null);
     request.pendingResolve = finish;
+    request.pendingSender = win.webContents;
     const timer = setTimeout(() => finish(null), PROMPT_TIMEOUT_MS);
     win.once('closed', onClosed);
     win.webContents.send(REQUEST_CHANNEL, { token, title, message });
     return () => {
       clearTimeout(timer);
       win.removeListener('closed', onClosed);
-      if (request.pendingToken === token) request.pendingResolve = null;
+      if (request.pendingToken === token) {
+        request.pendingResolve = null;
+        request.pendingSender = null;
+      }
       if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
         win.webContents.send('elev:cancel-password', { token });
       }

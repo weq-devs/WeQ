@@ -228,6 +228,105 @@ describe('GroupFileService', () => {
 });
 
 describe('GroupNotifyService', () => {
+  it('并发首屏查询共用发包，两箱独立且分页游标保持原始精度', async () => {
+    const cursor = 9007199254740993n;
+    const first = encode(FetchGroupRequests.respSchema, {
+      cookie: cursor,
+      requests: Array.from({ length: 50 }, (_, index) => ({ sequence: index + 10 })),
+    });
+    const transport = makeNative(new Map([['10c0_1', first]]));
+    const nt = {
+      ...transport,
+      sendOidbPacket: vi.fn(async (...args: Parameters<typeof transport.sendOidbPacket>) => {
+        const request = decode(FetchGroupRequests.reqSchema, args[3]);
+        if (request.cookie === cursor) return Buffer.alloc(0);
+        return transport.sendOidbPacket(...args);
+      }),
+    };
+    const service = new GroupNotifyService({} as never, { nt, resolvePid: () => 1 });
+
+    const [main, duplicate, filtered] = await Promise.all([
+      service.fetchOnlineInbox({ maxPages: 1 }),
+      service.fetchOnlineInbox({ maxPages: 1 }),
+      service.fetchOnlineInbox({ filtered: true, maxPages: 1 }),
+    ]);
+    expect(transport.calls.map(({ subCommand }) => subCommand)).toEqual([1, 2]);
+    expect(main.nextCursor).toBe(cursor);
+    expect(duplicate).toEqual(main);
+    expect(filtered.nextCursor).toBeUndefined();
+    await expect(service.fetchOnlineInbox({ cursor, maxPages: 1 })).resolves.toMatchObject({
+      requests: [],
+      nextCursor: undefined,
+    });
+    expect(nt.sendOidbPacket).toHaveBeenCalledTimes(3);
+  });
+
+  it('可疑收件箱限流期间不再发该列表请求，普通收件箱和明确审批仍可用', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(100_000);
+    const transport = makeNative();
+    const nt = { ...transport, sendOidbPacket: vi.fn(transport.sendOidbPacket) };
+    const service = new GroupNotifyService({} as never, { nt, resolvePid: () => 1 });
+    try {
+      nt.sendOidbPacket.mockRejectedValueOnce(new Error('OIDB error 123: 操作过于频繁'));
+      await expect(service.fetchOnlineInbox({ filtered: true })).rejects.toMatchObject({
+        diagnostic: 'expected',
+      });
+      await expect(
+        service.fetchOnlineInbox({ filtered: true, manual: true }),
+      ).rejects.toMatchObject({ diagnostic: 'expected' });
+      await service.fetchOnlineInbox({ maxPages: 1 });
+      await service.handleOnlineRequest(
+        { groupId: 123, sequence: 100, eventType: 1, filtered: true },
+        true,
+        '',
+      );
+      expect(
+        nt.sendOidbPacket.mock.calls.map(([, command, subCommand]) => [command, subCommand]),
+      ).toEqual([
+        [0x10c0, 2],
+        [0x10c0, 1],
+        [0x10c8, 2],
+      ]);
+      now.mockReturnValue(161_000);
+      expect(nt.sendOidbPacket).toHaveBeenCalledTimes(3);
+      await service.fetchOnlineInbox({ filtered: true, maxPages: 1 });
+      expect(nt.sendOidbPacket).toHaveBeenCalledTimes(4);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('明确账号受限后暂停两箱及写入，只通过一次成功的手动刷新确认恢复', async () => {
+    const transport = makeNative();
+    const nt = { ...transport, sendOidbPacket: vi.fn(transport.sendOidbPacket) };
+    const service = new GroupNotifyService({} as never, { nt, resolvePid: () => 1 });
+    nt.sendOidbPacket.mockRejectedValueOnce(new Error('OIDB error 123: 账号暂时受限'));
+    const restricted = { diagnostic: 'expected' };
+    await expect(service.fetchOnlineInbox()).rejects.toMatchObject(restricted);
+    await expect(service.fetchOnlineInbox({ filtered: true })).rejects.toMatchObject(restricted);
+    await expect(service.reportNoticeRead(100n, () => undefined)).rejects.toMatchObject(restricted);
+    await expect(
+      service.handleOnlineRequest(
+        { groupId: 123, sequence: 100, eventType: 1, filtered: false },
+        true,
+        '',
+      ),
+    ).rejects.toMatchObject(restricted);
+    expect(nt.sendOidbPacket).toHaveBeenCalledTimes(1);
+
+    nt.sendOidbPacket.mockRejectedValueOnce(new Error('SSO 应答超时'));
+    await expect(service.fetchOnlineInbox({ manual: true, maxPages: 1 })).rejects.toThrow('超时');
+    await expect(service.fetchOnlineInbox()).rejects.toMatchObject(restricted);
+    await Promise.all([
+      service.fetchOnlineInbox({ manual: true, maxPages: 1 }),
+      service.fetchOnlineInbox({ manual: true, maxPages: 1 }),
+    ]);
+    await expect(service.fetchOnlineInbox({ filtered: true })).resolves.toMatchObject({
+      requests: [],
+    });
+    expect(nt.sendOidbPacket).toHaveBeenCalledTimes(4);
+  });
+
   it('群通知只上报实际展示的序号，以独立读回确认，并保留后来条目', async () => {
     const viewed = 9007199254740993n;
     const newer = viewed + 1n;

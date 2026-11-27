@@ -130,17 +130,20 @@ async function run() {
           const row = scroll.querySelector(`[data-message-id="${id}"]`)?.getBoundingClientRect();
           const viewport = scroll.getBoundingClientRect();
           window.timelineTest.jump(tail);
-          return row && row.bottom > viewport.top && row.top < viewport.bottom;
+          if (!row) return false;
+          const shown = Math.min(row.bottom, viewport.bottom) - Math.max(row.top, viewport.top);
+          return shown > 0 && shown >= Math.min(row.height, viewport.height) / 2;
         },
         { id: `row-${seq}`, tail: `row-${newest}` },
       );
-      assert.ok(flashed, '快速掠过的样本必须确实进入过视口');
+      assert.ok(flashed, '目标必须短暂达到可读面积');
       await waitForViewport(seq, false);
-      assert.equal(await dock.count(), 1, '只闪过两帧的目标不应消耗跳转提醒');
+      await assertDismissed(dock);
+    } else {
+      await page.evaluate((id) => window.timelineTest.jump(id), `row-${seq}`);
+      await waitForViewport(seq, true);
+      await dock.waitFor({ state: 'hidden' });
     }
-    await page.evaluate((id) => window.timelineTest.jump(id), `row-${seq}`);
-    await waitForViewport(seq, true);
-    await dock.waitFor({ state: 'hidden' });
     await page.evaluate(() => {
       const scroll = document.querySelector('.message-scroll');
       scroll.scrollTop = scroll.scrollHeight;
@@ -187,7 +190,7 @@ async function run() {
     const lateDock = page.getByRole('button', { name: '跳到首条未读', exact: true });
     await waitForViewport(1001, true);
     await waitForViewport(seq, seen);
-    if (seen) await page.waitForTimeout(250);
+    if (seen) await settleViewport();
     await send();
     await waitForViewport(1151, true);
     await page.evaluate(() => window.timelineTest.showUnreadDock());
@@ -434,6 +437,18 @@ async function verifyCrossfade(page, url) {
     await old.waitFor({ state: 'detached' });
     await live.getByText('这段聊天记录暂时无法加载', { exact: true }).waitFor();
   }
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.goto(`${url}?entry&count=63&no-intent`);
+  const tail = live.locator('[data-message-id="row-1063"]');
+  await tail.waitFor();
+  await tail.evaluate((row) => {
+    row.append(...Array.from({ length: 1500 }, () => document.createElement('span')));
+  });
+  await begin();
+  await live.getByRole('status').filter({ hasText: '正在加载消息' }).waitFor();
+  assert.equal(await old.count(), 0);
+  await page.evaluate(() => window.timelineTest.entryStage(2));
+  await live.locator('[data-message-id="row-1002"]').waitFor();
 }
 try {
   await run();

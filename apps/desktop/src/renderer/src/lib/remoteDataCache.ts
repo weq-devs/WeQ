@@ -200,20 +200,33 @@ export function remoteCachedResource(url: string) {
   return `${path.pathname}${path.search}${path.hash}`;
 }
 
-export async function readRemoteCachedMedia(source: string, signal?: AbortSignal) {
+export async function readRemoteCachedMedia(
+  source: string,
+  signal?: AbortSignal,
+  reuseWithoutDataSaver = false,
+) {
   const url = remoteCachedResource(source);
   if (!url.includes('weqCacheScope=') || !(await remoteDataCacheStatus())) return undefined;
-  try {
-    const response = await fetch(`${endpoint}/media?${new URLSearchParams({ source: url })}`, {
-      signal,
-    });
-    if (response.ok && response.headers.get('x-weq-data-cache') === '1')
-      return {
-        blob: await response.blob(),
-        storedAt: Number(response.headers.get('x-weq-cache-stored-at')),
-      };
-  } catch {}
-  return undefined;
+  const read = async (source: string) => {
+    try {
+      const response = await fetch(`${endpoint}/media?${new URLSearchParams({ source })}`, {
+        signal,
+      });
+      if (response.ok && response.headers.get('x-weq-data-cache') === '1')
+        return {
+          blob: await response.blob(),
+          storedAt: Number(response.headers.get('x-weq-cache-stored-at')),
+        };
+    } catch {}
+    return undefined;
+  };
+  const exact = await read(url);
+  if (exact || !reuseWithoutDataSaver || signal?.aborted) return exact;
+  const normal = new URL(url, location.origin);
+  if (!normal.searchParams.has('ds')) return undefined;
+  // 旧手机按 ds 分开缓存。只从本机读取另一条键，实际网络请求仍保留省流量参数。
+  normal.searchParams.delete('ds');
+  return read(normal.pathname + normal.search);
 }
 
 export function putRemoteCachedMedia(source: string, blob: Blob, status: RemoteDataCacheStatus) {

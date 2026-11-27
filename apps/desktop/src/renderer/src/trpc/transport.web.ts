@@ -92,6 +92,7 @@ const independentReads = new Set([
   'account.flashDownloadTaskLogs',
   'account.searchQuick',
   'account.searchSlow',
+  'account.searchMore',
   'account.listLatest',
   'account.listBefore',
   'account.listAfter',

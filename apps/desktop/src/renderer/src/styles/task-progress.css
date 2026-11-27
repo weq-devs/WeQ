@@ -28,35 +28,30 @@
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: inherit;
-  background: transparent;
-  color: var(--task-progress-color);
-}
-
-.weq-task-progress-track > progress::-webkit-progress-bar {
-  background: transparent;
-}
-
-.weq-task-progress-track > progress::-webkit-progress-value {
-  background: var(--task-progress-color);
-  border-radius: inherit;
-}
-
-.weq-task-progress-track > progress::-moz-progress-bar {
-  background: var(--task-progress-color);
-  border-radius: inherit;
-}
-
-.weq-task-progress-track.is-indeterminate > progress {
   opacity: 0;
 }
 
+.weq-task-progress-fill,
 .weq-task-progress-indicator {
   position: absolute;
   inset: 0 auto 0 0;
-  width: 35%;
   border-radius: inherit;
-  background: var(--task-progress-color);
+  background-color: var(--task-progress-color);
+}
+.weq-task-progress-fill {
+  width: 100%;
+  transform-origin: left center;
+}
+.weq-task-progress-indicator {
+  width: 35%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .weq-task-progress-fill {
+    transition:
+      transform var(--weq-motion-enter) ease-out,
+      background-color var(--weq-motion-switch) ease-out;
+  }
 }
 
 .weq-task-progress-track.is-running > .weq-task-progress-indicator {

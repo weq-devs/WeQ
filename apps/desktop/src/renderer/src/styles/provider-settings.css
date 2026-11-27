@@ -136,9 +136,12 @@ html[data-theme] .weq-provider-window > .weq-provider-modal {
   min-width: 0;
 }
 
-.weq-provider-model-details {
+.weq-provider-model-row > .weq-animated-disclosure {
   grid-column: 1 / -1;
   min-width: 0;
+}
+
+.weq-provider-model-details {
   border-top: 1px solid var(--weq-border-subtle);
   padding-top: 4px;
 }

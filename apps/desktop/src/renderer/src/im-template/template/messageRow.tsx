@@ -96,7 +96,13 @@ export function GrayTipLine({
         />
       );
     case 'grayTipFileRecv':
-      return <GrayTipFileRecvMessage element={gt.el as never} />;
+      return (
+        <GrayTipFileRecvMessage
+          element={gt.el as never}
+          conversation={conversation}
+          message={message}
+        />
+      );
     case 'grayTipTempSession':
       return <GrayTipTempSessionMessage element={gt.el as never} />;
     case 'groupCallEnded':

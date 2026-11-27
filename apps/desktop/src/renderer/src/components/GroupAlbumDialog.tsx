@@ -1,3 +1,4 @@
+import { usePreferenceState } from '../lib/clientPreferences';
 import { ToolbarLabel } from './CompactToolbar';
 import { filterByName } from '../lib/nameSearch';
 import { observeCompactToolbar } from './CompactToolbar.shared';
@@ -47,6 +48,7 @@ import { resourceForRenderDocument, useRenderDocument } from '../lib/renderDocum
 import { usePageDataCache } from './PageSnapshots.shared';
 import { PageDataCache } from '../lib/pageDataCache';
 import { GroupResourceNavigation } from './GroupResourceNavigation';
+import '../styles/group-media.css';
 import '../styles/group-album-browser.css';
 
 type AccountOutput = inferRouterOutputs<AppRouter>['account'];
@@ -112,7 +114,7 @@ function GroupAlbumDialogBody({
   const [albumIncomplete, setAlbumIncomplete] = useState(false);
   const [albumRevision, setAlbumRevision] = useState(0);
   const [search, setSearch] = useState('');
-  const [sort, setSort] = useState('source');
+  const [sort, setSort] = usePreferenceState('groupAlbumSort');
   const [albumVisibleCount, setAlbumVisibleCount] = useState(120);
   useEffect(() => setAlbumVisibleCount(120), [search, sort]);
   const body = useRef<HTMLDivElement>(null);
@@ -394,8 +396,8 @@ function AlbumListView({
   paused?: boolean;
   search: string;
   onSearch: (value: string) => void;
-  sort: string;
-  onSort: (value: string) => void;
+  sort: 'source' | 'name' | 'count';
+  onSort: (value: 'source' | 'name' | 'count') => void;
   onRefresh: () => void;
   visibleCount: number;
   onMore: () => void;

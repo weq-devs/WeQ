@@ -1,3 +1,4 @@
+import { withQqFileWrite } from '@weq/db';
 import { z } from 'zod/v3';
 import { getPerformanceMonitor } from '@weq/service/performance';
 import { isHistoryCapacityMiB, type HistoryCapacityMiB } from '@weq/service/settings-catalog';
@@ -86,7 +87,9 @@ export const performanceMonitorRouter = router({
         locationKey: 'performance-monitor',
       });
       if (!target) return null;
-      await monitor.exportFile(target.path, input.range, input.format);
+      await withQqFileWrite(target.path, () =>
+        monitor.exportFile(target.path, input.range, input.format),
+      );
       const download = host.registerDownload?.(target.path, basename(target.path), 'file');
       return { path: target.path, downloadUrl: download?.url ?? null };
     }),

@@ -27,6 +27,7 @@
  * 「关了界面还在后台偷偷上报位置」这种事。
  */
 
+import { useSurfaceRemovalFade } from '../../hooks/useSurfaceRemovalFade';
 import { NumericText } from '../../components/NumericText';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -149,6 +150,8 @@ export function LocationSharePanel({
   const [follow, setFollow] = useState(true);
   const [pickEnabled, setPickEnabled] = useState(false);
   /** 摇杆当前方向（-1..1），`null` = 没在移动。 */
+  const rootRef = useRef<HTMLDivElement>(null);
+  useSurfaceRemovalFade(rootRef);
   const moveRef = useRef<{ x: number; y: number } | null>(null);
   /** 每轮上报后的「下一次该报」计时。 */
   const nextReportRef = useRef(0);
@@ -417,7 +420,13 @@ export function LocationSharePanel({
   const active = phase === 'active';
 
   return (
-    <div className={cn('lbs-panel', active && 'is-active')} ref={panelRef}>
+    <div
+      className={cn('lbs-panel', active && 'is-active')}
+      ref={(node) => {
+        rootRef.current = node;
+        if (panelRef) panelRef.current = node;
+      }}
+    >
       <header className={cn('lbs-header')}>
         <button type="button" className={cn('lbs-back')} title="返回" onClick={onClose}>
           <ArrowLeft size={16} strokeWidth={2} />

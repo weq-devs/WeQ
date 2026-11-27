@@ -1,6 +1,7 @@
 import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { exportOutputFileName, getHost } from '@weq/service';
+import { basename, join } from 'node:path';
+import { deserialize, serialize } from 'node:v8';
+import { exportOutputFileName, getHost, type ResourceExportRunContext } from '@weq/service';
 import { getAppContext } from './context/app_context';
 import { exportSavePolicyInput, prepareExportDestination } from './ipc/routers/export_save';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
@@ -62,19 +63,38 @@ export async function startAnalyticsSave(
   const fileName = exportOutputFileName(output);
   const taskId = await services.exportManager.startResourceExport({
     kind: 'analytics-report',
+    resume: { type: 'analytics-report', fileName },
+    stagedInput: serialize(frozen),
     name: output.name,
     display: { action: '导出分析长图', subject: frozen.title, context: frozen.label },
     output,
     savePolicy: policy,
-    run: async ({ directory, signal }) => {
-      check();
-      signal.throwIfAborted();
-      const bytes = await render(frozen);
-      check();
-      signal.throwIfAborted();
-      await writeFile(join(directory, fileName), bytes, { flag: 'wx', signal });
-      return { total: 1, ok: 1, failed: [], fileName };
-    },
+    run: (context) => runAnalyticsResource(fileName, context, check, render),
   });
   return { saved: false, taskId };
+}
+
+export async function runAnalyticsResource(
+  fileName: string,
+  { stagedInput, directory, signal, checkpoint }: ResourceExportRunContext,
+  check: () => void,
+  render = analyticsRenderer,
+) {
+  if (!stagedInput || basename(fileName) !== fileName || ['', '.', '..'].includes(fileName))
+    throw new Error('原报告输入或输出名称不可用。');
+  const path = join(directory, fileName);
+  const generate = async () => {
+    if (!render) throw new Error('请在提供图片渲染引擎的桌面端继续。');
+    const snapshot = deserialize(stagedInput) as AnalyticsExportPayload;
+    if (!snapshot?.data) throw new Error('原报告数据不可用。');
+    check();
+    signal.throwIfAborted();
+    const bytes = await render(snapshot);
+    check();
+    signal.throwIfAborted();
+    await writeFile(path, bytes, { flag: 'wx', signal });
+  };
+  if (checkpoint) await checkpoint.file(['analytics-report', fileName], path, generate);
+  else await generate();
+  return { total: 1, ok: 1, failed: [], fileName };
 }

@@ -17,6 +17,7 @@ export type NotificationTarget =
       conv: string;
       seq?: string;
       msgId?: string;
+      dismissTaskPanel?: boolean;
     }
   | {
       kind: 'forwarded-conversations';

@@ -233,9 +233,18 @@ describe('远程服务的故障关闭', () => {
       await expect(
         runtime.invite({ authKey: 'tskey-api-invalid', singleUseConfirmed: true }),
       ).rejects.toThrow();
-      const bootstrap = await runtime.invite({ authKey, singleUseConfirmed: true });
+      const local = new URL((await runtime.invite({ mode: 'lan' })).pairingURL);
+      expect(local.searchParams.getAll('endpoint')).toEqual(['https://192.168.1.8:7691']);
+      const existing = new URL((await runtime.invite({ mode: 'existing' })).pairingURL);
+      expect(existing.searchParams.getAll('endpoint')).toEqual([
+        'http://100.64.0.10:7691',
+        'https://100.64.0.10:7692',
+      ]);
+      expect(existing.searchParams.has('authKey')).toBe(false);
+      const bootstrap = await runtime.invite({ mode: 'tailscale', authKey });
       const bootstrapURL = new URL(bootstrap.pairingURL);
       expect(bootstrapURL.searchParams.get('v')).toBe('4');
+      expect(bootstrapURL.searchParams.getAll('endpoint')).toEqual(['http://100.64.0.10:7691']);
       expect(bootstrapURL.searchParams.get('authKey')).toBe(authKey);
       expect(bootstrapURL.searchParams.get('expiresAt')).toBe(String(bootstrap.expiresAt));
       expect(JSON.stringify(runtime.status())).not.toContain(authKey);
@@ -276,6 +285,54 @@ describe('远程服务的故障关闭', () => {
       tailscaleChild.stdout.destroy();
       tailscaleChild.stderr.destroy();
       tailscaleChild.stdin.destroy();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('辅助程序未就绪时点击启动 Tailscale 必须报错，就绪后可重试', async () => {
+    const children: ChildProcessWithoutNullStreams[] = [];
+    const launch = vi.fn(() => {
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: new PassThrough(),
+        exitCode: null,
+        kill: vi.fn(function (this: EventEmitter) {
+          this.emit('exit', 0);
+          return true;
+        }),
+      }) as unknown as ChildProcessWithoutNullStreams;
+      children.push(child);
+      return child;
+    });
+    const runtime = new RemoteRuntime(launch as typeof spawn);
+    const dir = mkdtempSync(join(tmpdir(), 'weq-tailscale-error-'));
+    runtime.configure({ helper: process.execPath, stateDir: dir });
+    const send = async (child: ChildProcessWithoutNullStreams, event: object) => {
+      child.stdout.emit('data', Buffer.from(`${JSON.stringify(event)}\n`));
+      await setImmediate();
+    };
+    try {
+      await runtime.start();
+      await send(children[0], { state: 'login' });
+      await expect(runtime.setTailscaleEnabled(true)).rejects.toThrow('尚未就绪');
+      expect(launch).toHaveBeenCalledTimes(1);
+      // fingerprint 未上报时状态继续展示局域网侧，不假报 Tailscale 已启动。
+      expect(runtime.status().network.state).toBe('login');
+      await send(children[0], {
+        state: 'online',
+        addresses: ['https://192.168.1.8:7691'],
+        fingerprint: 'f'.repeat(64),
+      });
+      await runtime.setTailscaleEnabled(true);
+      expect(launch).toHaveBeenCalledTimes(2);
+    } finally {
+      runtime.stop();
+      for (const child of children) {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.stdin.destroy();
+      }
       rmSync(dir, { recursive: true, force: true });
     }
   });

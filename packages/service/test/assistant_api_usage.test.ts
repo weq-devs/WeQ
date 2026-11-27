@@ -6,6 +6,8 @@ import type { AgentLabEndpoint, AgentLabModelSelection } from '@weq/agentlab';
 import { AssistantService } from '../src/account/assistant';
 import { ConversationStore } from '../src/account/agentlab_conversation';
 import { TokenUsageStore } from '../src/account/agentlab_usage';
+import { UNKNOWN_NETWORK } from '../src/common/data_saver';
+import { updateTransferPolicy } from '../src/common/transfer_policy';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -47,6 +49,25 @@ function fixture(resolve?: (ref: AgentLabModelSelection) => AgentLabEndpoint) {
 }
 const usageEvent =
   'data: {"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}\n\n';
+
+it('省流量下助手完成手动提问，只用首条提问命名会话', async () => {
+  const { service } = fixture();
+  const fetch = vi.fn(
+    async () =>
+      new Response('data: {"choices":[{"delta":{"content":"合成回答"}}]}\n\ndata: [DONE]\n\n'),
+  );
+  vi.stubGlobal('fetch', fetch);
+  try {
+    updateTransferPolicy('always', UNKNOWN_NETWORK);
+    const session = service.createSession();
+    await expect(service.chat(session.id, '首条问题')).resolves.toMatchObject({ text: '合成回答' });
+    expect(service.listSessions()[0]).toMatchObject({ title: '首条问题', titlePending: false });
+    expect(fetch).toHaveBeenCalledOnce();
+  } finally {
+    service.cancelPendingTitles();
+    updateTransferPolicy('auto', UNKNOWN_NETWORK);
+  }
+});
 
 it('助手的服务商时限覆盖流式正文，超时记失败且不重发', async () => {
   const f = fixture();

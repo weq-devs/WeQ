@@ -101,6 +101,8 @@ describe('GroupMemberDb.searchMembersInGroup (offline fixture)', () => {
     expect(await searchUids('smdx', 2)).toEqual({ uids: ['u_literal', 'u_regular'], total: 3 });
     expect(await searchUids('smdx', 2, 2)).toEqual({ uids: ['u_alt'], total: 3 });
     expect(await searchUids('xia men')).toEqual({ uids: ['u_alt'], total: 1 });
+    expect(await searchUids('s门daxue', 1)).toEqual({ uids: ['u_regular'], total: 2 });
+    expect(await searchUids('s门daxue', 1, 1)).toEqual({ uids: ['u_alt'], total: 2 });
     expect(await searchUids('xmdx', 30, 0, OTHER_GROUP)).toEqual({ uids: [], total: 0 });
   });
 

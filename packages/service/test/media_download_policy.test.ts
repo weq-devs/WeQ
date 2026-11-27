@@ -227,6 +227,43 @@ it('小图只请求实际提供的地址，缓存可复用，体积超限不回�
   expect(f.external.resolveRkeys).not.toHaveBeenCalled();
 });
 
+it('私聊小图补用同场景本机票据，缓存模式缺图时不联网', async () => {
+  const f = await fixture();
+  f.allow(true);
+  const small = '/download?appid=1406&fileid=fixture&spec=198';
+  expect(await f.service.thumbnail(small, true)).toBeNull();
+  expect(f.fetch).not.toHaveBeenCalled();
+  expect(f.external.resolveRkeys).not.toHaveBeenCalled();
+  f.fetch.mockResolvedValueOnce(
+    new Response(new Uint8Array([1, 2, 3]), { headers: { 'Content-Type': 'image/png' } }),
+  );
+  const path = await f.service.thumbnail(small);
+  expect(path).toBeTruthy();
+  expect(f.fetch.mock.calls.map(([url]) => url)).toEqual([
+    `https://multimedia.nt.qq.com.cn${small}&rkey=synthetic`,
+  ]);
+  expect(await f.service.thumbnail(small, true)).toBe(path);
+});
+
+it('本机小图票据被拒后回退外部票据，始终请求消息指定的小图尺寸', async () => {
+  const f = await fixture();
+  f.allow(true);
+  f.fetch.mockResolvedValueOnce(new Response(null, { status: 400 }));
+  f.fetch.mockResolvedValueOnce(
+    new Response(new Uint8Array([1, 2, 3]), { headers: { 'Content-Type': 'image/png' } }),
+  );
+  f.external.resolveRkeys.mockResolvedValueOnce([
+    { type: 10, rkey: '&rkey=external', createTime: Date.now() / 1000, ttlSeconds: 60 },
+  ]);
+  const small = 'https://multimedia.nt.qq.com.cn/download?appid=1406&fileid=fixture&spec=720';
+  expect(await f.service.thumbnail(small)).toBeTruthy();
+  expect(f.external.resolveRkeys.mock.calls).toEqual([[[10], expect.any(AbortSignal)]]);
+  expect(f.fetch.mock.calls.map(([url]) => url)).toEqual([
+    `${small}&rkey=synthetic`,
+    `${small}&rkey=external`,
+  ]);
+});
+
 it('同一缩略图的相对地址与完整地址共用下载，最后一次离屏才取消', async () => {
   const f = await fixture();
   f.allow(true);

@@ -1,21 +1,49 @@
 import { TimeLabel } from './TimeLabel';
 import { clockFormatter, formatDateTime } from '@weq/time';
-import { useContext, type ReactNode } from 'react';
+import { useContext, type ReactNode, type Ref } from 'react';
 import { beijingDay } from '../lib/messageCalendar';
 import { useOutgoingMetadataMotion } from '../hooks/useOutgoingMetadataMotion';
 import type { Message } from '../im-template/template/types';
 import '../styles/message-metadata.css';
+import { CopyButton } from './CopyButton';
 import {
   ShowMessageDateContext,
   ShowMessageTimeContext,
   ShowMessageSeqContext,
   messageSequence,
   showsRoamingSource,
+  type MessageProvenanceSource,
 } from './MessageProvenance.shared';
 
 type MessageMetadataSource = Partial<
-  Pick<Message, 'msgSeq' | 'createdAt' | 'source' | 'sourceFormat' | 'localSent' | 'recall'>
+  Pick<Message, 'msgSeq' | 'createdAt' | 'sourceFormat'> & MessageProvenanceSource
 >;
+
+export function MessageSequenceLabel({
+  seq,
+  ref,
+  inMenu = false,
+}: {
+  seq: string;
+  ref?: Ref<HTMLSpanElement>;
+  inMenu?: boolean;
+}) {
+  return (
+    <span ref={ref} className="weq-message-seq">
+      seq{' '}
+      <CopyButton
+        text={seq}
+        className="weq-message-seq-copy weq-number weq-number-inherit"
+        title="复制消息序号"
+        aria-label={`复制消息序号 ${seq}`}
+        role={inMenu ? 'menuitem' : undefined}
+        tabIndex={inMenu ? -1 : undefined}
+      >
+        {seq}
+      </CopyButton>
+    </span>
+  );
+}
 
 /** 使用共用提示宿主展示逐条时间，不给正文增加常驻元信息或拦截人名操作。 */
 export function SystemMessageContent({
@@ -76,11 +104,7 @@ export function MessageProvenance({
           漫游
         </span>
       ) : null}
-      {seq ? (
-        <span ref={seqRef} className="weq-message-seq" title="会话内消息序号">
-          seq <span className="weq-number weq-number-inherit">{seq}</span>
-        </span>
-      ) : null}
+      {seq ? <MessageSequenceLabel seq={seq} ref={seqRef} /> : null}
       {day || time ? (
         <TimeLabel ref={timeRef} value={message.createdAt} precision={precision} tabbable={false}>
           {timeText}

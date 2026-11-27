@@ -93,6 +93,16 @@
   transform: rotate(90deg);
 }
 
+.weq-storage-group > .weq-disclosure-panel[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .weq-storage-group-chevron {
+    transition: transform var(--weq-motion-exit) ease-out;
+  }
+}
+
 .weq-storage-group-size {
   font-size: 12px;
   font-weight: 400;

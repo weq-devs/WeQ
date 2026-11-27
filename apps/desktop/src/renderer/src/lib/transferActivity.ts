@@ -1,5 +1,11 @@
 import { createContext, useCallback, useContext, useSyncExternalStore } from 'react';
-import type { ActiveTransfer, TransferProgress } from '../../../shared/transfer_progress';
+import {
+  transferPercent,
+  type ActiveTransfer,
+  type TransferProgress,
+} from '../../../shared/transfer_progress';
+import type { BackgroundTask } from '../../../shared/background_task';
+import { outgoingTransferProgress, transferDetail, transferLabel } from './transferPresentation';
 
 function equal(a: TransferProgress | undefined, b: TransferProgress) {
   return (
@@ -81,3 +87,19 @@ function useTransferValue<T>(
 const identity = (progress: TransferProgress | undefined) => progress;
 export const useTransferProgress = (key?: string) => useTransferValue(key, identity);
 export const useTransferActive = (key?: string) => useTransferValue(key, Boolean);
+
+export function useOutgoingTaskProgress(
+  task: Pick<BackgroundTask, 'outgoingTransfer' | 'statusLabel'>,
+) {
+  const transfer = useTransferProgress(task.outgoingTransfer?.id);
+  if (!task.outgoingTransfer || task.statusLabel) return undefined;
+  const progress = outgoingTransferProgress(transfer, task.outgoingTransfer.toHost) ?? {
+    phase: 'preparing',
+  };
+  const percent = transferPercent(progress);
+  return {
+    label: transferLabel(progress),
+    percent,
+    counts: percent === undefined ? transferDetail(progress) : undefined,
+  };
+}

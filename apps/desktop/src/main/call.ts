@@ -4,7 +4,7 @@
  * `@weq/service` 的 `CallSession` 只描述状态机与报文编排，UDP、编解码、信令
  * 三样都靠注入。这个模块负责把真实实现接上：
  *
- *   - **UDP**：`node:dgram` 的 udp4 套接字，绑定随机端口；
+ *   - **UDP**：`node:dgram` 的双栈 UDP 套接字，绑定随机端口；
  *   - **编解码**：nt_helper 的 `openCallCodec` / `encodeCallFrame` / `decodeCallFrame`
  *     （用的是 QQ 自带的那一版 Opus，标准 libopus 与它不互通）；
  *   - **信令**：`@weqbot/protocol` 的 `startC2CCall` / `endC2CCall`，借已登记的
@@ -34,7 +34,7 @@ import {
   type VideoFramePayload,
 } from '@weq/service';
 import { CallRecorder, type RecordingSnapshot } from './call_recorder';
-import { NativeVideoEncoder } from './call_video_encoder';
+import { WebVideoEncoder } from './call_video_encoder';
 import {
   CallRecordingStore,
   recordingsRootFor,
@@ -61,10 +61,11 @@ const REPLAY_FRAMES = 600;
 
 // ─────────────────────────── UDP ───────────────────────────
 
-/** `node:dgram` 的 udp4 套接字适配成 `CallSession` 要的形状。 */
+/** 将双栈 UDP 套接字适配成 `CallSession` 要的形状。 */
 class NodeUdpTransport implements UdpTransport {
   private socket: dgram.Socket | null = null;
   private p2pSocket: dgram.Socket | null = null;
+  private unreachableHandler?: Parameters<NonNullable<UdpTransport['onUnreachable']>>[0];
 
   /** 数据报观察者（通话 UDP 落盘用）；发送 / 接收各喂一份。 */
   sink: ((datagram: TracedDatagram) => void) | null = null;
@@ -108,18 +109,18 @@ class NodeUdpTransport implements UdpTransport {
   send(data: Uint8Array, port: number, address: string): void {
     const socket = [8000, 8001, 8800].includes(port) ? this.socket : this.p2pSocket;
     if (!socket) return;
-    // 落盘要的是「实际发出去的这条」，所以在选好 socket 之后、发送之前记。
+    // 落盘记录交给套接字的发送尝试，包括系统拒绝发送的包。
     this.trace('c2s', socket, data, address, port);
     // 直接拷一份：dgram 的回调可能在原缓冲被复写之后才跑。
     const buffer = Buffer.from(data);
     // udp6 套接字发纯 IPv4 目标时，部分平台需要显式映射成 ::ffff: 形式。
     const target = address.includes(':') ? address : `::ffff:${address}`;
     socket.send(buffer, 0, buffer.length, port, target, (error) => {
-      // 发送失败以前是静默吞掉的：地址不可达 / 套接字类型不匹配时
-      // 上层完全看不出「对方为什么收不到」。这里至少留一条日志。
-      if (error) {
-        logger.warn('UDP 发送失败', { address, port, error: error.message });
-      }
+      if (!error || (socket !== this.socket && socket !== this.p2pSocket)) return;
+      const { code } = error as NodeJS.ErrnoException;
+      if (code === 'ENETUNREACH' || code === 'EHOSTUNREACH' || code === 'EADDRNOTAVAIL') {
+        this.unreachableHandler?.(error, address, port);
+      } else logger.warn('UDP 发送失败', { address, port, error: error.message });
     });
   }
 
@@ -150,6 +151,10 @@ class NodeUdpTransport implements UdpTransport {
 
   onError(handler: (error: Error) => void): void {
     this.watch((socket) => socket.on('error', handler));
+  }
+
+  onUnreachable(handler: NonNullable<NodeUdpTransport['unreachableHandler']>): void {
+    this.unreachableHandler = handler;
   }
 
   /**
@@ -296,6 +301,7 @@ export type CallEvent =
        * 且要等到下一个关键帧才恢复。见 useCallVideo 的 continuity 检查。
        */
       frameIndex: number;
+      codec?: 'hevc' | 'h264';
       info: VideoStreamInfo | null;
     }
   /** 录音收尾完成（含内部收尾：对端挂断 / 被踢 / 崩溃）。 */
@@ -316,8 +322,10 @@ export class CallManager extends EventEmitter {
   /** 每秒推进一次通话时长。通话中状态不变，光靠状态推送时长会停在 00:00。 */
   private durationTimer: ReturnType<typeof setInterval> | null = null;
 
-  /** 视频编码器（只有视频通话才非 null）。 */
-  private videoEncoder: NativeVideoEncoder | null = null;
+  /** 已打开的视频编码器。语音通话首次开摄像头时才创建。 */
+  private videoEncoder: WebVideoEncoder | null = null;
+  private openingVideoEncoder: Promise<WebVideoEncoder | null> | null = null;
+  private cameraRequested = false;
   /**
    * 从**最近一个关键帧**开始的一段连续帧（新订阅者补发用）。
    *
@@ -364,7 +372,8 @@ export class CallManager extends EventEmitter {
   }
 
   get busy(): boolean {
-    return this.session !== null;
+    // t265 是进程级单例。挂断后也要等尚在打开的实例完成清理，下一通才能复用它。
+    return this.session !== null || this.openingVideoEncoder !== null;
   }
 
   /**
@@ -382,7 +391,7 @@ export class CallManager extends EventEmitter {
 
   /** 发起一路通话。已有通话在跑时直接报错，由界面提示先挂断。 */
   async start(params: StartCallParams): Promise<ActiveCallInfo> {
-    if (this.session) throw new Error('当前已有通话，请先挂断');
+    if (this.busy) throw new Error('当前已有通话，请先挂断');
 
     const modulesDir = this.resolveModulesDir();
     if (!modulesDir) throw new Error('找不到 QQ 的 AVSDK 目录，无法初始化语音编解码器');
@@ -391,10 +400,8 @@ export class CallManager extends EventEmitter {
     // 收发的每条数据报都先喂给落盘器；没开开关时 `udpTrace` 为 null，开销接近于零。
     transport.sink = (datagram) => this.udpTrace?.record(datagram);
     const codec = new NativeCallCodec(this.nt, modulesDir);
-    // 视频编码器只在发起视频通话时建：它要打开 QQ 自带的那一版 x265，
-    // 纯语音通话没必要付这个开销。
-    const videoEncoder =
-      params.media === 'video' ? new NativeVideoEncoder(this.nt, modulesDir) : null;
+    // 渲染层负责编码，主进程维护本端视频规格。
+    const videoEncoder = params.media === 'video' ? new WebVideoEncoder() : null;
     if (videoEncoder) await videoEncoder.open();
     this.videoEncoder = videoEncoder;
     const session = new CallSession({
@@ -417,10 +424,9 @@ export class CallManager extends EventEmitter {
         close: () => transport.close(),
         onMessage: (handler) => transport.onMessage(handler),
         onError: (handler) => transport.onError(handler),
+        onUnreachable: (handler) => transport.onUnreachable(handler),
       },
       codec,
-      // 视频编码器：只有发起视频通话时才建。采在渲染层、编在主进程，
-      // 中间靠 pushVideoFrame 把 I420 推进来。
       videoEncoder: videoEncoder ?? undefined,
       logger,
     });
@@ -483,6 +489,7 @@ export class CallManager extends EventEmitter {
         timestamp: frame.timestamp,
         keyframe: frame.isKeyframe,
         frameIndex: frame.frameIndex,
+        codec: frame.codec,
         info: frame.info,
       } satisfies CallEvent);
     });
@@ -513,17 +520,18 @@ export class CallManager extends EventEmitter {
   async hangup(): Promise<void> {
     const session = this.session;
     if (!session) return;
+    this.cameraRequested = false;
     // 先收录音再拆会话：`session.hangup()` 之后不会再有音频帧进来，录音的时长
     // 才是准的；反过来则会在最后一帧之后继续补静音。
     await this.finalizeRecording();
     await session.hangup();
-    this.cleanup();
+    if (this.session === session) this.cleanup();
   }
 
   /**
    * 渲染层推来一帧 I420（摄像头采集）。
    *
-   * 只有视频通话且本端摄像头开着时才吃 —— 关摄像头后队列里的旧帧也不该再发。
+   * 只在本端视频发送开启时接收，关闭后丢弃未发送的采集帧。
    */
   pushVideoFrame(y: Uint8Array, u: Uint8Array, v: Uint8Array): boolean {
     const session = this.session;
@@ -552,32 +560,61 @@ export class CallManager extends EventEmitter {
     const ny = norm(y);
     const nu = norm(u);
     const nv = norm(v);
-    encoder.pushFrame({ y: ny, u: nu, v: nv });
-    return true;
+    return encoder.pushFrame({ y: ny, u: nu, v: nv });
+  }
+
+  pushEncodedVideoFrame(data: Uint8Array, keyframe: boolean, captureId: string): boolean {
+    if (this.session?.snapshot().videoCaptureId !== captureId) return false;
+    return this.session?.pushEncodedVideoFrame(data, keyframe) ?? false;
   }
 
   /**
    * 开 / 关本端摄像头。
    *
-   * 只发控制信令并切换发送状态；画面要靠 `CallSession` 里注入的编码器吐帧，
-   * 采集由渲染层负责。
+   * 等编码器就绪后再发开启信令，采集由渲染层负责。
    */
-  setCamera(enabled: boolean): boolean {
+  async setCamera(enabled: boolean): Promise<boolean> {
     const session = this.session;
-    if (!session) return false;
-    const before = session.snapshot();
-    session.setCamera(enabled);
-    const after = session.snapshot();
-    logger.info('切换摄像头', {
-      enabled,
-      state: before.state,
-      videoSending: `${before.videoSending} -> ${after.videoSending}`,
-      roomId: after.roomId,
-    });
-    // 关摄像头时顺手把采集源复位回摄像头：下次再打开应该回到摄像头，而不是
-    // 接着共享屏幕（用户点「关摄像头」的意思是「不发了」，不是「换成共享」）。
-    if (!enabled) void this.resetVideoSource();
+    if (session?.snapshot().state !== 'connected') return false;
+    this.cameraRequested = enabled;
+    if (enabled) {
+      const encoder = this.videoEncoder ?? (await this.openCameraEncoder(session));
+      if (!encoder || !this.cameraRequested || this.session !== session) return false;
+      if (session.snapshot().state !== 'connected') return false;
+      session.setCamera(true, encoder);
+    } else {
+      session.setCamera(false);
+      this.videoEncoder?.clearFrames();
+      // 下次打开时从摄像头采集。
+      void this.resetVideoSource();
+    }
     return true;
+  }
+
+  private openCameraEncoder(session: CallSession): Promise<WebVideoEncoder | null> {
+    if (this.openingVideoEncoder) return this.openingVideoEncoder;
+    const encoder = new WebVideoEncoder();
+    const canSend = () =>
+      this.cameraRequested && this.session === session && session.snapshot().state === 'connected';
+    this.openingVideoEncoder = encoder
+      .open()
+      .then(() => {
+        if (!canSend()) {
+          encoder.close();
+          return null;
+        }
+        this.videoEncoder = encoder;
+        return encoder;
+      })
+      .catch((error: unknown) => {
+        if (!canSend()) return null;
+        logger.warn('打开视频编码器失败', { error });
+        throw error;
+      })
+      .finally(() => {
+        this.openingVideoEncoder = null;
+      });
+    return this.openingVideoEncoder;
   }
 
   /**
@@ -598,15 +635,16 @@ export class CallManager extends EventEmitter {
    */
   async setVideoSource(source: VideoSource): Promise<VideoProfile | null> {
     const session = this.session;
-    const encoder = this.videoEncoder;
-    if (!session || !encoder) return null;
+    if (!session) return null;
     if (session.snapshot().state !== 'connected') {
       logger.warn('切换采集源被拒：通话未接通', { source });
       return null;
     }
+    if (!this.videoEncoder && !(await this.setCamera(true))) return null;
+    const encoder = this.videoEncoder;
+    if (!encoder || this.session !== session) return null;
     const profile = await encoder.setSource(source);
-    // 编码器重建后队列与规格都变了，让会话重新读一次（界面与状态快照都用它）。
-    session.setVideoEncoding();
+    if (this.session !== session || session.snapshot().state !== 'connected') return null;
     // 共享屏幕必然要发画面：原本摄像头关着就一起打开。
     if (!session.snapshot().videoSending) session.setCamera(true);
     session.setVideoSource(source);
@@ -642,8 +680,7 @@ export class CallManager extends EventEmitter {
     await encoder.setSource('camera').catch((error: unknown) => {
       logger.warn('复位采集源失败', { error: error instanceof Error ? error.message : error });
     });
-    if (this.session && this.videoEncoder) {
-      this.session.setVideoEncoding();
+    if (this.session && this.videoEncoder === encoder) {
       this.session.setVideoSource('camera');
     }
   }
@@ -784,10 +821,13 @@ export class CallManager extends EventEmitter {
   dispose(): void {
     const session = this.session;
     if (!session) return;
+    this.cameraRequested = false;
     void this.finalizeRecording()
       .catch(() => {})
       .then(() => session.hangup())
-      .finally(() => this.cleanup());
+      .finally(() => {
+        if (this.session === session) this.cleanup();
+      });
   }
 
   private publishState(snapshot: CallSnapshot): void {
@@ -853,6 +893,7 @@ export class CallManager extends EventEmitter {
     this.transport?.close();
     this.videoEncoder?.close();
     this.videoEncoder = null;
+    this.cameraRequested = false;
     this.replayBuffer = [];
     this.session = null;
     this.transport = null;
@@ -878,7 +919,7 @@ export class CallManager extends EventEmitter {
     if (!last) return; // 还没见过关键帧，先不缓存
     // 16 位序号会回绕，按模判断是否正好 +1。
     const continuous = (frame.frameIndex - last.frameIndex + 65536) % 65536 === 1;
-    if (!continuous) {
+    if (!continuous || frame.codec !== last.codec) {
       this.replayBuffer = [];
       return;
     }

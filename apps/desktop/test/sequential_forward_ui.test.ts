@@ -1,22 +1,67 @@
 import { act, createElement, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SequentialForwardDialog } from '../src/renderer/src/components/SequentialForwardDialog';
+import { MessageBatchActionDialog } from '../src/renderer/src/components/MessageBatchActionDialog';
+import { reviewMessageBatch } from '../src/renderer/src/lib/messageBatchAction';
 import { startSequentialForward } from '../src/renderer/src/components/SequentialForwardTask';
 import { ToastHost } from '../src/renderer/src/components/Toast';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { DEFAULT_FORWARD_OPTIONS } from '../src/renderer/src/lib/sequentialForward';
 import {
+  readForwardPlan,
+  writeForwardPlan,
+  type MergeForwardPlan,
+  type SequentialForwardPlan,
+} from '../src/renderer/src/lib/forwardContinuation';
+import {
+  resolveForwardReplyPrefix,
+  sequentialReplyTargets,
+} from '../src/renderer/src/lib/sequentialForwardReply';
+import {
   ForwardedConversationsDialog,
   MergeForwardTargets,
 } from '../src/renderer/src/components/mergeForward/MergeForwardTargets';
 import { MergeForwardDialog } from '../src/renderer/src/components/mergeForward/MergeForwardDialog';
+import { runMergeForwardTask } from '../src/renderer/src/components/mergeForward/mergeForwardTask';
 import { createEmptyDraft, createNode } from '../src/renderer/src/components/mergeForward/model';
-import { bindAccountState } from '../src/renderer/src/lib/clientPreferences';
+import {
+  acceptPreferences,
+  settlePreferenceWrites,
+  bindAccountState,
+  preferenceValue,
+} from '../src/renderer/src/lib/clientPreferences';
+import { backgroundTaskNavigation } from '../src/renderer/src/components/tasks/backgroundTaskNavigation';
 import { onNotificationNavigation } from '../src/renderer/src/lib/notificationNavigation.shared';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 
+const preferences = vi.hoisted(() => ({ revision: 0, values: {} as Record<string, unknown> }));
+// 深层组件的动态导入可能使用真实 tRPC 客户端；离线链路也返回同一份保存回执。
+vi.mock('@transport', async () => {
+  const { observable } = await import('@trpc/server/observable');
+  return {
+    createLinks: () => [
+      () =>
+        ({ op }: { op: { path: string; input: Record<string, unknown> } }) =>
+          observable((observer) => {
+            if (op.path !== 'clientState.patch') throw new Error(`未模拟的请求：${op.path}`);
+            preferences.values = { ...preferences.values, ...op.input };
+            observer.next({
+              result: {
+                data: {
+                  epoch: 'menu-test',
+                  revision: ++preferences.revision,
+                  values: preferences.values,
+                  records: {},
+                },
+              },
+            });
+            observer.complete();
+          }),
+    ],
+  };
+});
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (path: string[] = []): unknown =>
     new Proxy(() => proxy(), {
@@ -32,11 +77,38 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     });
   return {
     trpc: proxy(),
-    client: proxy(),
+    client: {
+      account: proxy(['account']),
+      bootstrap: { notifyConfiguredEvent: { mutate: async () => false } },
+      clientState: {
+        patch: {
+          mutate: async (patch: Record<string, unknown>) => {
+            preferences.values = { ...preferences.values, ...patch };
+            return {
+              epoch: 'menu-test',
+              revision: ++preferences.revision,
+              values: preferences.values,
+              records: {},
+            };
+          },
+        },
+      },
+    },
   };
 });
 
-afterEach(() => {
+beforeEach(() => {
+  preferences.values = {};
+  acceptPreferences({
+    epoch: 'menu-test',
+    revision: ++preferences.revision,
+    values: {},
+    records: {},
+  });
+});
+
+afterEach(async () => {
+  await settlePreferenceWrites();
   for (const task of localBackgroundTasks.snapshot()) {
     localBackgroundTasks.finish(task.id, 'cancelled');
     localBackgroundTasks.remove(task.id);
@@ -73,6 +145,220 @@ const messages = [
   },
 ];
 
+const quotedMessage = { ...messages[0]!, msgSeq: '70', clientSeq: '9' };
+const replyElement = {
+  type: 'reply',
+  data: {
+    origMsgSeq: 70,
+    origElements: [{ type: 'text', data: { textContent: '原文' } }],
+  },
+};
+const replyMessage = {
+  ...messages[0]!,
+  id: 'reply',
+  qqElements: [replyElement, ...messages[0]!.qqElements],
+};
+
+it('中断后只发送未提交项，保留原目标引用及结果未知的条目', async () => {
+  const stored = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => stored.set(key, value),
+    removeItem: (key: string) => stored.delete(key),
+  });
+  const scope = { uin: 'fixture', configId: 'original' };
+  const id = localBackgroundTasks.start({ kind: 'forward', name: target.name, scope });
+  localBackgroundTasks.finish(id, 'paused');
+  const plan: SequentialForwardPlan = {
+    version: 1,
+    kind: 'sequential',
+    scope,
+    target,
+    messages: [quotedMessage, { ...messages[0]!, id: 'unknown' }, replyMessage],
+    entries: [
+      { state: 'sent', receipt: { groupSequence: 151 } },
+      { state: 'submitting' },
+      { state: 'pending' },
+    ],
+    options: { ...DEFAULT_FORWARD_OPTIONS, maxAttempts: 3 },
+    sourceKind: 'group',
+    includeExcerpt: true,
+  };
+  writeForwardPlan(id, plan);
+  expect(readForwardPlan(id, { ...scope, configId: 'other' })).toBeUndefined();
+  const onSend = vi.fn(async (_message, _target, _signal, receipt) => {
+    expect(receipt).toEqual({ groupSequence: 151 });
+    expect(readForwardPlan(id, scope)?.entries[2]?.state).toBe('submitting');
+    throw new Error('合成的未知回执');
+  });
+  await startSequentialForward({
+    ...plan,
+    targets: [target],
+    onSend,
+    onOpenTarget: vi.fn(),
+    resume: { id, plan },
+  }).done;
+  expect(onSend.mock.calls.map(([message]) => message.id)).toEqual([replyMessage.id]);
+  expect(localBackgroundTasks.snapshot().find((task) => task.id === id)).toMatchObject({
+    needsConfirmation: true,
+    details: expect.arrayContaining(['第 2 条：结果待核对，继续时已跳过']),
+  });
+  expect(readForwardPlan(id, scope)).toBeUndefined();
+});
+
+it('合并转发恢复时只向尚未提交的会话发送，保留其他会话的结果', async () => {
+  const stored = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => stored.set(key, value),
+    removeItem: (key: string) => stored.delete(key),
+  });
+  const scope = { uin: 'fixture', configId: 'original' };
+  const id = localBackgroundTasks.start({ kind: 'forward', name: target.name, scope });
+  localBackgroundTasks.finish(id, 'paused');
+  const unknown = { ...target, id: 'unknown', conv: '222', name: '待核对' };
+  const remaining = { ...target, id: 'remaining', conv: '333', name: '未提交' };
+  const plan: MergeForwardPlan = {
+    version: 1,
+    kind: 'merged',
+    scope,
+    draft: createEmptyDraft(),
+    targets: [target, unknown, remaining],
+    entries: [{ state: 'sent', targetSeq: '70' }, { state: 'submitting' }, { state: 'pending' }],
+  };
+  writeForwardPlan(id, plan);
+  const send = vi.fn(async () => ({ seq: '71' }));
+  const result = await runMergeForwardTask({
+    draft: plan.draft,
+    targets: plan.targets,
+    binding: { expectedAccountUin: scope.uin, expectedAccountConfigId: scope.configId },
+    send,
+    isCurrent: () => true,
+    resume: { id, plan },
+  });
+  expect(send).toHaveBeenCalledOnce();
+  expect(send).toHaveBeenCalledWith(plan.draft, remaining, expect.any(Object), true);
+  expect(result.unconfirmed).toEqual([unknown]);
+  expect(result.sent).toEqual([
+    { ...target, seq: '70' },
+    { ...remaining, seq: '71' },
+  ]);
+  expect(readForwardPlan(id, scope)).toBeUndefined();
+});
+
+it('分别把每个目标的发送回执用于同批引用，前一条失败时没有新引用目标', async () => {
+  const second = { ...target, id: 'second', conv: '888' };
+  const failed = { ...target, id: 'failed', conv: '999' };
+  const seen = new Map<string, number | undefined>();
+  const task = startSequentialForward({
+    messages: [quotedMessage, replyMessage],
+    targets: [target, second, failed],
+    scope: { uin: 'fixture', configId: 'fixture-config' },
+    sourceKind: 'group',
+    options: DEFAULT_FORWARD_OPTIONS,
+    onOpenTarget: vi.fn(),
+    onSend: async (message, destination, _signal, receipt) => {
+      if (message.id === replyMessage.id) {
+        seen.set(destination.id, receipt?.groupSequence);
+        return;
+      }
+      if (destination.id === failed.id) throw new Error('发送失败');
+      return { groupSequence: destination.id === target.id ? 101 : 202 };
+    },
+  });
+  await task.done;
+  expect(seen).toEqual(
+    new Map([
+      [target.id, 101],
+      [second.id, 202],
+      [failed.id, undefined],
+    ]),
+  );
+});
+
+it('私聊引用按发送方序号和身份匹配，避免同序号的其他人或其他会话', () => {
+  const original = { ...quotedMessage, senderUid: 'sender-a', sendTime: '100' };
+  const wrongSender = { ...original, id: 'other', senderUid: 'sender-b' };
+  const wrongChat = { ...original, id: 'other-chat', conversationId: 'other-chat' };
+  const older = { ...original, id: 'older', sendTime: '90' };
+  const reply = {
+    ...replyMessage,
+    qqElements: [
+      { type: 'reply', data: { origMsgSeq: 9, origSenderUid: 'sender-a', origMsgTime: 100 } },
+    ],
+  };
+  expect(sequentialReplyTargets([original, wrongSender, wrongChat, older, reply], 'c2c')).toEqual(
+    new Map([[reply.id, original.id]]),
+  );
+  expect(sequentialReplyTargets([wrongSender, wrongChat, older, reply], 'c2c').size).toBe(0);
+});
+
+it('优先引用本批发送，再查原消息，无法定位时仅按开关附摘录', async () => {
+  const original = vi.fn(async () => ({ sequence: 9, index: 70 }));
+  const options = {
+    data: replyElement.data,
+    kind: 'c2c' as const,
+    uin: '123',
+    includeExcerpt: true,
+  };
+  const forwarded = await resolveForwardReplyPrefix({
+    ...options,
+    receipt: { privateSequence: 300, clientSequence: 21, timestamp: 100 },
+    original,
+  });
+  expect(forwarded?.element).toMatchObject({ kind: 'reply', origMsgSeq: 21, origSenderUin: 123 });
+  expect(forwarded?.preview.data?.origMsgIndex).toBe(300);
+  expect(original).not.toHaveBeenCalled();
+  const existing = await resolveForwardReplyPrefix({
+    ...options,
+    receipt: { privateSequence: 300 },
+    original,
+  });
+  expect(existing?.element).toMatchObject({ kind: 'reply', origMsgSeq: 9 });
+  expect(original).toHaveBeenCalledOnce();
+  expect((await resolveForwardReplyPrefix(options))?.element).toEqual({
+    kind: 'text',
+    textContent: '> 原文\n',
+  });
+  expect(await resolveForwardReplyPrefix({ ...options, includeExcerpt: false })).toBeUndefined();
+});
+
+it('引用摘录默认关闭，打开后随本次确认提交', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const onContinue = vi.fn();
+  try {
+    act(() =>
+      root.render(
+        createElement(MessageBatchActionDialog, {
+          action: 'forward',
+          batch: reviewMessageBatch([quotedMessage, replyMessage], 'forward'),
+          user: demo.user,
+          onContinue,
+          onClose: vi.fn(),
+        }),
+      ),
+    );
+    const [include, excerpt] = document.querySelectorAll<HTMLButtonElement>('[role="switch"]');
+    const proceed = document.querySelector<HTMLButtonElement>('[data-weq-dialog-confirm]')!;
+    act(() => proceed.click());
+    expect(onContinue).toHaveBeenLastCalledWith([quotedMessage, replyMessage], false);
+    act(() => excerpt!.click());
+    act(() => proceed.click());
+    expect(onContinue).toHaveBeenLastCalledWith([quotedMessage, replyMessage], true);
+    act(() => include!.click());
+    expect(excerpt!.disabled).toBe(true);
+    act(() => proceed.click());
+    expect(onContinue).toHaveBeenLastCalledWith([quotedMessage], false);
+  } finally {
+    await act(async () => settlePreferenceWrites());
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it('多个目标并行发送且群内保序，一个目标失败不会阻塞其他目标', async () => {
   const second = { ...target, id: 'second', conv: '888', name: '第二目标群' };
   let release: (() => void) | undefined;
@@ -96,21 +382,24 @@ it('多个目标并行发送且群内保序，一个目标失败不会阻塞其�
     await vi.waitFor(() => expect(events).toContain('second:media'));
     expect(events).toContain('second:text');
     expect(events).not.toContain('qa-group:media');
-    expect(useToast.getState().toasts).toHaveLength(2);
+    expect(useToast.getState().toasts.map((toast) => toast.event)).toEqual(['taskFailure']);
+    expect(
+      localBackgroundTasks.snapshot().find((entry) => entry.name === target.name)?.status,
+    ).toBe('running');
   } finally {
     release?.();
     await task.done;
   }
   expect(events).toEqual(['qa-group:text', 'second:text', 'second:media', 'qa-group:media']);
-  expect(useToast.getState().toasts.map((toast) => toast.tone)).toEqual(['success', 'warning']);
+  expect(useToast.getState().toasts.map((toast) => toast.tone)).toEqual(['warning']);
   const failed = localBackgroundTasks.snapshot().find((entry) => entry.name === second.name)!;
-  expect(useToast.getState().toasts[1]!.source?.target).toEqual({
+  expect(useToast.getState().toasts[0]!.source?.target).toEqual({
     kind: 'task',
     id: `background:window:${failed.id}`,
   });
 });
 
-it('不可等价发送的整条消息在发送前确认并可预览，取消不会发出任何消息', async () => {
+it('先在分组弹窗筛掉系统提示，可取消并展开预览，再只把确认的消息交给转发', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -127,37 +416,55 @@ it('不可等价发送的整条消息在发送前确认并可预览，取消不�
       },
     ],
   };
-  try {
-    act(() =>
-      root.render(
-        createElement(SequentialForwardDialog, {
-          messages: [messages[0]!, ignored],
+  const failed = { ...messages[0]!, id: 'failed', optimistic: 'failed' as const };
+  const batch = reviewMessageBatch([messages[0]!, ignored, failed], 'forward');
+  function Review() {
+    const [stage, setStage] = useState<
+      import('../src/renderer/src/im-template/template/types').Message[] | null
+    >();
+    if (stage === null) return null;
+    return stage
+      ? createElement(SequentialForwardDialog, {
+          messages: stage,
           targets: [target],
           onSend: send,
-          onClose: vi.fn(),
+          onClose: () => setStage(null),
           onOpenTarget: vi.fn(),
-        }),
-      ),
+        })
+      : createElement(MessageBatchActionDialog, {
+          action: 'forward',
+          batch,
+          user: { ...demo.user, identityValue: '' },
+          onContinue: setStage,
+          onClose: () => setStage(null),
+        });
+  }
+  const confirm = () => document.querySelector<HTMLButtonElement>('[data-weq-dialog-confirm]')!;
+  try {
+    act(() => root.render(createElement(Review)));
+    expect(document.querySelector('.weq-mf-target')).toBeNull();
+    const [tip] = document.querySelectorAll('details');
+    act(() => {
+      tip!.open = true;
+      tip!.dispatchEvent(new Event('toggle'));
+    });
+    expect(document.querySelector('[aria-label="系统提示"]')?.textContent).toContain('甲戳了戳乙');
+    expect(
+      document.querySelector('[aria-label="系统提示"] .weq-system-message-row'),
+    ).not.toBeNull();
+    const toggle = document.querySelector<HTMLButtonElement>('[role="switch"]')!;
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    act(() => toggle.click());
+    expect(confirm().textContent).toContain('1 条');
+    expect(send).not.toHaveBeenCalled();
+    act(() => confirm().click());
+    expect(document.querySelector('.weq-message-batch-dialog')).toBeNull();
+    expect(document.querySelector('.weq-mf-target')).not.toBeNull();
+    expect(document.querySelector('.weq-sequential-forward')?.textContent).not.toContain(
+      '无法转发',
     );
     act(() => document.querySelector<HTMLButtonElement>('.weq-mf-target')!.click());
-    act(() =>
-      document.querySelector<HTMLButtonElement>('.weq-sequential-forward footer button')!.click(),
-    );
-    expect(send).not.toHaveBeenCalled();
-    expect(document.querySelector('.weq-forward-ignored')?.textContent).toContain('甲戳了戳乙');
-    expect(document.querySelector('.weq-forward-ignored')?.textContent).toContain('grayTipPoke');
-    expect(
-      document.querySelector('.weq-forward-ignored .weq-private-preview-scroll'),
-    ).not.toBeNull();
-    expect(document.querySelector('.weq-forward-ignored .weq-preview-system-row')).not.toBeNull();
-    act(() => document.querySelector<HTMLButtonElement>('[aria-label="返回转发设置"]')!.click());
-    expect(send).not.toHaveBeenCalled();
-    act(() =>
-      document.querySelector<HTMLButtonElement>('.weq-sequential-forward footer button')!.click(),
-    );
-    await act(async () =>
-      document.querySelector<HTMLButtonElement>('[data-forward-confirm-ignore]')!.click(),
-    );
+    await act(async () => confirm().click());
     expect(send).toHaveBeenCalledOnce();
     expect(send.mock.calls[0]?.[0]).toEqual(messages[0]);
   } finally {
@@ -166,7 +473,7 @@ it('不可等价发送的整条消息在发送前确认并可预览，取消不�
   }
 });
 
-it('未选目标就显示时分秒预估，多个并行目标不增加预估，默认不限间隔且失败继续', () => {
+it('未选目标就显示时分秒预估，多个并行目标不增加预估，默认不限间隔且失败继续', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -211,40 +518,43 @@ it('未选目标就显示时分秒预估，多个并行目标不增加预估，�
       '1 小时 1 分钟 1 秒',
     );
   } finally {
+    await act(async () => settlePreferenceWrites());
     act(() => root.unmount());
     host.remove();
   }
 });
 
-it('全部消息均需跳过时仍可预览，但不能创建发送队列', () => {
+it('全是无法转发的消息时只显示可展开的说明和关闭动作', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const send = vi.fn();
+  const proceed = vi.fn();
+  const close = vi.fn();
   try {
     act(() =>
       root.render(
-        createElement(SequentialForwardDialog, {
-          messages: [{ ...messages[0]!, qqElements: [{ type: 'call', data: {} }] }],
-          targets: [target],
-          onSend: send,
-          onClose: vi.fn(),
-          onOpenTarget: vi.fn(),
+        createElement(MessageBatchActionDialog, {
+          action: 'forward',
+          batch: reviewMessageBatch(
+            [{ ...messages[0]!, qqElements: [{ type: 'call', data: {} }] }],
+            'forward',
+          ),
+          user: demo.user,
+          onContinue: proceed,
+          onClose: close,
         }),
       ),
     );
     expect(document.querySelector('.weq-mf-target')).toBeNull();
-    expect(
-      document.querySelector<HTMLButtonElement>('.weq-sequential-forward footer button')?.disabled,
-    ).toBe(true);
-    act(() => document.querySelector<HTMLButtonElement>('.weq-forward-ignored-summary')!.click());
-    expect(document.querySelector('.weq-private-preview-scroll')).not.toBeNull();
-    expect(
-      document.querySelector<HTMLButtonElement>('[data-forward-confirm-ignore]')?.disabled,
-    ).toBe(true);
-    expect(send).not.toHaveBeenCalled();
-    expect(useToast.getState().toasts).toHaveLength(0);
+    expect(document.querySelector('summary')?.textContent).toContain('无法转发');
+    const actions = document.querySelectorAll<HTMLButtonElement>(
+      '.weq-message-batch-dialog footer button',
+    );
+    expect(actions).toHaveLength(1);
+    act(() => actions[0]!.click());
+    expect(close).toHaveBeenCalledOnce();
+    expect(proceed).not.toHaveBeenCalled();
   } finally {
     act(() => root.unmount());
     host.remove();
@@ -273,9 +583,10 @@ it('只停止一个目标，不跳转也不停止其他群；所有队列结束�
         onOpenTarget: open,
       });
     });
-    act(() =>
-      document.querySelector<HTMLButtonElement>('[data-forward-target="qa-group"] button')!.click(),
-    );
+    const taskFor = (name: string) =>
+      localBackgroundTasks.snapshot().find((entry) => entry.name === name)!;
+    expect(useToast.getState().toasts).toEqual([]);
+    await act(async () => localBackgroundTasks.act(taskFor(target.name).id, 'stop'));
     expect(open).not.toHaveBeenCalled();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
@@ -287,15 +598,9 @@ it('只停止一个目标，不跳转也不停止其他群；所有队列结束�
       'second',
     ]);
     expect(task!.controller.signal.aborted).toBe(false);
-    expect(document.querySelector('[data-forward-target="qa-group"]')?.textContent).toContain(
-      '转发已停止',
-    );
-    expect(document.querySelector('[data-forward-target="second"]')?.textContent).toContain(
-      '转发完成',
-    );
+    expect(taskFor(target.name)).toMatchObject({ status: 'cancelled', statusLabel: '转发已停止' });
+    expect(taskFor(second.name)).toMatchObject({ status: 'completed', statusLabel: '转发完成' });
     await act(async () => vi.advanceTimersByTimeAsync(3500));
-    expect(document.querySelector('[data-forward-target="second"]')).toBeNull();
-    expect(document.querySelector('[data-forward-target="qa-group"]')).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
   } finally {
     task?.controller.abort();
@@ -430,16 +735,29 @@ it.each([1, 2])('合并转发回执可打开本次选中的 %i 个会话', async
     await act(async () =>
       document.querySelector<HTMLButtonElement>('[data-weq-dialog-confirm]')!.click(),
     );
-    expect(send.mock.calls).toEqual(chosen.map((choice) => [expect.anything(), choice, binding]));
+    expect(send.mock.calls).toEqual(
+      chosen.map((choice) => [expect.anything(), choice, binding, true]),
+    );
 
-    const open = host.querySelector<HTMLButtonElement>('.weq-toast-open')!;
+    const record = localBackgroundTasks.snapshot().find((task) => task.kind === 'forward')!;
+    expect(record).toMatchObject({ status: 'completed', forwardTargets: chosen });
+    expect(useToast.getState().toasts).toEqual([]);
+    const action = backgroundTaskNavigation(record)!;
     bindAccountState({ ...binding, expectedAccountConfigId: 'different' });
-    await act(async () => open.click());
+    await expect(async () => action.run()).rejects.toThrow('请先切回');
     expect(navigate).not.toHaveBeenCalled();
     bindAccountState(binding);
-    await act(async () => open.click());
+    await act(async () => {
+      await action.run();
+    });
     expect(navigate.mock.calls).toEqual([
-      [{ kind: 'forwarded-conversations', targets: chosen, binding }],
+      [
+        {
+          kind: 'forwarded-conversations',
+          targets: chosen.map((target) => ({ ...target, avatarUrl: '' })),
+          binding,
+        },
+      ],
     ]);
 
     if (count > 1) {
@@ -490,7 +808,7 @@ it('单条转发隐藏间隔与抖动，保留失败策略和重试设置', () =
   }
 });
 
-it('先展示预估，卸载配置窗仍转发，等待与完成时均可点击横幅跳转', async () => {
+it('卸载配置窗后从任务查看持续进度、目标与完成结果', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -538,35 +856,38 @@ it('先展示预估，卸载配置窗仍转发，等待与完成时均可点击�
     );
     expect(close).toHaveBeenCalledOnce();
     expect(document.querySelector('.weq-sequential-forward')).toBeNull();
-    expect(document.querySelector('.weq-forward-banner')).not.toBeNull();
-    expect(document.querySelector('.weq-forward-time')?.textContent).toContain(
-      '已进行 0 秒 / 预计用时 7 秒',
-    );
-    expect(document.querySelector('.weq-forward-count')?.textContent).toContain('0 / 2 条');
-    act(() => document.querySelector<HTMLButtonElement>('.weq-toast-open')!.click());
+    const currentTask = () =>
+      localBackgroundTasks.snapshot().find((entry) => entry.name === target.name)!;
+    expect(useToast.getState().toasts).toEqual([]);
+    expect(currentTask().note).toContain('已进行 0 秒 / 预计用时 7 秒');
+    expect(currentTask().note).toContain('0 / 2 条');
+    expect(currentTask().progress).toBe(0);
+    await act(async () => localBackgroundTasks.act(currentTask().id, 'open'));
     expect(open).toHaveBeenCalledWith(target);
-    expect(document.querySelector('.weq-toast button[aria-label="关闭"]')).toBeNull();
-    expect(send).not.toHaveBeenCalled();
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(send).not.toHaveBeenCalled();
+    expect(currentTask().progress).toBe(12.5);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
     });
     expect(send).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('.weq-forward-time')?.textContent).toContain('已进行 2 秒');
+    expect(currentTask().note).toContain('已进行 2 秒');
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[0]?.[2].aborted).toBe(false);
-    expect(document.querySelector('.weq-forward-banner')?.textContent).toContain('转发完成');
-    expect(document.querySelector('.weq-forward-time')?.textContent).toContain('已进行 7 秒');
-    expect(document.querySelector('.weq-forward-count')?.textContent).toContain('2 / 2 条');
-    expect(document.querySelector('.weq-toast button[aria-label="关闭"]')).not.toBeNull();
-    expect(document.querySelector('.weq-toast')).not.toBeNull();
-    expect(document.querySelector('.weq-toast-footer')).not.toBeNull();
-    act(() => document.querySelector<HTMLButtonElement>('.weq-toast-open')!.click());
-    expect(open).toHaveBeenCalledWith(target);
-    await act(async () => vi.advanceTimersByTimeAsync(3500));
-    expect(document.querySelector('.weq-toast')).toBeNull();
+    expect(currentTask()).toMatchObject({
+      status: 'completed',
+      statusLabel: '转发完成',
+      progress: 100,
+    });
+    expect(currentTask().note).toContain('已进行 7 秒');
+    expect(currentTask().note).toContain('2 / 2 条');
+    expect(currentTask().forwardTargets).toEqual([target]);
+    expect(useToast.getState().toasts).toEqual([]);
   } finally {
     act(() => root.unmount());
     host.remove();
@@ -586,11 +907,7 @@ it('等待期间可以停止，不再发送下一条；失败保留原因且不�
   pending.controller.abort();
   await pending.done;
   expect(send).not.toHaveBeenCalled();
-  expect(useToast.getState().toasts.at(-1)).toMatchObject({
-    tone: 'warning',
-    durationKind: 'success',
-    ttl: 3000,
-  });
+  expect(useToast.getState().toasts).toEqual([]);
   const failed = startSequentialForward({
     scope: { uin: 'fixture', configId: 'fixture-config' },
     messages,
@@ -613,4 +930,56 @@ it('等待期间可以停止，不再发送下一条；失败保留原因且不�
     'failed',
   ]);
   expect(localBackgroundTasks.snapshot().at(-1)?.details?.join('')).toContain('合成失败');
+});
+
+it('关闭转发窗保留有效偏好，未完成的数字输入不覆盖保存值，目标重新选择', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const props = {
+    messages,
+    targets: [target],
+    onSend: vi.fn(),
+    onOpenTarget: vi.fn(),
+    onClose: vi.fn(),
+  };
+  const mount = () => root.render(createElement(SequentialForwardDialog, props));
+  try {
+    await act(async () => mount());
+    await act(async () => document.querySelector<HTMLButtonElement>('.weq-mf-target')!.click());
+    await act(async () =>
+      document.querySelectorAll<HTMLButtonElement>('[aria-label="间隔方式"] button')[1]!.click(),
+    );
+    const input = [...document.querySelectorAll('label')]
+      .find((label) => label.textContent?.includes('每字间隔'))!
+      .querySelector('input')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        '0.125',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(preferenceValue('forwardOptions')).toMatchObject({ mode: 'text', msPerCharacter: 125 });
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(input.value).toBe('');
+    expect(preferenceValue('forwardOptions').msPerCharacter).toBe(125);
+    await act(async () => root.render(null));
+    await act(async () => mount());
+    const restored = [...document.querySelectorAll('label')]
+      .find((label) => label.textContent?.includes('每字间隔'))!
+      .querySelector('input')!;
+    expect(restored.value).toBe('0.125');
+    expect(
+      document.querySelector<HTMLButtonElement>('.weq-sequential-forward footer button')!.disabled,
+    ).toBe(true);
+    expect(props.onSend).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
 });

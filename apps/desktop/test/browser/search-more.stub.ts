@@ -5,6 +5,7 @@ export const client = {
     searchQuick: {
       query: async () => ({ contacts: [{ uin: '12345', nick: '小林', remark: '', aliases: [] }] }),
     },
+    cancelSidebarSearch: { mutate: async () => true },
     searchConversationRecords: {
       query: async ({
         keyword,

@@ -1,13 +1,110 @@
 // @vitest-environment node
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { FlashTransferDownloadManager } from '../src/account/flashtransfer/manager';
 import { FlashTransferResolver } from '../src/account/flashtransfer/resolver';
 import { FlashTransferClient } from '../src/account/flashtransfer/client';
+import { UNKNOWN_NETWORK } from '../src/common/data_saver';
+import { updateTransferPolicy } from '../src/common/transfer_policy';
 
 afterEach(() => vi.restoreAllMocks());
+
+it('省流量暂缓批次，恢复网络后只继续策略暂停的下载', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'weq-flash-network-policy-'));
+  const files = ['a', 'b'].map((name) => ({
+    name,
+    relativePath: name,
+    physicalId: name,
+    fileSize: 1,
+    filesetId: 'set',
+  }));
+  vi.spyOn(FlashTransferResolver.prototype, 'resolveDownloads').mockResolvedValue({
+    files,
+    errors: [],
+  });
+  const url = vi
+    .spyOn(FlashTransferClient.prototype, 'getDownloadUrl')
+    .mockImplementation(async (id) => `https://fixture.invalid/${id}`);
+  const fetch = vi.fn(async () => new Response(Uint8Array.of(42)));
+  vi.stubGlobal('fetch', fetch);
+  const manager = new FlashTransferDownloadManager(dir);
+  try {
+    updateTransferPolicy('always', UNKNOWN_NETWORK);
+    const stopped = (await manager.start('手动暂停', 'set', [], dir)).taskId!;
+    const waiting = (await manager.start('策略暂停', 'set', [], dir)).taskId!;
+    expect(manager.list().find((task) => task.id === waiting)).toMatchObject({
+      pausedByPolicy: true,
+      canRetry: true,
+    });
+    expect(url).not.toHaveBeenCalled();
+    expect(await manager.pause(stopped)).toBe(true);
+    updateTransferPolicy('never', UNKNOWN_NETWORK);
+    await vi.waitFor(() =>
+      expect(manager.list().find((task) => task.id === waiting)?.status).toBe('done'),
+    );
+    expect(manager.list().find((task) => task.id === stopped)?.pausedByUser).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally {
+    for (const task of manager.list()) await manager.cancel(task.id);
+    updateTransferPolicy('auto', UNKNOWN_NETWORK);
+    vi.unstubAllGlobals();
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+it('切换省流量会中止进行中的大文件请求，本次继续按校验后的 Range 续传', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'weq-flash-network-resume-'));
+  const size = 1024 * 1024;
+  const first = Uint8Array.of(1, 2, 3, 4);
+  vi.spyOn(FlashTransferResolver.prototype, 'resolveDownloads').mockResolvedValue({
+    files: [{ name: 'a', relativePath: 'a', physicalId: 'a', fileSize: size, filesetId: 'set' }],
+    errors: [],
+  });
+  vi.spyOn(FlashTransferClient.prototype, 'getDownloadUrl').mockResolvedValue(
+    'https://fixture.invalid/a',
+  );
+  const fetch = vi
+    .fn<typeof globalThis.fetch>()
+    .mockImplementationOnce(
+      async () =>
+        new Response(new ReadableStream({ start: (stream) => stream.enqueue(first) }), {
+          headers: { etag: '"fixture"', 'content-length': String(size) },
+        }),
+    )
+    .mockImplementationOnce(
+      async () =>
+        new Response(new Uint8Array(size - first.length), {
+          status: 206,
+          headers: { etag: '"fixture"', 'content-range': `bytes 4-${size - 1}/${size}` },
+        }),
+    );
+  vi.stubGlobal('fetch', fetch);
+  const manager = new FlashTransferDownloadManager(dir);
+  try {
+    updateTransferPolicy('never', UNKNOWN_NETWORK);
+    const { taskId } = await manager.start('续传', 'set', [], dir);
+    await vi.waitFor(() => expect(manager.list()[0]?.downloadedBytes).toBe(first.length));
+    updateTransferPolicy('always', UNKNOWN_NETWORK, { dataSaverLargeMiB: 1 });
+    await vi.waitFor(() => expect(manager.list()[0]?.pausedByPolicy).toBe(true));
+    expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(await manager.retry(taskId!)).toBe(true);
+    await vi.waitFor(() => expect(manager.list()[0]?.status).toBe('done'));
+    const headers = new Headers(fetch.mock.calls[1]?.[1]?.headers);
+    expect(headers.get('Range')).toBe('bytes=4-');
+    expect(headers.get('If-Range')).toBe('"fixture"');
+    const result = await readFile(manager.list()[0]!.files[0]!.targetPath);
+    expect(result.length).toBe(size);
+    expect(result.subarray(0, first.length)).toEqual(Buffer.from(first));
+  } finally {
+    for (const task of manager.list()) await manager.cancel(task.id);
+    updateTransferPolicy('auto', UNKNOWN_NETWORK);
+    vi.unstubAllGlobals();
+    await rm(dir, { force: true, recursive: true });
+  }
+});
 
 it('清除以整次操作为单位，成功文件不会从尚未成功的整批中被单独移除', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'weq-flash-batch-clear-'));
@@ -54,7 +151,7 @@ it('清除以整次操作为单位，成功文件不会从尚未成功的整批�
   }
 });
 
-it('重启后不自动发起下载；重试只请求未完成文件', async () => {
+it('重启后不自动发起下载，转入后台续作只请求未完成文件', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'weq-flash-resume-'));
   const next = Promise.withResolvers<string>();
   const getUrl = vi
@@ -72,6 +169,7 @@ it('重启后不自动发起下载；重试只请求未完成文件', async () =
           relativePath: status,
           targetPath: join(dir, status),
           status,
+          foreground: true,
           fileSize: 10,
           downloadedBytes: 10,
           createdAt: 1,
@@ -81,7 +179,8 @@ it('重启后不自动发起下载；重试只请求未完成文件', async () =
     const manager = new FlashTransferDownloadManager(dir);
     await manager.load();
     expect(getUrl).not.toHaveBeenCalled();
-    expect(await manager.retry('batch')).toBe(true);
+    expect(await manager.retry('batch', { background: true })).toBe(true);
+    expect(manager.list()[0]?.files.every((file) => !file.foreground)).toBe(true);
     expect(getUrl.mock.calls).toEqual([['pending'], ['resolving'], ['downloading']]);
     await manager.cancel('batch');
     next.resolve('unused');

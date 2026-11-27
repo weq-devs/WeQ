@@ -18,7 +18,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { GroupCallSnapshot } from '@weq/service';
 import { useGroupCallAudio } from '../../hooks/useCallAudio';
-import { useToolWindow } from '../../hooks/useCompositionWindow';
+import type { useToolWindow } from '../../hooks/useCompositionWindow';
 import { useGroupCamera, useGroupRemoteVideo } from '../../hooks/useGroupCallVideo';
 import { createGroupVideoTransport } from '../../lib/groupVideoTransport';
 import { RenderDocumentContext } from '../../lib/renderDocument';
@@ -237,7 +237,8 @@ export function GroupCallWindow({
   snapshot,
   people,
   onClose,
-}: GroupCallWindowProps) {
+  tool,
+}: GroupCallWindowProps & { tool: ReturnType<typeof useToolWindow> }) {
   const [info, setInfo] = useState(snapshot);
   const [directory, setDirectory] = useState(people);
   const [focusedUin, setFocusedUin] = useState<number>();
@@ -252,31 +253,6 @@ export function GroupCallWindow({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const locked = useAppLock((state) => state.locked);
-  const tool = useToolWindow({
-    name: 'weq-group-call',
-    title: 'WeQ · 群通话',
-    width: 1180,
-    height: 720,
-    bodyClass: 'weq-call-window-body',
-  });
-  const lifecycle = useRef(0);
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-  useEffect(() => {
-    const generation = ++lifecycle.current;
-    const popup = tool.open();
-    const timer = window.setInterval(() => {
-      if (popup?.closed) closeRef.current();
-    }, 250);
-    return () => {
-      window.clearInterval(timer);
-      // 开发模式会立刻重挂载，真正离开页面才退出房间。
-      queueMicrotask(() => {
-        if (lifecycle.current === generation)
-          void client.groupCall.leave.mutate({ id }).catch(() => {});
-      });
-    };
-  }, [id, tool.open]);
   trpc.groupCall.state.useSubscription(
     { id },
     {
@@ -426,7 +402,7 @@ export function GroupCallWindow({
       return;
     }
     tool.close();
-    closeRef.current();
+    onClose();
   }
   const toggleSilent = (uin: number) => {
     const next = new Set(silent);

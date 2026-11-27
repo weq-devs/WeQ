@@ -1,23 +1,25 @@
 import type { ReactNode } from 'react';
 import { create } from 'zustand';
-import { useToast } from '../components/Toast.shared';
-import type { ToastAction } from '../components/Toast';
-import { notificationSource } from './notificationNavigation.shared';
 
-export const useConnectionTestTasks = create<{ running: ReadonlySet<string> }>(() => ({
+type TestResult = {
+  detail?: ReactNode;
+  action?: { label: string; run: () => void };
+};
+type CompletedTest = TestResult & { label: string; failed: boolean };
+
+export const useConnectionTestTasks = create<{
+  running: ReadonlySet<string>;
+  results: ReadonlyMap<string, CompletedTest>;
+}>(() => ({
   running: new Set(),
+  results: new Map(),
 }));
 
 export function connectionTestKey(kind: 'llm' | 'tts' | 'rkey' | 'sse', id: string): string {
   return JSON.stringify([kind, id]);
 }
 
-type TestResult = {
-  detail?: ReactNode;
-  action?: ToastAction;
-};
-
-/** 只保存非敏感任务身份；输入快照由调用方捕获，不依赖编辑器的挂载状态。 */
+/** 同一配置的测试由原操作行显示，离开编辑器后仍能查看本次结果。 */
 export async function runConnectionTest(
   key: string,
   label: string,
@@ -25,73 +27,23 @@ export async function runConnectionTest(
 ): Promise<void> {
   if (useConnectionTestTasks.getState().running.has(key)) return;
   useConnectionTestTasks.setState((state) => ({ running: new Set(state.running).add(key) }));
-  const toast = useToast.getState();
-  let identity: unknown;
+  let result: CompletedTest;
   try {
-    identity = JSON.parse(key);
-  } catch {
-    identity = null;
-  }
-  const kind = Array.isArray(identity) ? identity[0] : undefined;
-  const recordId =
-    Array.isArray(identity) && typeof identity[1] === 'string' ? identity[1] : undefined;
-  const source =
-    recordId && (kind === 'llm' || kind === 'tts' || kind === 'rkey' || kind === 'sse')
-      ? notificationSource(
-          {
-            kind: 'app',
-            target: {
-              kind: 'setting',
-              section: kind === 'rkey' ? 'resource-loading' : kind === 'sse' ? 'sse' : 'agentlab',
-              settingId:
-                kind === 'rkey'
-                  ? 'external-rkey'
-                  : kind === 'tts'
-                    ? 'tts-providers'
-                    : kind === 'llm'
-                      ? 'llm-providers'
-                      : undefined,
-            },
-            recordId: `${kind}:${recordId}`,
-          },
-          `返回配置：${label}`,
-          null,
-        )
-      : undefined;
-  const id = toast.push({
-    key: `connection-test:${key}`,
-    tone: 'info',
-    loading: true,
-    title: `正在测试连接 · ${label}`,
-    ttl: 0,
-    dismissible: false,
-    source,
-  });
-  try {
-    const result = await run();
-    toast.update(id, {
-      tone: 'success',
-      durationKind: 'success',
-      loading: false,
-      dismissible: true,
-      title: `测试通过 · ${label}`,
-      detail: result.detail,
-      action: result.action,
-    });
+    result = { ...(await run()), label, failed: false };
   } catch (error) {
-    toast.update(id, {
-      tone: 'error',
-      durationKind: 'failure',
-      loading: false,
-      dismissible: true,
-      title: `测试失败 · ${label}`,
+    result = {
+      label,
+      failed: true,
       detail: error instanceof Error ? error.message : String(error),
-    });
-  } finally {
-    useConnectionTestTasks.setState((state) => {
-      const running = new Set(state.running);
-      running.delete(key);
-      return { running };
-    });
+    };
   }
+  useConnectionTestTasks.setState((state) => {
+    const running = new Set(state.running);
+    running.delete(key);
+    const results = new Map(state.results);
+    results.delete(key);
+    results.set(key, result);
+    if (results.size > 64) results.delete(results.keys().next().value!);
+    return { running, results };
+  });
 }

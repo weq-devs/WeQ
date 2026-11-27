@@ -1,6 +1,8 @@
 import { eventTimeFormatter } from '@weq/time';
 import { z } from 'zod/v3';
-import { basename } from 'node:path';
+import { createHash } from 'node:crypto';
+import { basename, dirname, isAbsolute, join, relative } from 'node:path';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import {
   getHost,
   WEQ_BACKUP_PARTS,
@@ -22,11 +24,20 @@ import {
 } from '@weq/service';
 import { getBackupContext } from '../../context/backup_context';
 import { getAppContext, retryBackupRecovery } from '../../context/app_context';
+import {
+  recentBackupDownload,
+  backupFileHash,
+  pendingBackupGeneration,
+  recordBackupDownload,
+  resolveBackupDownload,
+  saveBackupGeneration,
+} from '../../backup_download_receipt';
 import { procedure } from '../trpc';
 import { observable } from '@trpc/server/observable';
 import { runtimeMaintenance } from '../../runtime_maintenance';
 import { readBackupHostPreferences } from '../../context/backup_host_preferences';
 import { applyBackupLive } from '../../context/runtime_files';
+import { FileUploadStaging, StagedUploadUnavailable } from './album_video_staging';
 import {
   desktopServiceCommand,
   desktopWebStatus,
@@ -66,6 +77,79 @@ const selective = z.object({
   includeServiceTokens: z.boolean(),
 });
 const client = z.record(z.string()).default({});
+const backupDownloadClient = z.object({ downloadClient: z.string().uuid().optional() });
+const backupExportInput = z.union([
+  backupDownloadClient.extend({ selection: selective, client }),
+  selection.merge(backupDownloadClient).extend({ client }),
+]);
+const backupUploadClient = z.object({ uploadClient: z.string().uuid().optional() });
+const backupTransfers = new Map<string, FileUploadStaging>();
+
+const generatingBackups = new Set<string>();
+async function generateBackup<T>(owner: string | undefined, run: () => Promise<T>) {
+  if (!owner) return run();
+  if (generatingBackups.has(owner)) throw new Error('这份备份正在生成。');
+  generatingBackups.add(owner);
+  try {
+    return await run();
+  } finally {
+    generatingBackups.delete(owner);
+  }
+}
+
+function backupTransfer(uploadClient: string) {
+  const { root } = ready().backups;
+  let staging = backupTransfers.get(root);
+  if (!staging) {
+    staging = new FileUploadStaging(30 * 60_000, {
+      label: '备份',
+      minBytes: 1,
+      maxBytes: WEQ_BACKUP_LIMITS.maxArchiveBytes,
+      prefix: 'weq-backup-transfer-',
+      fileName: 'backup.zip',
+      maxUploads: 8,
+      maxTotalBytes: WEQ_BACKUP_LIMITS.maxArchiveBytes * 4,
+      persistence: {
+        root: () => join(root, 'cache', 'backup-transfer'),
+        ownerKey: (owner) => (owner as { key: string }).key,
+      },
+    });
+    backupTransfers.set(root, staging);
+  }
+  return { staging, owner: { key: backupDownloadOwner(uploadClient) } };
+}
+
+function backupDownloadOwner(client: string) {
+  const { account, services } = getAppContext();
+  return JSON.stringify([
+    account?.context.uin,
+    services?.accountConfig.getRecord()?.configId,
+    client,
+  ]);
+}
+
+function backupGenerationOwner(client: string) {
+  return JSON.stringify([getHost().exportRoot ?? null, backupDownloadOwner(client)]);
+}
+
+async function snapshotBackup(input: z.infer<typeof backupExportInput>, native: boolean) {
+  const { backups } = ready();
+  return 'selection' in input
+    ? backups.snapshotSelected(
+        input.selection,
+        input.client,
+        await readBackupHostPreferences(input.selection.sections, native),
+      )
+    : backups.snapshot(input, input.client);
+}
+
+async function checkBackupPath(path: string, root: string | undefined) {
+  if (!root) return;
+  const [base, parent] = await Promise.all([realpath(root), realpath(dirname(path))]);
+  const rel = relative(base, parent);
+  if (rel === '..' || rel.startsWith('../') || rel.startsWith('..\\') || isAbsolute(rel))
+    throw new Error('备份位置已变化，请重新选择。');
+}
 
 function ready() {
   const ctx = getBackupContext();
@@ -102,9 +186,16 @@ export const backupProcedures = {
         toastDurations: ctx.ok ? ctx.config.getSettings().toastDurations : undefined,
       };
     }),
-  backupInventory: procedure.query(({ ctx }) => {
+  backupInventory: procedure.input(backupDownloadClient.optional()).query(({ ctx, input }) => {
     const { backups } = ready();
     const host = getHost();
+    const previousDownload =
+      host.exportRoot && input?.downloadClient
+        ? recentBackupDownload(backups.root, backupDownloadOwner(input.downloadClient))
+        : undefined;
+    const interrupted = input?.downloadClient
+      ? pendingBackupGeneration(backups.root, backupGenerationOwner(input.downloadClient))
+      : undefined;
     return {
       ...backups.inventory(),
       activeConfigId: getAppContext().services?.accountConfig.getConfigId() ?? null,
@@ -113,13 +204,18 @@ export const backupProcedures = {
       canRestart: Boolean(host.restartApplication),
       maxArchiveBytes: WEQ_BACKUP_LIMITS.maxArchiveBytes,
       chunkBytes: 65536,
+      ...(previousDownload ? { previousDownload } : {}),
+      ...(interrupted ? { interruptedExport: { name: basename(interrupted.path) } } : {}),
     };
   }),
-  backupExport: procedure
-    .input(z.union([z.object({ selection: selective, client }), selection.extend({ client })]))
-    .mutation(async ({ input, ctx: request }) => {
-      const ctx = ready(),
-        host = getHost();
+  backupExport: procedure.input(backupExportInput).mutation(async ({ input, ctx: request }) => {
+    const ctx = ready(),
+      host = getHost();
+    const owner = input.downloadClient ? backupDownloadOwner(input.downloadClient) : undefined;
+    const generationOwner = input.downloadClient
+      ? backupGenerationOwner(input.downloadClient)
+      : undefined;
+    return generateBackup(generationOwner, async () => {
       const timestamp = eventTimeFormatter.format(new Date()).replace(/[^0-9]/g, '');
       const target = await host.pickSaveTarget({
         locationKey: 'weq-backup',
@@ -127,16 +223,35 @@ export const backupProcedures = {
         extension: 'zip',
       });
       if (!target) return null;
-      const snapshot =
-        'selection' in input
-          ? ctx.backups.snapshotSelected(
-              input.selection,
-              input.client,
-              await readBackupHostPreferences(input.selection.sections, !request.authorize),
-            )
-          : ctx.backups.snapshot(input, input.client);
+      if (input.downloadClient && generationOwner !== backupGenerationOwner(input.downloadClient))
+        throw new Error('账号或数据源已切换，请重新选择备份内容。');
+      const draft = generationOwner
+        ? { owner: generationOwner, path: target.path, input }
+        : undefined;
+      if (draft) saveBackupGeneration(ctx.backups.root, draft.owner, draft);
+      const snapshot = await snapshotBackup(input, !request.authorize);
+      if (input.downloadClient && generationOwner !== backupGenerationOwner(input.downloadClient))
+        throw new Error('账号或数据源已切换，已停止生成备份。');
+      if (draft)
+        saveBackupGeneration(ctx.backups.root, draft.owner, {
+          ...draft,
+          hash: createHash('sha256').update(snapshot.archive).digest('hex'),
+        });
       await writeWeqBackupExclusive(target.path, snapshot.archive);
       const download = host.registerDownload?.(target.path, basename(target.path), 'file');
+      if (
+        host.exportRoot &&
+        download &&
+        input.downloadClient &&
+        owner === backupDownloadOwner(input.downloadClient)
+      ) {
+        try {
+          recordBackupDownload(ctx.backups.root, owner, target.path, snapshot.archive);
+        } catch (error) {
+          console.warn('[配置备份] 取回回执保存失败', error);
+        }
+      }
+      if (draft) saveBackupGeneration(ctx.backups.root, draft.owner, null);
       return {
         id: ctx.backups.rememberExport(target.path),
         path: target.path,
@@ -144,6 +259,69 @@ export const backupProcedures = {
         canReveal: host.canReveal,
         summary: snapshot.summary,
       };
+    });
+  }),
+  backupResumeExport: procedure
+    .input(z.object({ downloadClient: z.string().uuid() }))
+    .mutation(async ({ input, ctx: request }) => {
+      const ctx = ready();
+      const owner = backupGenerationOwner(input.downloadClient);
+      return generateBackup(owner, async () => {
+        const draft = pendingBackupGeneration(ctx.backups.root, owner);
+        if (!draft) throw new Error('没有待继续生成的备份。');
+        const host = getHost();
+        await checkBackupPath(draft.path, host.exportRoot);
+        const check = () => {
+          if (owner !== backupGenerationOwner(input.downloadClient))
+            throw new Error('账号或数据源已切换。');
+        };
+        const info = await stat(draft.path).catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== 'ENOENT') throw error;
+          return null;
+        });
+        let bytes: Buffer | undefined;
+        if (info) {
+          await checkBackupPath(await realpath(draft.path), host.exportRoot);
+          if (!info.isFile() || !draft.hash || (await backupFileHash(draft.path)) !== draft.hash)
+            throw new Error('原保存位置已有不同文件，请重新选择备份位置。');
+        } else {
+          const snapshot = await snapshotBackup(
+            backupExportInput.parse(draft.input),
+            !request.authorize,
+          );
+          bytes = snapshot.archive;
+          check();
+          saveBackupGeneration(ctx.backups.root, owner, {
+            ...draft,
+            hash: createHash('sha256').update(bytes).digest('hex'),
+          });
+          await writeWeqBackupExclusive(draft.path, bytes);
+        }
+        check();
+        const download = host.registerDownload?.(draft.path, basename(draft.path), 'file');
+        if (host.exportRoot && download)
+          recordBackupDownload(
+            ctx.backups.root,
+            backupDownloadOwner(input.downloadClient),
+            draft.path,
+            bytes ?? (await readFile(draft.path)),
+          );
+        saveBackupGeneration(ctx.backups.root, owner, null);
+        return { path: draft.path, downloadUrl: download?.url ?? null };
+      });
+    }),
+  backupDownloadExport: procedure
+    .input(z.object({ downloadClient: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const { backups } = ready();
+      const host = getHost();
+      if (!host.exportRoot || !host.registerDownload)
+        throw new Error('请从生成备份时的浏览器重新下载。');
+      const owner = backupDownloadOwner(input.downloadClient);
+      const { path, name } = await resolveBackupDownload(backups.root, host.exportRoot, owner);
+      if (owner !== backupDownloadOwner(input.downloadClient))
+        throw new Error('账号或数据源已切换。');
+      return host.registerDownload(path, name, 'file');
     }),
   backupPick: procedure.mutation(async () => {
     const ctx = ready();
@@ -157,20 +335,76 @@ export const backupProcedures = {
   }),
   backupBeginUpload: procedure
     .input(
-      z.object({
+      backupUploadClient.extend({
         name: z.string().min(1).max(512),
         bytes: z.number().int().min(1).max(WEQ_BACKUP_LIMITS.maxArchiveBytes),
       }),
     )
-    .mutation(({ input }) => ready().backups.beginUpload(input.name, input.bytes)),
+    .mutation(async ({ input }) => {
+      if (!input.uploadClient) return ready().backups.beginUpload(input.name, input.bytes);
+      const { staging, owner } = backupTransfer(input.uploadClient);
+      return (await staging.start(owner, input.bytes)).id;
+    }),
+  backupResumeUpload: procedure
+    .input(z.object({ id: z.string().uuid(), uploadClient: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const { staging, owner } = backupTransfer(input.uploadClient);
+      try {
+        const status = await staging.resume(owner, input.id);
+        if (owner.key !== backupDownloadOwner(input.uploadClient))
+          throw new Error('账号或数据源已切换。');
+        return status;
+      } catch (error) {
+        if (error instanceof StagedUploadUnavailable) return null;
+        throw error;
+      }
+    }),
+  backupDiscardUpload: procedure
+    .input(z.object({ id: z.string().uuid(), uploadClient: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const { staging, owner } = backupTransfer(input.uploadClient);
+      await staging.discard(owner, input.id);
+      return true;
+    }),
   backupUploadChunk: procedure
     .input(
-      z.object({ id: z.string(), offset: z.number().int().min(0), data: z.string().max(87384) }),
+      backupUploadClient.extend({
+        id: z.string(),
+        offset: z.number().int().min(0),
+        data: z.string().max(87384),
+      }),
     )
-    .mutation(({ input }) => ready().backups.uploadChunk(input.id, input.offset, input.data)),
+    .mutation(async ({ input }) => {
+      if (!input.uploadClient)
+        return ready().backups.uploadChunk(input.id, input.offset, input.data);
+      const { staging, owner } = backupTransfer(input.uploadClient);
+      const bytes = Buffer.from(input.data, 'base64');
+      if (bytes.length > 65536 || bytes.toString('base64') !== input.data)
+        throw new Error('备份上传分片无效');
+      const result = await staging.append(owner, input.id, input.offset, bytes, undefined, () => {
+        if (owner.key !== backupDownloadOwner(input.uploadClient!))
+          throw new Error('账号或数据源已切换。');
+      });
+      return result.offset;
+    }),
   backupFinishUpload: procedure
-    .input(z.object({ id: z.string() }))
-    .mutation(({ input }) => ready().backups.finishUpload(input.id)),
+    .input(
+      backupUploadClient.extend({ id: z.string(), name: z.string().min(1).max(512).optional() }),
+    )
+    .mutation(async ({ input }) => {
+      const { backups } = ready();
+      if (!input.uploadClient) return backups.finishUpload(input.id);
+      const { staging, owner } = backupTransfer(input.uploadClient);
+      const path = staging.acquire(owner, input.id);
+      try {
+        const bytes = await readFile(path);
+        if (owner.key !== backupDownloadOwner(input.uploadClient))
+          throw new Error('账号或数据源已切换。');
+        return backups.inspect(bytes, input.name ?? 'backup.zip');
+      } finally {
+        await staging.discard(owner, input.id, true);
+      }
+    }),
   backupPrepare: procedure
     .input(choice.extend({ sourceId: z.string() }))
     .mutation(({ input: { sourceId, ...choice }, ctx }) =>

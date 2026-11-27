@@ -4,9 +4,10 @@
  * 保留整包网格、单张详情及分级 Esc；详情也供商城整页浏览器复用。
  */
 
+import { useTabPanelMotion } from '../hooks/useTabPanelMotion';
 import { ToolbarLabel } from './CompactToolbar';
 import { observeCompactToolbar } from './CompactToolbar.shared';
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { OverlayLayer } from './OverlayLayer';
 import { ChevronLeft, ChevronRight, Copy, Store, RefreshCw, X } from 'lucide-react';
 import type { MarketPackFeeType } from '@weq/service';
@@ -68,7 +69,7 @@ export function MarketFaceLightbox(): ReactElement | null {
   const account = useViewState((s) => s.openedUin);
   /** 单张详情的 hash；空串 = 停在网格。 */
   const [detailHash, setDetailHash] = useState('');
-  const detailRef = useRef<HTMLDivElement>(null);
+  const { panel: detailRef } = useTabPanelMotion(detailHash ? 'detail' : 'pack');
   useSurfaceEscapeDismissal(detailRef, () => setDetailHash(''), Boolean(packId && detailHash));
 
   useEffect(() => {
@@ -82,6 +83,7 @@ export function MarketFaceLightbox(): ReactElement | null {
   return (
     <RenderDocumentContext.Provider value={anchor?.ownerDocument ?? document}>
       <OverlayLayer
+        fade
         presentation="popover"
         anchor={anchor}
         anchorPlacement="side"

@@ -47,6 +47,40 @@ function server() {
   return response;
 }
 describe('独立客户端的偏好同步', () => {
+  it('菜单偏好重启、跨端与切号后保留，保存失败可重试', async () => {
+    const response = server();
+    const storage = new Storage();
+    const desktop = await page(storage, 'desktop');
+    await desktop.initializePreferences();
+    await desktop.changePreference('forwardOptions', {
+      ...desktop.preferenceValue('forwardOptions'),
+      mode: 'original',
+      maxAttempts: 4,
+    });
+    await desktop.changePreference('ttsVoices', { a: 'warm', b: 'clear' });
+    await desktop.changePreference('emojiPanelTab', 'fav');
+    await desktop.changePreference('mailExportFormat', 'jsonl.gz');
+    const reopened = await page(storage, 'desktop');
+    expect(reopened.preferenceValue('emojiPanelTab')).toBe('fav');
+    await reopened.initializePreferences();
+    const mobile = await page(new Storage(), 'web');
+    await mobile.initializePreferences();
+    mobile.bindAccountState({ expectedAccountUin: '20002', expectedAccountConfigId: 'other' });
+    expect(mobile.preferenceValue('forwardOptions')).toMatchObject({
+      mode: 'original',
+      maxAttempts: 4,
+    });
+    expect(mobile.preferenceValue('ttsVoices')).toEqual({ a: 'warm', b: 'clear' });
+    expect(mobile.preferenceValue('mailExportFormat')).toBe('jsonl.gz');
+    rpc.patch.mockRejectedValueOnce(new Error('synthetic offline'));
+    expect(await mobile.changePreference('exportIntegrityReport', true)).toBe(false);
+    expect(mobile.preferenceValue('exportIntegrityReport')).toBe(true);
+    expect(mobile.useClientPreferences.getState().error).toContain('synthetic offline');
+    mobile.retryPreferences();
+    await mobile.settlePreferenceWrites();
+    reopened.acceptPreferences(response());
+    expect(reopened.preferenceValue('exportIntegrityReport')).toBe(true);
+  });
   it('迁移旧手动续读开关，合并时不覆盖分开配置', async () => {
     server();
     const remote = await page(new Storage(), 'web');

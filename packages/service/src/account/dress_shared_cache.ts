@@ -336,7 +336,7 @@ export class DressSharedCache {
     if (cached) return cached;
 
     const urls = await this.resolveBubbleZipUrls(itemId);
-    if (!urls) return null;
+    if (!urls || !scopedNetworkAllowed('dress')) return null;
 
     const skin = await this.installBubbleFromUrls(itemId, urls);
     if (skin) await this.cacheMessageBubble(itemId);
@@ -813,6 +813,7 @@ export class DressSharedCache {
     for (const part of ['main', 'fzfont']) {
       const local = await this.resourceUrl('font', itemId, part);
       if (!local) continue;
+      if (!scopedNetworkAllowed('dress')) break;
       try {
         return await this.installFontFromZip(itemId, local.url);
       } catch (e) {
@@ -921,6 +922,7 @@ export class DressSharedCache {
       const local = await this.resourceUrl('widget', itemId, 'other.zip');
       if (local) {
         const xydata = await this.resourceUrl('widget', itemId, 'xydata.js');
+        if (!scopedNetworkAllowed('dress')) return null;
         const installed = await this.installPendantFrames(itemId, local.url, xydata?.url);
         if (installed) return installed;
         this.logger.warn('local pendant bundle install failed, fall back to protocol', {
@@ -1163,8 +1165,18 @@ export class DressSharedCache {
   async bubbleConfigFile(itemId: number, localOnly = false): Promise<Buffer | null> {
     const cached = join(this.bubblesDir, `${itemId}-config.json`);
     if (existsSync(cached)) return readFileSync(cached);
-    if (localOnly || !scopedNetworkAllowed('dress')) return null;
+    const zip = join(this.bubblesDir, `${itemId}-other.zip`);
+    try {
+      if (statSync(zip).size <= MAX_CACHED_BUBBLE_ARCHIVE_BYTES) {
+        const config = bubbleConfigBytesFromZip(readFileSync(zip));
+        if (config) return config;
+      }
+    } catch {
+      // 没有可用的本地原包，继续定位素材。
+    }
+    if (localOnly) return null;
     const local = await this.resourceUrl('bubble', itemId, 'config.json');
+    if (!scopedNetworkAllowed('dress')) return null;
     let url = local?.url ?? null;
     if (!url) {
       try {
@@ -1198,9 +1210,10 @@ export class DressSharedCache {
   async pendantStaticFile(itemId: number, localOnly = false): Promise<string | null> {
     const dest = join(this.pendantsDir, `${itemId}-static.png`);
     if (existsSync(dest)) return dest;
-    if (localOnly || !scopedNetworkAllowed('dress')) return null;
+    if (localOnly) return null;
 
     const local = await this.resourceUrl('widget', itemId, 'aio_50.png');
+    if (!scopedNetworkAllowed('dress')) return null;
     let url = local?.url ?? null;
     if (!url) {
       try {
@@ -1311,9 +1324,12 @@ function parseBubbleConfig(text: string | null) {
   }
 }
 
+function bubbleConfigBytesFromZip(zip: Buffer) {
+  return extractFromZip(zip, (name) => name === 'config.json', MAX_BUBBLE_CONFIG_BYTES);
+}
+
 function bubbleConfigFromZip(zip: Buffer) {
-  const config = extractFromZip(zip, (name) => name === 'config.json', MAX_BUBBLE_CONFIG_BYTES);
-  return parseBubbleConfig(config?.toString('utf8') ?? null);
+  return parseBubbleConfig(bubbleConfigBytesFromZip(zip)?.toString('utf8') ?? null);
 }
 
 function refreshBubbleSidecar(

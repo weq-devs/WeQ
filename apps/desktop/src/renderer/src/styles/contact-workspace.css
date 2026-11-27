@@ -185,6 +185,14 @@
   object-fit: contain;
 }
 
+.weq-contact-dress-assets [aria-busy='true'] .weq-media-load-hint {
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: var(--weq-bg-surface);
+}
+
 .weq-profile-field-history {
   display: inline-flex;
   flex: 0 0 20px;

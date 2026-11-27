@@ -195,7 +195,11 @@ export function ContactActions({
         {primary ? (
           <button
             type="button"
-            className="weq-contact-secondary"
+            className={
+              person.clone || exists
+                ? 'weq-contact-secondary weq-set-btn-primary'
+                : 'weq-contact-secondary'
+            }
             onClick={() =>
               navigate(() => {
                 if (onOpenChat) onOpenChat();

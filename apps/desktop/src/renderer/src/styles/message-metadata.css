@@ -29,6 +29,42 @@ html[data-theme='dark'] .weq-message-heading > .weq-message-provenance {
   color: var(--weq-fg-secondary);
 }
 
+:is(.weq-message-provenance, .message-menu-v2 .message-menu-metadata) button.weq-message-seq-copy {
+  display: inline;
+  width: auto;
+  max-width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  user-select: text;
+}
+
+:is(.weq-message-provenance, .message-menu-v2 .message-menu-metadata)
+  button.weq-message-seq-copy:hover {
+  color: var(--weq-accent-effective);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+:is(.weq-message-provenance, .message-menu-v2 .message-menu-metadata)
+  button.weq-message-seq-copy:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-message-seq-copy > .weq-copy-feedback {
+  inset: auto 0 100% auto;
+  white-space: nowrap;
+}
+
 .weq-system-message-row,
 .weq-graytip-band.weq-system-message-row {
   display: flex;

@@ -4,8 +4,8 @@
  * 独立系统窗口，跟着通话状态走：呼叫中 → 振铃 → 接通 → 挂断。
  * 只在**主动发起**时出现 —— 来电由 QQ 本体处理，WeQ 收不到那条推送。
  *
- * 这个文件只负责**窗口生命周期与编排**（订阅、开关窗、挂断收尾）。界面拆到了
- * `components/call/`：
+ * 窗口开关与挂断收尾由 CallWindowHost 管理。这里编排界面和媒体，使用
+ * `components/call/` 的通话组件：
  *
  *   CallStage          背景 / 光环 / 头像 / 名字 / 状态 / 波形（形状按多人通话定）
  *   CallControls       底部操作栏（`extra` 插槽留给未来的摄像头 / 屏幕共享）
@@ -15,13 +15,13 @@
  * 音频链路在 `hooks/useCallAudio.ts`，录音控制在 `hooks/useCallRecorder.ts`。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CallVideoEncoding } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { resourceUrl } from '../lib/resourceUrl';
 import { requestOpenSettings } from '../lib/callSettingsBridge';
-import { prefersInlineToolWindow, useToolWindow } from '../hooks/useCompositionWindow';
+import { prefersInlineToolWindow } from '../hooks/useCompositionWindow';
 import { Modal } from './Dialog';
 import { useCallAudio } from '../hooks/useCallAudio';
 import { nextRotation } from '../lib/callVideo';
@@ -32,9 +32,12 @@ import { useCallScreen } from '../hooks/useCallScreen';
 import { useCallRecorder } from '../hooks/useCallRecorder';
 import { RenderDocumentContext } from '../lib/renderDocument';
 import { HoverTooltip } from './HoverTooltip';
-import { useToastApi } from './Toast.shared';
-import { notificationSource } from '../lib/notificationNavigation.shared';
 import { useAppLock } from '../state/lock';
+import {
+  CallWindowHost,
+  type CallWindowContentProps,
+  type CallWindowProps,
+} from './call/CallWindowHost';
 import { CallStage, type CallPeer, type CallState } from './call/CallStage';
 import { CallControls } from './call/CallControls';
 import { CallRecorderBar, CallRecordingCard } from './call/CallRecorderBar';
@@ -65,6 +68,7 @@ export interface CallInfo {
   durationSec: number;
   /** 本端摄像头是否开着。 */
   videoSending: boolean;
+  videoCaptureId?: string;
   /** 对端是否在发视频。 */
   videoReceiving: boolean;
   receivedVideoFrames: number;
@@ -154,26 +158,19 @@ function endText(reason: string | null): string {
  * 之后再留 1.6 秒给用户看结果，然后自己关掉 —— **但录过音时不自动关**，
  * 录音卡片要留给用户播放 / 打开目录。
  */
-export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: () => void }) {
-  const notificationWindow = useRef<Window | null>(null);
-  const notificationOrigin = useMemo(
-    () =>
-      notificationSource(
-        {
-          kind: 'local',
-          open: () => {
-            const popup = notificationWindow.current;
-            if (popup && !popup.closed) popup.focus();
-            else requestOpenSettings('callRecording');
-          },
-        },
-        '返回通话或录音设置',
-      ),
-    [],
-  );
-  const notificationToast = useToastApi(notificationOrigin);
+export function CallWindow(props: CallWindowProps) {
+  return <CallWindowHost {...props} Content={CallWindowContent} />;
+}
+
+export function CallWindowContent({
+  info,
+  tool,
+  requestHangup,
+  closeWindow,
+  hangupPending,
+  notificationToast,
+}: CallWindowContentProps) {
   const locked = useAppLock((state) => state.locked);
-  const [info, setInfo] = useState<CallInfo>(initial);
   const [muted, setMuted] = useState(false);
   const [speakerOff, setSpeakerOff] = useState(false);
   const [backdropFailed, setBackdropFailed] = useState(false);
@@ -212,11 +209,17 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
    */
   const screenSharing = info.videoSource === 'screen';
   const capturing = live && info.videoSending;
+  const stopFailedCapture = useRef<(() => void) | null>(null);
   // 摄像头：共享时不采集（否则摄像头指示灯会亮着、白占一路解码）。
-  const camera = useCallCamera({ enabled: capturing && !screenSharing });
+  const camera = useCallCamera({
+    enabled: capturing && !screenSharing,
+    captureId: info.videoCaptureId ?? '',
+    profile: screenProfile(info.videoProfile),
+  });
   // 屏幕共享：档位以主进程实际生效的为准（它可能因源宽高比而微调）。
   const screen = useCallScreen({
     enabled: capturing && screenSharing,
+    captureId: info.videoCaptureId ?? '',
     profile: screenProfile(info.videoProfile),
     onEnded: () => {
       // 用户在系统共享栏点了「停止共享」：轨道自己结束了，把状态切回摄像头。
@@ -234,7 +237,8 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
       message: screenSharing ? '无法共享屏幕' : '无法打开摄像头',
       detail: capture.error,
     });
-  }, [capture.error, screenSharing, notificationToast]);
+    if (!capture.active) stopFailedCapture.current?.();
+  }, [capture.active, capture.error, screenSharing, notificationToast]);
 
   const settings = useCallRecordingSettings();
   const recorder = useCallRecorder({
@@ -252,77 +256,6 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     speakerOff,
     keepMicForRecording: Boolean(recorder.recording?.active),
   });
-
-  const hangup = trpc.call.hangup.useMutation({
-    onError: () => {
-      hangupRequested.current = false;
-    },
-  });
-  /**
-   * 语音是竖屏（400×620，留给大头像与波形），视频是横屏（16:9 的画面）。
-   *
-   * 窗口尺寸只在 `open()` 时定，所以这里在布局切换时自己 `resizeTo` ——
-   * 保持左上角不动、按比例换宽高，用户手动改过的尺寸会被这一次切换覆盖，
-   * 但之后不再干预（只在 `videoLayout` 真变化时跑）。
-   */
-  const tool = useToolWindow({
-    name: 'weq-call',
-    title: 'WeQ · 语音通话',
-    width: 400,
-    height: 620,
-    bodyClass: 'weq-call-window-body',
-  });
-  useEffect(() => {
-    notificationWindow.current = tool.popup;
-    return () => {
-      notificationWindow.current = null;
-    };
-  }, [tool.popup]);
-  const finishedRef = useRef(finished);
-  finishedRef.current = finished;
-  const hangupRef = useRef(hangup.mutate);
-  hangupRef.current = hangup.mutate;
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const hangupRequested = useRef(false);
-  const closeRequested = useRef(false);
-  const requestHangup = useCallback(() => {
-    if (finishedRef.current || hangupRequested.current) return;
-    hangupRequested.current = true;
-    hangupRef.current();
-  }, []);
-  const closeWindow = useCallback(() => {
-    if (closeRequested.current) return;
-    closeRequested.current = true;
-    tool.close();
-    onCloseRef.current();
-  }, [tool.close]);
-  const lifecycle = useRef(0);
-  useEffect(() => {
-    const generation = ++lifecycle.current;
-    const popup = tool.open();
-    if (!popup && !prefersInlineToolWindow()) {
-      requestHangup();
-      notificationToast.push({
-        tone: 'error',
-        message: '无法打开通话窗口',
-        detail: '已结束本次呼叫，请允许弹出窗口后重试。',
-      });
-      onCloseRef.current();
-    }
-    const timer = window.setInterval(() => {
-      if (!popup?.closed) return;
-      requestHangup();
-      closeWindow();
-    }, 200);
-    return () => {
-      window.clearInterval(timer);
-      // StrictMode 会立即重挂载；只为真正卸载（切号／退出主界面）挂断。
-      queueMicrotask(() => {
-        if (lifecycle.current === generation) requestHangup();
-      });
-    };
-  }, [tool.open, requestHangup, closeWindow, notificationToast]);
 
   /**
    * 布局切换时换窗口尺寸。
@@ -342,15 +275,6 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
       // 某些窗口管理器会拒绝 resizeTo，退化成让 CSS 自己适配即可。
     }
   }, [tool.popup, videoLayout]);
-
-  // ── 状态订阅 ──
-  trpc.call.onCallState.useSubscription(undefined, {
-    onData: (next) => {
-      const call = next as CallInfo;
-      if (call?.state) setInfo((prev) => ({ ...prev, ...call }));
-    },
-    onError: (error) => console.error('[call] state subscription error', error),
-  });
 
   // 主进程侧的非致命错误（目前只有「电脑声音采集失败」）。用 toast 而不是塞进
   // 状态行：通话本身没问题，不该让状态文字变成报错。
@@ -400,7 +324,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   /**
    * 摄像头开关。
    *
-   * 主进程只发控制信令并切发送状态；画面由渲染层的采集管线推过去。
+   * 主进程准备好编码器后开启发送，渲染层再开始采集画面。
    *
    * ⚠️ 共享屏幕时这个键**只切回摄像头、不关视频** —— 按钮提示写的是「关闭共享
    * （回到摄像头）」，用户点它期待的是切回摄像头继续通话，而不是画面整个没了。
@@ -410,6 +334,10 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   const switchSourceRef = useRef<((source: 'camera' | 'screen') => Promise<void>) | null>(null);
 
   const setCamera = trpc.call.setCamera.useMutation();
+  stopFailedCapture.current = () => {
+    if (screenSharing) void switchSourceRef.current?.('camera');
+    else setCamera.mutate({ enabled: false });
+  };
   const cameraPending = useRef(false);
   const handleToggleCamera = useCallback(() => {
     if (cameraPending.current) return;
@@ -420,18 +348,28 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     }
     cameraPending.current = true;
     const next = !info.videoSending;
-    setCamera.mutate({ enabled: next }, { onSettled: () => (cameraPending.current = false) });
-  }, [info.videoSending, screenSharing, setCamera]);
+    setCamera.mutate(
+      { enabled: next },
+      {
+        onError: (error) => {
+          notificationToast.push({
+            tone: 'warning',
+            message: '无法打开摄像头',
+            detail: error.message,
+          });
+        },
+        onSettled: () => (cameraPending.current = false),
+      },
+    );
+  }, [info.videoSending, screenSharing, setCamera, notificationToast]);
 
   /**
    * 屏幕共享开关（与摄像头互斥的切换式）。
    *
    * 流程：切主进程采集源（重开编码器、换档位）→ 渲染层按新档位重新采集。
-   * 目标分辨率跟着源宽高比走，采集拿到真实尺寸后再回头让主进程对齐编码器
-   * （见 `useVideoCapture` 的尺寸推导与 `resizeVideo`）。
+   * 采集端按来源的宽高比确定编码尺寸。
    */
   const setVideoSource = trpc.call.setVideoSource.useMutation();
-  const resizeVideo = trpc.call.resizeVideo.useMutation();
   const sourcePending = useRef(false);
   const [sourceBusy, setSourceBusy] = useState(false);
 
@@ -473,24 +411,6 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   const handleToggleScreenShare = useCallback(() => {
     void switchSource(screenSharing ? 'camera' : 'screen');
   }, [screenSharing, switchSource]);
-
-  /**
-   * 采集尺寸与编码器对齐。
-   *
-   * 共享超宽屏 / 4:3 屏时，渲染层会按源比例推出一个非 16:9 的尺寸；编码器必须
-   * 跟着改，否则 `pushFrame` 的平面长度校验不通过、帧会被静默丢掉（表现就是
-   * 「点了共享，对方什么都看不到」）。
-   */
-  useEffect(() => {
-    if (!capture.active || capture.width <= 0 || capture.height <= 0) return;
-    if (
-      capture.width === info.videoProfile?.width &&
-      capture.height === info.videoProfile?.height
-    ) {
-      return;
-    }
-    resizeVideo.mutate({ width: capture.width, height: capture.height });
-  }, [capture.active, capture.width, capture.height, info.videoProfile, resizeVideo]);
 
   /** 打开设置页的「通话与录音」。通话窗口不关，用户回来还能继续。 */
   const openSettings = useCallback(() => {
@@ -584,7 +504,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
             recording={Boolean(recorder.recording?.active)}
             recordingEnabled={live && !recorder.busy}
             finished={finished}
-            hangupPending={hangup.isPending}
+            hangupPending={hangupPending}
             onToggleMute={() => setMuted((value) => !value)}
             onToggleSpeaker={() => setSpeakerOff((value) => !value)}
             onToggleCamera={handleToggleCamera}

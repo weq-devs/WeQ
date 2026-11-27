@@ -249,6 +249,34 @@ button.weq-record-media-thumbnail {
   object-fit: contain;
 }
 
+.weq-record-media-grid.is-emoji .weq-record-media-thumbnail.is-native {
+  display: block;
+}
+
+/* 用方格尺寸约束各层，避免表情按聊天气泡的高度撑开并被裁切。 */
+.weq-record-media-grid.is-emoji
+:is(.message-content, .qq-media-image-preview-wrap, .qq-media-wrap-emoji) {
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+.weq-record-media-grid.is-emoji .qq-media-missing {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.weq-record-media-grid.is-emoji .qq-media-action:focus-visible {
+  outline-offset: -2px;
+}
+
+.weq-record-media-grid.is-emoji .qq-mface-badge {
+  right: 2px;
+  bottom: 2px;
+}
+
 .weq-record-media-play {
   position: absolute;
   inset: auto 8px 8px auto;

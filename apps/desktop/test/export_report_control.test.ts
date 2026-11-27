@@ -3,9 +3,27 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { useExportReportDialog } from '../src/renderer/src/views/export/ExportReportControl.shared';
 
+const preferences = vi.hoisted(() => ({ revision: 0, values: {} as Record<string, unknown> }));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: {
+    clientState: {
+      patch: {
+        mutate: async (patch: Record<string, unknown>) => {
+          preferences.values = { ...preferences.values, ...patch };
+          return {
+            epoch: 'report-test',
+            revision: ++preferences.revision,
+            values: preferences.values,
+            records: {},
+          };
+        },
+      },
+    },
+  },
+}));
 afterEach(() => vi.unstubAllGlobals());
 
-it('统一批量导出弹窗默认关闭报告，确认传递选择，取消与卸载结算等待', async () => {
+it('统一批量导出弹窗保留报告选择，取消与卸载结算等待', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -46,7 +64,7 @@ it('统一批量导出弹窗默认关闭报告，确认传递选择，取消与�
     await click('开始导出');
     expect(results).toEqual([false, true]);
     await click('批量导出');
-    expect(document.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false');
+    expect(document.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('true');
     await click('取消');
     expect(results).toEqual([false, true, null]);
     await click('批量导出');

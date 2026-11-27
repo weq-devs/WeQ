@@ -141,6 +141,11 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
   padding: 0;
 }
 
+.weq-task-quick-actions > .weq-task-quick-labeled {
+  width: auto;
+  padding-inline: 8px;
+}
+
 .weq-task-quick-actions > button:focus-visible,
 .weq-task-detail-actions > .weq-set-btn:focus-visible {
   outline: 2px solid var(--weq-accent-effective);

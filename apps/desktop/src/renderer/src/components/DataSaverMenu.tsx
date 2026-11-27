@@ -21,8 +21,9 @@ import {
   useDataSaver,
 } from '../lib/dataSaver';
 import { requestOpenSettings } from '../lib/callSettingsBridge';
-import { useOverlayLayer } from '../lib/overlayStack';
+import { OVERLAY_BASE_LAYER, useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
+import { useExitMotion } from '../hooks/useExitMotion';
 import { SegmentedControl } from './SegmentedControl';
 import { Toggle } from './settings/controls';
 import '../styles/data-saver-menu.css';
@@ -53,12 +54,15 @@ export function DataSaverMenu() {
   const pending = useRef(false);
   const titleId = useId();
   const layer = useOverlayLayer(open);
+  const present = useExitMotion(panel, open);
   const visible = enabled || Boolean(status?.temporary);
-  const close = useCallback(() => {
-    setOpen(false);
+  const close = useCallback(() => setOpen(false), []);
+  const showMenu = useCallback(() => {
+    if (open) return;
     setTarget(null);
     setError('');
-  }, []);
+    setOpen(true);
+  }, [open]);
   useSurfaceEscapeDismissal(panel, close, open);
   useEffect(() => {
     mounted.current = true;
@@ -75,12 +79,12 @@ export function DataSaverMenu() {
         getComputedStyle(parent).visibility !== 'hidden'
       ) {
         event.preventDefault();
-        setOpen(true);
+        showMenu();
       }
     };
     window.addEventListener(DATA_SAVER_MENU_EVENT, show);
     return () => window.removeEventListener(DATA_SAVER_MENU_EVENT, show);
-  }, []);
+  }, [showMenu]);
   useEffect(() => {
     if (!open) return;
     void refreshDataSaverStatus().catch((value) => {
@@ -160,11 +164,11 @@ export function DataSaverMenu() {
         aria-label="省流量菜单"
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => (open ? close() : setOpen(true))}
+        onClick={open ? close : showMenu}
       >
         <CloudDownload size={15} aria-hidden />
       </button>
-      {open
+      {present
         ? createPortal(
             <section
               ref={panel}
@@ -172,7 +176,11 @@ export function DataSaverMenu() {
               role="dialog"
               aria-modal="false"
               aria-labelledby={titleId}
-              style={{ ...position, zIndex: layer }}
+              aria-hidden={!open || undefined}
+              inert={!open}
+              data-weq-surface-motion="fade"
+              data-closing={!open || undefined}
+              style={{ ...position, zIndex: open ? layer : OVERLAY_BASE_LAYER }}
             >
               <header>
                 <h2 id={titleId}>

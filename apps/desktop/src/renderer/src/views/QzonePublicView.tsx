@@ -66,6 +66,7 @@ import {
 import { QzoneAutoPage, QzonePageButton } from './QzonePagination';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
 import { QzonePageContext } from './qzoneShared.shared';
+import { useQzoneRefreshRequest } from './qzoneRefresh';
 import '../styles/qzone-public.css';
 import '../styles/qzone.css';
 
@@ -319,6 +320,7 @@ function QzonePublicContent({
   /** 连续几次没拿到新内容就停，避免上游原地打转时无限续页。 */
   const stalledPages = useRef(snapshot?.stalledPages ?? 0);
   const available = capabilities?.available;
+  const refreshRequest = useQzoneRefreshRequest(active && available === true);
   useEffect(() => {
     // 先确认入口：没有爱看入口的账号连推荐流都不该发。
     if (!active) {
@@ -331,7 +333,8 @@ function QzonePublicContent({
       setDone(true);
       return undefined;
     }
-    const refreshed = lastRefresh.current !== refresh;
+    const manual = refreshRequest?.pending ? refreshRequest : null;
+    const refreshed = !manual && lastRefresh.current !== refresh;
     if (refreshed) {
       lastRefresh.current = refresh;
       const age = headLoadedAt.current === null ? null : Date.now() - headLoadedAt.current;
@@ -344,35 +347,56 @@ function QzonePublicContent({
       seenCursors.current.clear();
       stalledPages.current = 0;
     }
-    const pageCursor = cursorRequest.current;
+    const pageCursor = manual ? null : cursorRequest.current;
     // 同一个游标已经发过就别再发一遍（重复渲染 / 依赖抖动都会走到这里）。
-    if (pageCursor === requestedCursor.current) return undefined;
-    requestedCursor.current = pageCursor;
+    if (!manual && pageCursor === requestedCursor.current) return undefined;
+    if (!manual) requestedCursor.current = pageCursor;
     const head = pageCursor === null;
     let live = true;
     let completed = false;
     setError('');
     setLoading(true);
     void feedRequests
-      .run((requestId) =>
-        client.account.qzonePublic.feeds.query({
-          selfUin,
-          requestId,
-          ...(pageCursor === null ? {} : { cursor: pageCursor }),
-        }),
+      .run(
+        (requestId) =>
+          client.account.qzonePublic.feeds.query({
+            selfUin,
+            requestId,
+            ...(pageCursor === null ? {} : { cursor: pageCursor }),
+          }),
+        false,
+        manual?.signal,
       )
       .then((page) => {
         if (!live) return;
         const views = page.feeds
           .map((feed, index) => projectPublicFeed(feed, index))
           .filter((view): view is PublicFeedView => Boolean(view));
-        if (head) seenFeedKeys.current.clear();
+        const hasNew =
+          !!manual &&
+          views.some((view) => !view.advertisement && !seenFeedKeys.current.has(view.key));
+        if (manual && !hasNew && headLoadedAt.current !== null) {
+          manual.resolve(false);
+          return;
+        }
+        if (manual) {
+          cursorRequest.current = null;
+          requestedCursor.current = null;
+          seenCursors.current.clear();
+        }
+        if (head && !manual) seenFeedKeys.current.clear();
         const previousSize = seenFeedKeys.current.size;
         for (const view of views) seenFeedKeys.current.add(view.key);
         const added = seenFeedKeys.current.size - previousSize;
         if (head) {
           headLoadedAt.current = Date.now();
-          setFeeds(views);
+          if (manual) {
+            const ids = new Set(views.map(({ key }) => key));
+            setFeeds((current) => [
+              ...views,
+              ...(current ?? []).filter(({ key }) => !ids.has(key)),
+            ]);
+          } else setFeeds(views);
         } else {
           setFeeds((current) => {
             const merged = new Map((current ?? []).map((item) => [item.key, item]));
@@ -385,6 +409,7 @@ function QzonePublicContent({
             ? page.next_cursor
             : null;
         stalledPages.current = added === 0 && !head ? stalledPages.current + 1 : 0;
+        manual?.resolve(hasNew);
         // 上游原地打转（游标重复 / 连续空页）时就此停住。
         if (!continuation || stalledPages.current >= 3) {
           nextCursor.current = null;
@@ -401,7 +426,9 @@ function QzonePublicContent({
         setDone(false);
       })
       .catch((reason: unknown) => {
-        if (live) setError(errorText(reason));
+        if (!live) return;
+        if (manual) manual.reject(reason);
+        else setError(errorText(reason));
       })
       .finally(() => {
         completed = true;
@@ -409,10 +436,19 @@ function QzonePublicContent({
       });
     return () => {
       live = false;
-      if (!completed) requestedCursor.current = undefined;
+      if (!completed && !manual) requestedCursor.current = undefined;
       feedRequests.cancel();
     };
-  }, [active, selfUin, refresh, pageRequest, available, cooldownMinutes, feedRequests]);
+  }, [
+    active,
+    selfUin,
+    refresh,
+    refreshRequest,
+    pageRequest,
+    available,
+    cooldownMinutes,
+    feedRequests,
+  ]);
 
   useEffect(() => {
     if (feeds === null || headLoadedAt.current === null) return;

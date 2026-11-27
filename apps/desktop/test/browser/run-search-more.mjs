@@ -115,7 +115,17 @@ try {
       assert.equal(await page.locator('.weq-search-more-body [role="option"]').count(), 60);
       await page.getByRole('button', { name: '返回搜索总览' }).click();
       assert.equal(await page.locator('.weq-search-more-body').count(), 0);
-      await page.locator('[data-search-category="chatRecord"]').first().click();
+      const record = page.locator('[data-search-category="chatRecord"]').first();
+      await record.focus();
+      await page.keyboard.press('Enter');
+      await page.locator('.weq-chatrecords-msg').first().waitFor();
+      const detailBack = page.getByRole('button', { name: '返回搜索结果' });
+      assert.equal(await detailBack.evaluate((button) => button === document.activeElement), true);
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() =>
+        document.activeElement?.matches('[data-search-category="chatRecord"]'),
+      );
+      await page.keyboard.press('Enter');
       await page.locator('.weq-chatrecords-msg').first().waitFor();
       assert.equal(await page.getByRole('dialog').count(), 0);
       assert.equal(await page.locator('.weq-chatrecords-convs').count(), 0);
@@ -125,13 +135,6 @@ try {
         .evaluate((node) => node.scrollWidth > node.clientWidth + 1);
       assert.equal(detailOverflow, false, `${width}-${theme} detail overflow`);
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}-records.png`) });
-      await page.getByRole('button', { name: '跳转日期', exact: true }).click();
-      await page.getByRole('heading', { name: '聊天日历' }).waitFor();
-      assert.equal(await page.getByRole('dialog').count(), 0);
-      await page
-        .locator('.weq-message-calendar')
-        .getByRole('button', { name: '关闭', exact: true })
-        .click();
       await page.getByRole('button', { name: '返回搜索结果' }).click();
       const bulletin = page
         .locator('[data-search-category="chatRecord"]')
@@ -164,6 +167,11 @@ try {
     await page.getByRole('option', { name: /小林/ }).click();
     await filters.getByRole('button', { name: '起始日期', exact: true }).click();
     const calendar = page.getByRole('dialog', { name: '起始日期' });
+    await calendar.waitFor();
+    await page.keyboard.press('Escape');
+    await calendar.waitFor({ state: 'hidden' });
+    assert.equal(await filters.count(), 1);
+    await filters.getByRole('button', { name: '起始日期', exact: true }).click();
     await calendar.getByRole('textbox', { name: /输入日期/ }).fill('2026-10-01');
     if (output && width === 390)
       await page.screenshot({ path: resolve(output, `${width}-${theme}-qq-message-calendar.png`) });

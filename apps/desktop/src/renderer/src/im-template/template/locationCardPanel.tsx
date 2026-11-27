@@ -16,7 +16,8 @@
  * `.link-card-*`，见 styles/ark-panel.css），两者看起来就是同一个抽屉。
  */
 
-import { useState } from 'react';
+import { useSurfaceRemovalFade } from '../../hooks/useSurfaceRemovalFade';
+import { useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { Loader2, MapPin, RotateCcw, SendHorizontal, X } from 'lucide-react';
 import { cn } from './classNames';
@@ -76,6 +77,8 @@ export function LocationCardPanel({
   onSend: (payload: LocationCardPayload) => Promise<void>;
   onClose: () => void;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  useSurfaceRemovalFade(rootRef);
   const [draft, setDraft] = useState<ArkLocationDraft>(emptyLocationDraft);
   const [touched, setTouched] = useState(false);
   const [sending, setSending] = useState(false);
@@ -122,7 +125,10 @@ export function LocationCardPanel({
   return (
     <div
       className={cn('ark-panel', 'location-card-panel')}
-      ref={panelRef}
+      ref={(node) => {
+        rootRef.current = node;
+        if (panelRef) panelRef.current = node;
+      }}
       role="dialog"
       aria-label="发送位置"
       onKeyDown={(event) => {

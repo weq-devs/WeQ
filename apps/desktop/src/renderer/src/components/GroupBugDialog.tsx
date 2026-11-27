@@ -34,6 +34,7 @@ import { IconPicker } from './ui/iconPicker';
 import { shikiCodeHighlighter } from '../views/agentlab/shikiHighlighter';
 import { useThemeStore } from '../state/theme';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
+import { useTabPanelMotion } from '../hooks/useTabPanelMotion';
 import { readWithRetry } from '../lib/autoRead';
 import bugBanner from '@resources/brand/bug_banner.png';
 import bugBannerDark from '@resources/brand/bug_banner_2.png';
@@ -87,6 +88,7 @@ export function GroupBugDialog({
 
   /** 路径选择：新 bug / 已有 issue·PR。 */
   const [mode, setMode] = useState<'new' | 'existing'>('new');
+  const { panel: tabPanel } = useTabPanelMotion(mode);
 
   // ── 路径 1：新 bug ─────────────────────────────────────────────
   const [title, setTitle] = useState('');
@@ -292,7 +294,7 @@ export function GroupBugDialog({
         </div>
 
         {mode === 'new' ? (
-          <div className="weq-group-bug-body">
+          <div ref={tabPanel} className="weq-group-bug-body">
             <div className="weq-group-bug-title-row">
               <input
                 className="weq-group-bug-title"
@@ -375,7 +377,7 @@ export function GroupBugDialog({
             </div>
           </div>
         ) : (
-          <div className="weq-group-bug-body">
+          <div ref={tabPanel} className="weq-group-bug-body">
             {/* 选择器 / 手动输入 */}
             <div className="weq-group-bug-issues">
               <div className="weq-group-bug-issues-head">

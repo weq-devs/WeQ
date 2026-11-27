@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import { withBrowserFile } from '../src/renderer/src/lib/browserFileUpload';
 import { BROWSER_FILE_CHUNK_BYTES } from '../src/shared/browser_file_upload';
@@ -60,6 +61,49 @@ it('分段失败或真实发送结果未知均不自动重试，清理异常不�
     withBrowserFile(bad.api, binding, new Uint8Array([1]), () => true, send),
   ).rejects.toThrow('断线');
   expect(send).toHaveBeenCalledOnce();
+});
+it('QQ 拒绝发送后由用户重试时从已完成的宿主暂存提交', async () => {
+  const entries = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => entries.get(key) ?? null,
+    setItem: (key: string, value: string) => entries.set(key, value),
+    removeItem: (key: string) => entries.delete(key),
+  });
+  const { api } = fixture();
+  const id = 'a4d80ee2-4c8c-4368-95b3-990627fa0165';
+  api.browserFileStart.mutate.mockResolvedValueOnce({ id });
+  const bytes = new Uint8Array([9, 8, 7]);
+  const resume = vi.fn(async () => ({
+    id,
+    size: bytes.length,
+    offset: bytes.length,
+    prefixHash: createHash('sha256').update(bytes).digest('hex'),
+  }));
+  const send = vi.fn(async (_id: string) => ({ ok: false }));
+  const services = { ...api, browserFileResume: { mutate: resume } };
+  const submit = () =>
+    withBrowserFile(
+      services,
+      binding,
+      bytes,
+      () => true,
+      send,
+      undefined,
+      'retry-fixture',
+      (r) => !r.ok,
+    );
+  try {
+    expect(await submit()).toEqual({ ok: false });
+    expect(api.browserFileDiscard.mutate).not.toHaveBeenCalled();
+    send.mockResolvedValueOnce({ ok: true });
+    expect(await submit()).toEqual({ ok: true });
+    expect(api.browserFileStart.mutate).toHaveBeenCalledOnce();
+    expect(api.browserFileChunk.mutate).toHaveBeenCalledOnce();
+    expect(send.mock.calls).toEqual([[id], [id]]);
+    expect(api.browserFileDiscard.mutate).toHaveBeenCalledOnce();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 it('回执偏移错误或空文件不进入发送', async () => {
   const { api } = fixture();

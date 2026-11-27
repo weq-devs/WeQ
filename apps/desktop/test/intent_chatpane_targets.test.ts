@@ -6,7 +6,6 @@ import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { ToastHost } from '../src/renderer/src/components/Toast';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
-import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 
 const fixture = vi.hoisted(() => ({
   provider: {} as {
@@ -198,7 +197,7 @@ it.each([
   { results: ['empty', 'error'], tone: 'error', counts: '成功 0 条，失败 2 条' },
   { results: ['success', 'error'], tone: 'warning', counts: '成功 1 条，失败 1 条' },
   { results: ['success', 'media'], tone: 'success', counts: '成功 1 条，失败 0 条，跳过 1 条' },
-  { results: ['media', 'media'], tone: 'info', counts: '成功 0 条，失败 0 条，跳过 2 条' },
+  { results: ['media', 'media'], tone: null, counts: '' },
   { results: ['success'], cached: ['1'], tone: null, counts: '' },
   {
     results: ['success', 'success'],
@@ -227,7 +226,6 @@ it.each([
     vi.stubGlobal('localStorage', new Storage());
     fixture.enabled = true;
     fixture.list.mockResolvedValue(cached.map((msgId) => ({ msgId })));
-    const ask = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(confirm ?? false);
     const demo = createTemplateDemoData();
     const conversation = demo.conversations.find((row) => row.type === 'direct')!;
     const messages = results.map((result, index) => ({
@@ -292,6 +290,36 @@ it.each([
         await act(async () =>
           host.querySelector<HTMLButtonElement>('.selection-bar [aria-label="意图感知"]')!.click(),
         );
+        const review = document.querySelector<HTMLElement>('.weq-message-batch-dialog');
+        if (cached.length || results.includes('media')) {
+          expect(review).not.toBeNull();
+          expect(fixture.analyze).not.toHaveBeenCalled();
+          const submit = review!.querySelector<HTMLButtonElement>('[data-weq-dialog-confirm]')!;
+          if (cached.length) {
+            const includeCached = review!.querySelector<HTMLButtonElement>(
+              '[role="switch"][aria-label="纳入已有分析结果"]',
+            )!;
+            expect(includeCached.getAttribute('aria-checked')).toBe('false');
+            if (confirm === true) await act(async () => includeCached.click());
+          }
+          if (results.every((result) => result === 'media')) {
+            expect(review!.textContent).toContain('没有可分析内容的消息（2 条）');
+            expect(submit.textContent).toBe('关闭');
+          }
+          if (confirm === false) {
+            expect(submit.disabled).toBe(true);
+            const cancel = Array.from(review!.querySelectorAll('button')).find(
+              (button) => button.textContent === '取消',
+            )!;
+            await act(async () => cancel.click());
+          } else {
+            expect(submit.disabled).toBe(false);
+            await act(async () => submit.click());
+          }
+          expect(document.querySelector('.weq-message-batch-dialog')).toBeNull();
+        } else {
+          expect(review).toBeNull();
+        }
       }
       if (progress) {
         const initial = useToast.getState().toasts[0]!;
@@ -316,7 +344,6 @@ it.each([
                 (results.length === 1 || confirm === true || !cached.includes(String(index + 1))),
             ).length,
       );
-      expect(ask).toHaveBeenCalledTimes(confirm === undefined ? 0 : 1);
       if (results.length === 1) expect(fixture.list).not.toHaveBeenCalled();
       const toasts = useToast.getState().toasts;
       expect(toasts).toHaveLength(tone ? 1 : 0);

@@ -3,6 +3,7 @@ import * as timeFormat from '@weq/time';
 /** 防撤回方式、保护范围与记录；设置页摘要和会话工具共用后端状态。 */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { useTabPanelMotion } from '../hooks/useTabPanelMotion';
 import {
   Archive,
   Database,
@@ -24,6 +25,7 @@ import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog.shared';
 import { useToast } from './Toast.shared';
 import { LoadingIndicator } from './LoadingIndicator';
+import { SegmentedControl } from './SegmentedControl';
 import { QqProxySettingsLink } from './QqProxyConnection';
 import { Card, Row, QueryError, SettingsScopeBadge } from './settings/controls';
 import { ConversationPicker } from '../views/export/ConversationPicker';
@@ -165,6 +167,7 @@ export function AntiRecallDialog({
   const utils = trpc.useUtils();
 
   const [tab, setTab] = useState<Tab>('protect');
+  const { panel: tabPanel, rememberScroll } = useTabPanelMotion(tab, true);
   const [editor, setEditor] = useState<Tab | null>(null);
   const active = useTabActive();
   const currentActivity = useRef(active);
@@ -283,6 +286,8 @@ export function AntiRecallDialog({
   ]);
   const qqRunning = status.data?.qqRunning ?? false;
   const installedCount = status.data?.installed.length ?? 0;
+  const triggersReadOnly =
+    status.data?.databaseReadOnly && (method === 'database' || installedCount > 0);
 
   /** 写操作的返回值（期望状态）直接落进查询缓存：点击即生效。 */
   function applyStatus(next: Awaited<ReturnType<typeof setScope.mutateAsync>>): void {
@@ -408,7 +413,13 @@ export function AntiRecallDialog({
               aria-label={option.title}
               aria-checked={method === option.value}
               className={cn('weq-applock-method', method === option.value && 'is-active')}
-              disabled={busy || !status.data || locked || !active}
+              disabled={
+                busy ||
+                !status.data ||
+                locked ||
+                !active ||
+                (status.data.databaseReadOnly && (triggersReadOnly || option.value === 'database'))
+              }
               onClick={() => void onSetMethod(option.value)}
             >
               <span className="weq-applock-method-icon">
@@ -433,26 +444,19 @@ export function AntiRecallDialog({
         <Row
           label="保护范围"
           control={
-            <div className="weq-set-seg" role="radiogroup" aria-label="防撤回保护范围">
-              {SCOPE_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={mode === option.value}
-                  className={cn('weq-set-seg-item', mode === option.value && 'is-on')}
-                  disabled={busy || !status.data}
-                  onClick={() => void onSetScope(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              label="防撤回保护范围"
+              value={mode}
+              options={SCOPE_OPTIONS}
+              disabled={busy || !status.data || triggersReadOnly}
+              onChange={(scope) => void onSetScope(scope)}
+            />
           }
         />
       )}
       <p className="weq-set-desc" role="status">
         {protectionStatusText()}
+        {triggersReadOnly && ' 切换到可写档位后可修改数据库触发器。'}
       </p>
       {status.data?.restartSuggested && method !== 'database' && (
         <p className="weq-set-desc">已更新数据库触发器，QQ 可能需要重启后应用变化。</p>
@@ -702,7 +706,7 @@ export function AntiRecallDialog({
                       <button
                         type="button"
                         className="weq-set-btn"
-                        disabled={unavailable || !hasAccount || isStaticPcOnly}
+                        disabled={unavailable || !hasAccount || isStaticPcOnly || triggersReadOnly}
                         aria-label="编辑启用防撤回的会话"
                         onClick={() => openEditor('protect')}
                       >
@@ -895,7 +899,11 @@ export function AntiRecallDialog({
             role="tab"
             aria-selected={tab === t.id}
             className={cn('weq-ar-tab', tab === t.id && 'is-on')}
-            onClick={() => setTab(t.id)}
+            onClick={() => {
+              if (t.id === tab) return;
+              rememberScroll();
+              setTab(t.id);
+            }}
           >
             <t.icon size={15} />
             {t.label}
@@ -903,7 +911,7 @@ export function AntiRecallDialog({
         ))}
       </div>
 
-      <div className="group-keyword-body weq-ar-body">
+      <div ref={tabPanel} className="group-keyword-body weq-ar-body">
         {tab === 'protect' ? (
           <>
             <Card title="保护规则" icon={<ListFilter size={15} strokeWidth={1.8} />}>

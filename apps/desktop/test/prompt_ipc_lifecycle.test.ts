@@ -6,14 +6,17 @@ import { registerAttachHintIpc } from '../src/main/attach_hint_ipc';
 import { registerElevationIpc } from '../src/main/elevation_ipc';
 import { requestSudoPassword } from '../src/main/sudo_prompt';
 
+type PromptHandler = (event: { sender: unknown; senderFrame: unknown }, payload: unknown) => void;
+
 const fixture = vi.hoisted(() => ({
   win: null as PromptWindow | null,
-  handlers: new Map<string, (event: { sender: unknown }, payload: unknown) => void>(),
+  settings: null as PromptWindow | null,
+  handlers: new Map<string, PromptHandler>(),
 }));
 
 vi.mock('electron', () => ({
   ipcMain: {
-    on: (channel: string, handler: (event: { sender: unknown }, payload: unknown) => void) => {
+    on: (channel: string, handler: PromptHandler) => {
       fixture.handlers.set(channel, handler);
     },
   },
@@ -23,17 +26,26 @@ vi.mock('@weq/service', async () => ({
   getLogger: () => ({ child: () => ({ info: vi.fn() }) }),
 }));
 vi.mock('../src/main/main_window', () => ({ getMainWindow: () => fixture.win }));
+vi.mock('../src/main/bootstrap_settings_window', () => ({
+  getBootstrapSettingsWindow: () => fixture.settings,
+}));
 
 class PromptWindow extends EventEmitter {
   destroyed = false;
   contentsDestroyed = false;
+  focused = false;
   readonly contents = {
+    mainFrame: {},
     isDestroyed: () => this.contentsDestroyed,
     send: vi.fn(),
   };
 
   isDestroyed(): boolean {
     return this.destroyed;
+  }
+
+  isFocused(): boolean {
+    return this.focused;
   }
 
   get webContents(): typeof this.contents {
@@ -52,6 +64,7 @@ class PromptWindow extends EventEmitter {
 beforeEach(() => {
   vi.useFakeTimers();
   fixture.win = new PromptWindow();
+  fixture.settings = null;
   fixture.handlers.clear();
   registerElevationIpc();
   registerAttachHintIpc();
@@ -135,7 +148,7 @@ describe.each([
     const request = win.contents.send.mock.calls[0];
     expect(request[0]).toBe(dialog.requestChannel);
     fixture.handlers.get(dialog.responseChannel)!(
-      { sender: win.contents },
+      { sender: win.contents, senderFrame: win.contents.mainFrame },
       {
         ...dialog.response,
         token: request[1].token,
@@ -148,5 +161,23 @@ describe.each([
     expect(fixture.win.contents.send).toHaveBeenCalledOnce();
     expect(() => fixture.win!.close()).not.toThrow();
     await expect(next).resolves.toEqual(dialog.cancelled);
+  });
+
+  it('设置窗聚焦时在那里显示提示，并只接受该窗主页面的响应', async () => {
+    const owner = fixture.win!;
+    const settings = new PromptWindow();
+    settings.focused = true;
+    fixture.settings = settings;
+    const result = dialog.request();
+    expect(owner.contents.send).not.toHaveBeenCalled();
+    expect(settings.contents.send).toHaveBeenCalledOnce();
+    const reply = fixture.handlers.get(dialog.responseChannel)!;
+    const token = settings.contents.send.mock.calls[0][1].token;
+    const payload = { ...dialog.response, token };
+    reply({ sender: owner.contents, senderFrame: owner.contents.mainFrame }, payload);
+    reply({ sender: settings.contents, senderFrame: {} }, payload);
+    expect(settings.listenerCount('closed')).toBe(1);
+    reply({ sender: settings.contents, senderFrame: settings.contents.mainFrame }, payload);
+    await expect(result).resolves.toEqual(dialog.answer);
   });
 });

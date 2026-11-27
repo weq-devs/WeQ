@@ -4,8 +4,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { encode } from 'silk-wasm';
-import { decodeSilkToWav, isSilkFile } from '../src/main/voice';
-import { decodePlayback } from '../src/main/voice_playback_worker';
+import {
+  decodeSilkToFile,
+  decodeSilkToWav,
+  decodeSilkToWav16kBuffer,
+  isSilkFile,
+} from '../src/main/voice';
+import { decodeBackgroundVoice, decodePlayback } from '../src/main/voice_playback_worker';
 
 const state = vi.hoisted(() => ({ root: '' }));
 vi.mock('../src/main/context/app_context', () => ({
@@ -13,7 +18,31 @@ vi.mock('../src/main/context/app_context', () => ({
 }));
 vi.mock('../src/main/voice_playback_worker', async (importOriginal) => {
   const codec = await importOriginal<typeof import('../src/main/voice_playback_worker')>();
-  return { decodePlayback: vi.fn(codec.decodePlayback) };
+  return {
+    decodePlayback: vi.fn(codec.decodePlayback),
+    decodeBackgroundVoice: vi.fn(codec.decodeBackgroundVoice),
+  };
+});
+
+it('后台转换复用在途同源转写，导出与点播保留正确的采样率与 PCM', async () => {
+  const source = join(state.root, 'clip.silk');
+  const target = join(state.root, 'export', 'clip.wav');
+  const noise = Int16Array.from({ length: 4800 }, (_, i) => (i % 31) * 1024 - 15_360);
+  await writeFile(source, (await encode(noise, 24000)).data);
+  const [first, second, exported, cached] = await Promise.all([
+    decodeSilkToWav16kBuffer(source),
+    decodeSilkToWav16kBuffer(source),
+    decodeSilkToFile(source, target),
+    decodeSilkToWav(source),
+  ]);
+  expect(first).toEqual(second);
+  expect(first?.readUInt32LE(24)).toBe(16_000);
+  expect(exported).toBe(true);
+  const wav = await readFile(target);
+  expect(wav.readUInt32LE(24)).toBe(24_000);
+  expect(wav).toEqual(await readFile(cached!));
+  expect(decodeBackgroundVoice).toHaveBeenCalledTimes(2);
+  expect(decodePlayback).toHaveBeenCalledOnce();
 });
 
 beforeEach(async () => {

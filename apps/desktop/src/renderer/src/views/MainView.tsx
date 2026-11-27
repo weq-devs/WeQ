@@ -59,13 +59,13 @@ import type {
   GroupNotifyWire,
   GroupDetailWire,
   GroupEssenceWire,
-  RawElementWire,
   OptimisticForward,
   OptimisticArk,
   OptimisticMessage,
 } from './workspace/types';
 import { useWorkspaceDrafts } from './workspace/useWorkspaceDrafts';
 import { useWorkspaceDirectory } from './workspace/useWorkspaceDirectory';
+import { useLiveRecentContacts } from './workspace/useLiveRecentContacts';
 import {
   mergeUnsequencedInteractionRows,
   useConversationInteractionBadges,
@@ -121,10 +121,28 @@ import {
 } from '../lib/startupQueries';
 import { useContactOnlineStatuses } from '../hooks/useContactOnlineStatuses';
 import { useContactNoticeUpdates } from '../hooks/useContactNoticeUpdates';
-import { useOnlineNoticeInbox } from '../components/qq-actions/RequestActions.shared';
+import { useQqLiveBusiness } from '../hooks/useQqLiveBusiness';
+import {
+  useGroupNoticeInbox,
+  useOnlineNoticeInbox,
+} from '../components/qq-actions/RequestActions.shared';
 import { CONTACT_NOTICE_LIMIT } from '../../../shared/contact_notices';
 import { useEventContextValue } from '../hooks/useEventContextValue';
 import { useStableCallback } from '../hooks/useStableCallback';
+import { useMessageBatchReview } from '../hooks/useMessageBatchReview';
+import { MessageBatchActionDialog } from '../components/MessageBatchActionDialog';
+import type { MessageBatchDecision } from '../lib/messageBatchAction';
+import {
+  forwardReplyData,
+  forwardReplyLookup,
+  matchesForwardReply,
+  originalForwardReplyTarget,
+  resolveForwardReplyPrefix,
+  type ForwardChatKind,
+  type ForwardReceipt,
+  type ForwardReplyPrefix,
+} from '../lib/sequentialForwardReply';
+import { grayTipOf } from '../im-template/template/messageRow.shared';
 import { useMailNavigation } from '../hooks/useMailNavigation';
 import { useMobilePageSettled } from '../hooks/useMobilePageSettled';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
@@ -135,6 +153,7 @@ import { stageAccountFile } from '../lib/accountFilePicker';
 import { WEB_NOTICE_OPEN } from '../lib/browserNotifications';
 import type { WebNotice } from '../../../main/web/notices';
 import type { ChatMsgWire as IncomingMessageWire } from '../../../main/ipc/serde';
+import { proxyNoticeIdentity } from '../../../shared/message_notifications';
 import { createReplyPreviewIndex } from '../lib/replyPreview';
 import { messageElement, revealTimelineMessage, timelineViewport } from '../lib/timelineViewport';
 import {
@@ -176,6 +195,7 @@ import { useToast, sourceToastPush, type Toast } from '../components/Toast.share
 import {
   notificationContent,
   notificationSource,
+  openNotificationSource,
   restoreNotificationSource,
   onNotificationNavigation,
   conversationNotificationSource,
@@ -242,6 +262,7 @@ import {
 } from '../lib/localOutgoing';
 import { useFailedOutgoingRemoval } from '../hooks/useFailedOutgoingRemoval';
 import { OutgoingQueue } from '../lib/outgoingQueue';
+import { outgoingMediaSend, useOutgoingTransferTasks } from '../hooks/useOutgoingTransferTasks';
 import { newOutgoingRequestId, useOutgoingReceipts } from '../hooks/useOutgoingReceipts';
 import { useTransferActivity } from '../lib/transferActivity';
 import { TransferActivityProvider } from '../components/TransferActivityProvider';
@@ -286,6 +307,17 @@ import {
   useContentSelectionScope,
   useRequestContentExport,
 } from '../state/contentSelection.shared';
+import {
+  MergeForwardRejected,
+  MergeForwardUnconfirmed,
+  runMergeForwardTask,
+} from '../components/mergeForward/mergeForwardTask';
+import { startSequentialForward } from '../components/SequentialForwardTask';
+import {
+  ForwardNotSubmitted,
+  registerForwardResumeHandler,
+  type ForwardPlan,
+} from '../lib/forwardContinuation';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { conversationWindowKey } from '../lib/conversationWindowCache';
 import { firstPageKey } from '../lib/conversationFirstPage';
@@ -333,10 +365,12 @@ import {
   DressUpDialog,
   GroupBugDialog,
   AgentLabView,
+  CloneCreationDialog,
   AssistantConversationPane,
   GuildDirectDialog,
   AnnualReportView,
 } from '../components/lazyWorkspaces';
+import type { CloneCreationRequest } from './agentlab/CloneCreationDialog';
 import { useSettingsMaintenance } from '../hooks/useSettingsMaintenance';
 import { useConversationMessageRecords } from '../hooks/useConversationMessageRecords';
 import {
@@ -356,7 +390,6 @@ import {
   ChatRecordsModal,
   MailWorkspace,
   SequentialForwardDialog,
-  MsgElementEditor,
   SearchResultsPanel,
   ChatHome,
   CallWindow,
@@ -382,6 +415,7 @@ import { GroupAlbumCardNavigationProvider } from '../components/GroupAlbumCardNa
 import type { GroupBulletinWire } from '../components/GroupAnnouncementsDialog';
 import { useDbRepairWindow } from '../state/dbRepairWindow';
 import { useCaptureWindow } from '../state/captureWindow';
+import { useDatabaseBrowserWindow } from '../state/databaseBrowserWindow';
 import {
   essenceSequences,
   essenceRefreshInterval,
@@ -414,6 +448,8 @@ import {
   cleanNtPath,
   codecElementToSeg,
   codecElementsToSegs,
+  segsHaveSendableContent,
+  validateSegs,
   createEmptyDraft,
   coerceDraft,
   createNode,
@@ -434,7 +470,6 @@ import { isGeneratedSearchHit, isContentSearchHit } from '../components/search/t
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { useSearchPreferences } from '../hooks/useSearchPreferences';
 import { useSearchReturn } from '../hooks/useSearchReturn';
-import { useSearchDismissal } from '../hooks/useSearchDismissal';
 import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/model';
 import { restoredAnalysisRequest } from './analysis/model';
 import { useMessageNotifications } from '../hooks/useMessageNotifications';
@@ -573,7 +608,7 @@ import type {
 } from '../im-template/template/chatPane';
 import type { RedPacketDraft } from '../im-template/template/redPacketPanel';
 import { useChatShellController } from '../im-template/template/shellController';
-import { toIpcElements } from '../im-template/template/draftElements';
+import { composerTextToElements, toIpcElements } from '../im-template/template/draftElements';
 import {
   type UnreadDockProgress,
   type UnreadDockKind,
@@ -586,6 +621,7 @@ import { unreadTimelineStart } from '../im-template/template/chatTimelineModel';
 import {
   buildComposerSendPlan,
   composerNeedsStickerCatalog,
+  localKeyOf,
   buildOptimisticRender,
   composerSendError,
   resolveComposerMedia,
@@ -600,7 +636,11 @@ import {
   repeatNeedsStickerCatalog,
   type RepeatElement,
 } from '../lib/messageRepeat';
-import { forwardMessageBlockReason, partitionForwardMessages } from '../lib/sequentialForward';
+import {
+  failedForwardDraft,
+  forwardMessageBlockReason,
+  resolveFailedForwardMedia,
+} from '../lib/sequentialForward';
 import {
   chatFileForwardSource,
   forwardWithFileConfirmation,
@@ -612,7 +652,12 @@ import {
   type MentionIdentity,
 } from '../lib/mentionIdentity';
 import { qqMessageRenderer } from '../components/QqMessageContent.shared';
-import { ReplyJumpContext, ForwardKindContext, ConvContext } from '../state/messageContext';
+import {
+  FileTransferTipScopeContext,
+  ReplyJumpContext,
+  ForwardKindContext,
+  ConvContext,
+} from '../state/messageContext';
 import type { ReplyJumpTarget } from '../components/QqMessageContent';
 
 const AnalysisReportPage = lazyPanel<
@@ -645,7 +690,10 @@ const RelationGraphView = lazy(() =>
 const workspaceLoading = <PanelLoading />;
 
 type PreparedChatFont = Awaited<ReturnType<typeof client.account.prepareChatFont.query>>;
-type FontAwareSubmission = ComposerSubmission & { preparedChatFont?: PreparedChatFont };
+type FontAwareSubmission = ComposerSubmission & {
+  preparedChatFont?: PreparedChatFont;
+  mediaSend?: OptimisticMessage['mediaSend'];
+};
 type SentChatFileForward = Extract<
   Awaited<ReturnType<typeof client.account.forwardChatFiles.mutate>>,
   { status: 'sent' }
@@ -1008,7 +1056,7 @@ function MainWorkspace(): ReactElement {
 
   // Flatten the paginated recent-contact pages into one list for the memos
   // below (the sidebar can scroll-load more pages past the first window).
-  const rawRecentContactsData = useMemo<RecentContactWire[]>(
+  const nativeRecentContacts = useMemo<RecentContactWire[]>(
     () =>
       hydrateRecentContactPreviews(
         mergeRecentContactPages([
@@ -1018,6 +1066,10 @@ function MainWorkspace(): ReactElement {
         recentContactPreviewRows,
       ),
     [contacts.data, recentHead.data, recentContactPreviewRows],
+  );
+  const { rows: rawRecentContactsData, observe: observeLiveRecentContact } = useLiveRecentContacts(
+    nativeRecentContacts,
+    messageScope,
   );
   const [observedContactPreviews, setObservedContactPreviews] = useState<
     ReadonlyMap<string, ObservedContactPreview>
@@ -1157,6 +1209,9 @@ function MainWorkspace(): ReactElement {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
+  const qqReadOnly = displaySettings.data?.qqCapabilityMode === 'read-only';
+  const qqReadOnlyRef = useRef(qqReadOnly);
+  qqReadOnlyRef.current = qqReadOnly;
   const profileAccount = pinSession.binding?.expectedAccountUin;
   const profileSource = pinSession.binding?.expectedAccountConfigId;
   useEffect(() => {
@@ -1331,8 +1386,12 @@ function MainWorkspace(): ReactElement {
     scope: string;
     selection: NonNullable<typeof selectionRef.current>;
     id: string;
-    expires: number;
+    resolve(retry: boolean): void;
   } | null>(null);
+  const cancelProxyJump = useCallback(() => {
+    pendingProxyJump.current?.resolve(false);
+    pendingProxyJump.current = null;
+  }, []);
   const latestMessageWindowRef = useRef(anchoredToLatest);
   latestMessageWindowRef.current = anchoredToLatest;
   const recentContactsForPush = useRef(recentContactsByUid);
@@ -1369,6 +1428,14 @@ function MainWorkspace(): ReactElement {
               observeContactPreview(previous, contact, latest),
             );
           }
+          if (change.livePeer) {
+            const latest = latestContactPreviewMessage(
+              { targetUid: change.conv, chatType: change.kind === 'group' ? 2 : 1, sendTime: '0' },
+              incoming,
+              canPreviewContactMessage,
+            );
+            if (latest) observeLiveRecentContact(change.kind, change.conv, change.livePeer, latest);
+          }
         } else if (change.recallPatch) {
           const contact = recentContactsForPush.current.get(change.conv);
           if (!contact || incoming.some((row) => BigInt(row.msgSeq) >= BigInt(contact.msgSeq)))
@@ -1401,6 +1468,7 @@ function MainWorkspace(): ReactElement {
     utils,
     messageScope,
     conversationWindows,
+    observeLiveRecentContact,
     refreshRecentHead,
     refreshRecentTargets,
     setLoaded,
@@ -1415,14 +1483,26 @@ function MainWorkspace(): ReactElement {
     if (!messageScope || !binding) return;
     let pendingFileAt: number | undefined;
     let headFileAt: number | undefined;
-    const draftRefresh = createUnreadRefresh(async () => {
+    const refreshDrafts = async () => {
       if (messageScopeRef.current !== messageScope) return true;
       await Promise.all([
         utils.account.listConversationDraftTimes.invalidate(binding),
         utils.account.listDrafts.invalidate(binding),
       ]);
       return true;
-    }, 5000);
+    };
+    const draftRefresh = createUnreadRefresh(refreshDrafts, 100);
+    let draftMayHaveChanged = false;
+    const draftFallback = createUnreadRefresh(async () => {
+      if (!draftMayHaveChanged) return true;
+      draftMayHaveChanged = false;
+      try {
+        return await refreshDrafts();
+      } catch (error) {
+        draftMayHaveChanged = true;
+        throw error;
+      }
+    }, 15_000);
     // 隐藏、置顶和聚合目录的本机操作有定向更新；外部 QQ 的未知变化合并校准。
     const metadataRefresh = createUnreadRefresh(async () => {
       if (messageScopeRef.current !== messageScope) return true;
@@ -1443,9 +1523,25 @@ function MainWorkspace(): ReactElement {
       refreshRecentTargets();
       return true;
     }, 1000);
+    let backgroundRevision = 0;
+    const backgroundRefresh = createUnreadRefresh(async () => {
+      if (messageScopeRef.current !== messageScope) return true;
+      if (loadedRevisionRef.current < backgroundRevision) await refreshWindow();
+      if (headFileAt !== pendingFileAt) {
+        headFileAt = pendingFileAt;
+        refreshRecentHead();
+      }
+      refreshRecentTargets();
+      return true;
+    }, 5000);
     const sub = client.account.onDbChanged.subscribe(binding, {
       onData(notice) {
         if (messageScopeRef.current !== messageScope) return;
+        if (notice?.draftChanged) {
+          draftMayHaveChanged = false;
+          draftRefresh.request();
+          return;
+        }
         if (!IS_WEB && notice?.at) recordMessagePhase('observedToRenderer', Date.now() - notice.at);
         dbRevisionRef.current += 1;
         const selected = selectionRef.current;
@@ -1474,10 +1570,16 @@ function MainWorkspace(): ReactElement {
           return;
         }
         pendingFileAt = notice?.at;
-        conversationWindows.noteUnknownChange(activeKey);
-        void refreshWindow();
-        unknownRefresh.request();
-        draftRefresh.request();
+        conversationWindows.noteUnknownChange(notice?.backgroundReconcile ? undefined : activeKey);
+        if (notice?.backgroundReconcile) {
+          backgroundRevision = conversationWindows.revision;
+          backgroundRefresh.request();
+        } else {
+          void refreshWindow();
+          unknownRefresh.request();
+        }
+        draftMayHaveChanged = true;
+        draftFallback.request();
         metadataRefresh.request();
       },
       onError(err) {
@@ -1487,7 +1589,9 @@ function MainWorkspace(): ReactElement {
     return () => {
       metadataRefresh.dispose();
       unknownRefresh.dispose();
+      backgroundRefresh.dispose();
       draftRefresh.dispose();
+      draftFallback.dispose();
       sub.unsubscribe();
     };
   }, [
@@ -1500,6 +1604,7 @@ function MainWorkspace(): ReactElement {
     messageBindingRef,
     messageScopeRef,
     dbRevisionRef,
+    loadedRevisionRef,
     selectionRef,
   ]);
 
@@ -1733,9 +1838,13 @@ function MainWorkspace(): ReactElement {
         if (
           section === 'qqOnlineCapability' ||
           section === 'qqProxyConnection' ||
-          section === 'longTermAuthorization'
+          section === 'longTermAuthorization' ||
+          section === 'enhancementText' ||
+          section === 'enhancementVoice'
         ) {
           const target = {
+            enhancementText: { section: 'enhancement-packs', settingId: 'enhancement-text' },
+            enhancementVoice: { section: 'enhancement-packs', settingId: 'enhancement-voice' },
             qqOnlineCapability: { section: 'account', settingId: 'auto-full-mode' },
             qqProxyConnection: { section: 'account', settingId: 'qq-proxy-connection' },
             longTermAuthorization: {
@@ -1763,9 +1872,9 @@ function MainWorkspace(): ReactElement {
           setSettingsOpen(true);
           return;
         }
-        if (section === 'enhancementPacks') {
+        if (section === 'enhancementPacks' || section === 'recognition') {
           setSettingsSearchTarget(null);
-          setSettingsSection('enhancement-packs');
+          setSettingsSection(section === 'recognition' ? 'recognition' : 'enhancement-packs');
           setSettingsOpen(true);
           return;
         }
@@ -1801,6 +1910,11 @@ function MainWorkspace(): ReactElement {
     if (messageScopeRef.current !== messageScope) return;
     if (isRemoteClient() && remoteUnsupportedTools.includes(tool)) {
       pushToast({ tone: 'info', title: '此项仅在电脑端支持' });
+      return;
+    }
+    if (tool === 'database') {
+      setMaintenanceTool(null);
+      useDatabaseBrowserWindow.getState().open();
       return;
     }
     if (tool === 'capture') {
@@ -2013,10 +2127,6 @@ function MainWorkspace(): ReactElement {
     setConversationIdentity(null);
   }
 
-  const [editorState, setEditorState] = useState<{
-    msgId: string;
-    elements: RawElementWire;
-  } | null>(null);
   const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
   // 合并转发：从聊天多选进入时带着一份草稿 + 会话成员候选；
   // 全局合成使用独立工作窗口，本地多选的合并转发仍复用原编辑器。
@@ -2152,36 +2262,9 @@ function MainWorkspace(): ReactElement {
   const [hiddenDeletedIds, setHiddenDeletedIds] = useState<Set<string>>(new Set());
   const deletionRevision = useRef(0);
 
-  const handleEditRaw = useCallback(async (message: Message) => {
-    if (message.source === 'roaming') return;
-    try {
-      const result = await client.account.getRawElements.query({ msgId: message.id });
-      if (result) {
-        setEditorState({ msgId: message.id, elements: result.elements });
-      }
-    } catch (e) {
-      console.error('[MainView] Failed to fetch raw elements:', e);
-    }
-  }, []);
-
-  const handleSaveRaw = useCallback(
-    async (elements: RawElementWire) => {
-      if (!editorState) return;
-      try {
-        const success = await client.account.updateElements.mutate({
-          msgId: editorState.msgId,
-          elements,
-        });
-        if (success) {
-          void refreshWindow();
-        }
-      } catch (e) {
-        console.error('[MainView] Failed to update elements:', e);
-        throw e;
-      }
-    },
-    [editorState, refreshWindow],
-  );
+  const handleMessageRecordEdited = useCallback(() => {
+    void refreshWindow();
+  }, [refreshWindow]);
 
   /** kind + conversation key (peer uid / group code) used by the msg endpoints. */
   const convFetchKey = useCallback((c: Conversation): { kind: 'c2c' | 'group'; conv: string } => {
@@ -2810,34 +2893,35 @@ function MainWorkspace(): ReactElement {
     groupMemberResults,
   );
   const [analysisReports, setAnalysisReports] = useState<AnalysisReportRequest[]>([]);
+  const openAnalysisReport = useStableCallback(async (id: string) => {
+    const binding = messageBindingRef.current;
+    const scope = messageScopeRef.current;
+    const isCurrent = () =>
+      messageScopeRef.current === scope &&
+      useViewState.getState().openedUin === binding?.expectedAccountUin &&
+      !useAppLock.getState().locked;
+    if (!scope || !binding || !isCurrent()) return false;
+    const saved = await client.account.analysisReports.get.query({ ...binding, id });
+    if (!isCurrent()) return false;
+    const request = restoredAnalysisRequest(saved.request);
+    if (!request) throw new Error('暂时无法读取这份分析报告。');
+    setAnalysisReports((previous) => [
+      ...previous.filter((report) => report.id !== request.id),
+      request,
+    ]);
+    return true;
+  });
   useEffect(() => {
     const open = (event: Event) => {
       const id: unknown = (event as CustomEvent<unknown>).detail;
       if (typeof id !== 'string') return;
-      const expected = useViewState.getState().openedUin;
-      void client.account.getAccountConfig
-        .query()
-        .then(async (config) => {
-          if (!config || config.uin !== expected || expected !== useViewState.getState().openedUin)
-            return;
-          const saved = await client.account.analysisReports.get.query({
-            id,
-            expectedAccountUin: config.uin,
-            expectedAccountConfigId: config.configId,
-          });
-          if (expected !== useViewState.getState().openedUin) return;
-          const request = restoredAnalysisRequest(saved.request);
-          if (request)
-            setAnalysisReports((previous) => [
-              ...previous.filter((report) => report.id !== request.id),
-              request,
-            ]);
-        })
-        .catch((error: unknown) => console.error('[analysis-reports] 无法打开报告', error));
+      void openAnalysisReport(id).catch((error: unknown) =>
+        console.error('[analysis-reports] 无法打开报告', error),
+      );
     };
     window.addEventListener('weq:open-saved-analysis', open);
     return () => window.removeEventListener('weq:open-saved-analysis', open);
-  }, []);
+  }, [openAnalysisReport]);
   const [analysisRequest, setAnalysisRequest] = useState<AnalysisToolRequest | null>(null);
   const [roamingRequest, setRoamingRequest] = useState<{
     targets: RoamingTarget[];
@@ -2857,6 +2941,10 @@ function MainWorkspace(): ReactElement {
   const [searchDismissed, setSearchDismissed] = useState(false);
   // 搜索框点开但尚未输入时，仅显示范围选择。
   const [searchFocused, setSearchFocused] = useState(false);
+  const dismissGlobalSearch = useCallback(() => {
+    setSearchDismissed(true);
+    setSearchFocused(false);
+  }, []);
   // Set when a search hit was clicked: the listLatest effect, after the target
   // conversation's newest page lands, rebuilds the window centred on this seq
   // instead of leaving the view pinned to the latest.
@@ -3109,14 +3197,14 @@ function MainWorkspace(): ReactElement {
     botUids,
   ]);
   const friendNoticeInbox = useOnlineNoticeInbox(
-    false,
     pinSession.available && (onlineReady || shell.contactNotice === 'friend'),
     pinSession.binding,
   );
-  const groupNoticeInbox = useOnlineNoticeInbox(
-    true,
-    pinSession.available && (onlineReady || shell.contactNotice === 'group'),
+  const groupNoticeInbox = useGroupNoticeInbox(
+    pinSession.available && shell.view === 'contacts' && shell.contactNotice === 'group',
     pinSession.binding,
+    groupNotifies.data ? groupRequests : undefined,
+    user?.uid,
   );
   const { ids: friendNoticeIds } = useMemo(
     () => noticeBadgeList(contactRequests, friendNoticeInbox.operations),
@@ -3127,11 +3215,12 @@ function MainWorkspace(): ReactElement {
     [groupRequests, groupNoticeInbox.operations, user],
   );
   const { readSequence, canReportRead } = groupNoticeInbox;
-  const viewingContactNotices = messageActivity.enabled && shell.view === 'contacts';
+  const viewingContactNotices = !qqReadOnly && messageActivity.enabled && shell.view === 'contacts';
   const reportViewedGroupNotices = useStableCallback((sequence: string) => {
     const binding = pinSession.binding;
     if (
       !binding ||
+      qqReadOnly ||
       !canReportRead ||
       readSequence == null ||
       BigInt(sequence) <= BigInt(readSequence)
@@ -3237,6 +3326,11 @@ function MainWorkspace(): ReactElement {
       ? deletedConversationsById.get(shell.activeConversationId)
       : undefined);
   const selectedUid = selectedConversation?.id ?? '';
+  const qqPeerTyping = useQqLiveBusiness(
+    pinSession.binding,
+    selectedConversation?.type === 'direct' && shell.view === 'messages' ? selectedUid : '',
+    user?.uid ?? '',
+  );
   const selectedUidRef = useRef(selectedUid);
   selectedUidRef.current = selectedUid;
   const messagesTabActive = shell.view === 'messages' && !arkFeedState && !specialChat;
@@ -3498,6 +3592,30 @@ function MainWorkspace(): ReactElement {
     [client],
   );
 
+  const forwardReviewScope = useMemo(() => ({}), [messageScope, selectedConversation?.id]);
+  const forwardReviewScopeRef = useRef(forwardReviewScope);
+  forwardReviewScopeRef.current = forwardReviewScope;
+  const forwardReview = useMessageBatchReview(forwardReviewScope);
+  const forwardReplyExcerpt = useRef(false);
+  const [forwardReviewSource, setForwardReviewSource] = useState<Conversation>();
+  const forwardPreparation = useRef(false);
+  const deletedIdentities = useMemo(
+    () => new Set([...deletedIds].map(deletionIdentity)),
+    [deletedIds],
+  );
+  function reviewForwardSelection(
+    action: 'forward' | 'merge' | 'material',
+    messages: Message[],
+    conversation: Conversation | undefined,
+    assessments: ReadonlyMap<string, MessageBatchDecision>,
+  ) {
+    setForwardReviewSource(conversation);
+    return forwardReview.ask(action, messages, {
+      deleted: (message) => deletedIdentities.has(deletionIdentity(message.id)),
+      assess: (message) => assessments.get(message.id),
+    });
+  }
+
   /**
    * 多选的消息 → 一份草稿。
    *
@@ -3508,11 +3626,25 @@ function MainWorkspace(): ReactElement {
   const buildMergeForwardDraft = useCallback(
     async (
       messages: Message[],
-      downloadImages?: NonNullable<typeof pinSession.binding>,
-    ): Promise<MfDraft> => {
+      isCurrent: () => boolean,
+      assessments: Map<string, MessageBatchDecision>,
+      action: 'merge' | 'material',
+      binding?: NonNullable<typeof pinSession.binding>,
+      downloadImages = false,
+    ) => {
       const now = Math.floor(Date.now() / 1000);
-      const nodes: MfNode[] = [];
+      const nodes = new Map<string, MfNode>();
       for (const message of messages) {
+        if (!isCurrent()) return nodes;
+        if (action === 'merge' && grayTipOf(message)) continue;
+        if (
+          message.generatedPending ||
+          message.optimistic === 'sending' ||
+          message.optimistic === 'queued'
+        ) {
+          assessments.set(message.id, { label: '尚未完成的消息' });
+          continue;
+        }
         const sender = message.sender;
         const senderInfo = {
           uid: sender?.id ?? message.senderId,
@@ -3529,11 +3661,50 @@ function MainWorkspace(): ReactElement {
         let segs: MfSeg[] = [];
         // 渲染视图元素与原始元素是**同一条 40800 列按顺序解出来的**，按下标一一对应。
         // 普通文件保留来源身份，发送时再按目标转存；其他媒体仍使用原有预览与发送路径。
-        const renderElements: MfElement[] = (message.qqElements ?? []).map((element) => {
+        let renderElements: MfElement[] = (message.qqElements ?? []).map((element) => {
           const chatFile = chatFileForwardSource(message, element);
           return chatFile ? { ...element, data: { ...element.data, chatFile } } : element;
         });
-        if (message.forwardSnapshot) {
+        if (message.optimistic === 'failed' && message.composerDraft) {
+          try {
+            const draft = failedForwardDraft(message, true);
+            if (!draft) throw new Error('原稿或附件不可用');
+            const locals = await resolveFailedForwardMedia(draft);
+            const media = new Map(locals.map((local) => [local.key, { ...local }]));
+            const elements = composerTextToElements(draft.body) as Record<string, unknown>[];
+            for (const element of elements) {
+              const key = localKeyOf(element);
+              const local = key && media.get(key);
+              if (!local || local.path) continue;
+              if (!isCurrent()) return nodes;
+              const voice = element.kind === 'ptt';
+              let file = local.file;
+              if (voice || (!file && local.bytes?.length)) {
+                if (!local.bytes?.length) throw new Error('语音原稿不可用');
+                const bytes = voice ? await decodeRecordingToWav(local.bytes) : local.bytes;
+                file = new File([new Uint8Array(bytes)], local.name);
+              }
+              if (file)
+                local.path = (
+                  await stageAccountFile(
+                    file,
+                    binding,
+                    undefined,
+                    undefined,
+                    voice ? 'silk' : undefined,
+                  )
+                ).path;
+            }
+            renderElements = buildOptimisticRender({
+              body: draft.body,
+              locals: [...media.values()],
+              superStickers: new Map(),
+            }).elements as MfElement[];
+          } catch {
+            assessments.set(message.id, { label: '原稿或附件不可用' });
+            continue;
+          }
+        } else if (message.forwardSnapshot) {
           const snapshot = renderElements.map((element) => ({
             ...element.data,
             kind: element.type,
@@ -3557,7 +3728,7 @@ function MainWorkspace(): ReactElement {
                     : 'image';
                 const staged = await stageAccountFile(
                   new File([new Uint8Array(bytes)], fileName),
-                  downloadImages,
+                  binding,
                 );
                 Object.assign(raw, {
                   localPath: staged.path,
@@ -3574,7 +3745,7 @@ function MainWorkspace(): ReactElement {
             const seg = codecElementToSeg(raw, element);
             return seg ? [seg] : [];
           });
-        } else if (msgId) {
+        } else if (msgId && !isLocalOutgoingMessage(message)) {
           try {
             const raw = await client.account.getRawElements.query({ msgId });
             if (raw?.elements?.length) {
@@ -3589,20 +3760,75 @@ function MainWorkspace(): ReactElement {
         if (segs.length === 0) {
           segs = renderElementsToSegs(renderElements);
         }
-        if (segs.length === 0) continue;
+        const problem = action === 'merge' ? validateSegs(segs) : null;
+        if (!segs.length || (action === 'merge' && (!segsHaveSendableContent(segs) || problem))) {
+          assessments.set(message.id, {
+            label:
+              message.optimistic === 'failed'
+                ? '原稿或附件不可用'
+                : segs.length
+                  ? '只能预览的消息'
+                  : '内容不可用的消息',
+            detail: problem ?? undefined,
+          });
+          continue;
+        }
+        if (action === 'merge' && segs.some((seg) => seg.t === 'opaque')) {
+          const onlyText = segs.every((seg) => seg.t === 'opaque');
+          assessments.set(message.id, {
+            label: onlyText ? '只能转发为文字的消息' : '部分内容无法原样转发的消息',
+            include: false,
+            detail: '开启后只转发可发送的内容，部分媒体将以文字标签显示',
+          });
+        }
         const node = createNode(senderInfo, segs, Math.floor(sendTimeMs / 1000), message);
         const decoration = (message as { decoration?: MfNode['decoration'] }).decoration;
         if (decoration) node.decoration = decoration;
-        if (msgId && !message.forwardSnapshot) node.sourceMsgId = msgId;
-        nodes.push(node);
+        if (msgId && !message.forwardSnapshot && !isLocalOutgoingMessage(message))
+          node.sourceMsgId = msgId;
+        nodes.set(message.id, node);
       }
-      return { ...createEmptyDraft(), id: mfId('draft'), nodes };
+      return nodes;
     },
     [client, hydrateMergeForwardMedia],
   );
 
-  const handleAddToComposition = useCallback(
-    (messages: Message[]) => {
+  async function prepareCompositionSelection(
+    messages: Message[],
+    action: 'merge' | 'material',
+    conversation?: Conversation,
+    downloadImages = false,
+  ): Promise<MfDraft | null> {
+    if (!messages.length || forwardPreparation.current || forwardReview.review) return null;
+    const scope = forwardReviewScopeRef.current;
+    const isCurrent = () =>
+      scope === forwardReviewScopeRef.current && messageScopeRef.current === messageScope;
+    const assessments = new Map<string, MessageBatchDecision>();
+    forwardPreparation.current = true;
+    try {
+      const prepared = await buildMergeForwardDraft(
+        messages,
+        isCurrent,
+        assessments,
+        action,
+        pinSession.binding ?? undefined,
+        downloadImages,
+      );
+      if (!isCurrent()) return null;
+      const accepted = await reviewForwardSelection(action, messages, conversation, assessments);
+      if (!accepted?.length || !isCurrent()) return null;
+      const nodes = accepted.flatMap((message) => {
+        const node = prepared.get(message.id);
+        return node ? [node] : [];
+      });
+      return { ...createEmptyDraft(), nodes };
+    } finally {
+      forwardPreparation.current = false;
+    }
+  }
+
+  const handleAddToComposition = useStableCallback(
+    (messages: Message[], conversation?: Conversation) => {
       if (!messages.length) return;
       const scope = messageScopeRef.current;
       void (async () => {
@@ -3613,10 +3839,8 @@ function MainWorkspace(): ReactElement {
           messageScopeRef.current !== scope
         )
           throw new Error('账号已切换，请重新选择消息');
-        const draft = await buildMergeForwardDraft(messages);
-        if (messageScopeRef.current !== scope) return;
-        if (draft.nodes.length !== messages.length)
-          throw new Error('部分消息无法导入，原选择已保留');
+        const draft = await prepareCompositionSelection(messages, 'material', conversation);
+        if (!draft || messageScopeRef.current !== scope) return;
         const binding = {
           expectedAccountUin: user.identityValue,
           expectedAccountConfigId: config.configId,
@@ -3647,36 +3871,13 @@ function MainWorkspace(): ReactElement {
         });
       });
     },
-    [buildMergeForwardDraft, user.identityValue, pushToast, utils, messageScopeRef],
   );
 
-  const handleSnapshotMerge = useCallback(
-    async (messages: Message[], kind: 'c2c' | 'group') => {
-      const scope = messageScopeRef.current;
-      const binding = pinSession.binding;
-      if (!binding) throw new Error('账号尚未就绪，请重新打开聊天记录。');
-      const draft = await buildMergeForwardDraft(messages, binding);
-      if (scope !== messageScopeRef.current) return;
-      const omitted = messages.length - draft.nodes.length;
-      const limited = draft.nodes.filter((node) =>
-        node.segs.some((seg) => seg.t === 'opaque'),
-      ).length;
-      if (!draft.nodes.length) throw new Error('所选消息没有可合并转发的内容');
-      if (omitted || limited) {
-        const confirmed = await useDialog
-          .getState()
-          .confirm(
-            '继续准备合并转发？',
-            [
-              omitted ? `${omitted} 条没有可转发内容。` : '',
-              limited ? `${limited} 条含无法原样发送的内容，发送时将转成文字或跳过。` : '',
-            ]
-              .filter(Boolean)
-              .join('\n'),
-            { okLabel: '继续' },
-          );
-        if (!confirmed || scope !== messageScopeRef.current) return;
-      }
+  const handleSnapshotMerge = useStableCallback(
+    async (messages: Message[], kind: 'c2c' | 'group', conversation?: Conversation) => {
+      if (!pinSession.binding) throw new Error('账号尚未就绪，请重新打开聊天记录。');
+      const draft = await prepareCompositionSelection(messages, 'merge', conversation, true);
+      if (!draft) return;
       setMergeForwardDraft({
         draft: kind === 'group' ? { ...draft, title: draftTitle(draft.nodes, 'group') } : draft,
         senderMode: 'conversation',
@@ -3687,34 +3888,32 @@ function MainWorkspace(): ReactElement {
         ],
       });
     },
-    [buildMergeForwardDraft, messageScopeRef, pinSession.binding],
   );
 
-  const handleMergeForward = useCallback(
-    (messages: Message[], c: Conversation) => {
-      if (messages.length === 0) return;
-      const members = mergeForwardMembersOf(c);
-      void buildMergeForwardDraft(messages)
-        .then((draft) =>
-          setMergeForwardDraft({
-            draft:
-              c.type === 'group'
-                ? { ...draft, title: draft.title || draftTitle(draft.nodes, 'group') }
-                : draft,
-            senderMode: 'conversation',
-            members,
-          }),
-        )
-        .catch((error) =>
-          pushToast({
-            tone: 'error',
-            title: '准备转发失败',
-            source: conversationNotificationSource(c),
-            detail: error instanceof Error ? error.message : String(error),
-          }),
-        );
+  const handleMergeForward = useStableCallback(
+    async (messages: Message[], conversation: Conversation) => {
+      try {
+        const draft = await prepareCompositionSelection(messages, 'merge', conversation);
+        if (!draft) return false;
+        setMergeForwardDraft({
+          draft:
+            conversation.type === 'group'
+              ? { ...draft, title: draft.title || draftTitle(draft.nodes, 'group') }
+              : draft,
+          senderMode: 'conversation',
+          members: mergeForwardMembersOf(conversation),
+        });
+        return true;
+      } catch (error) {
+        pushToast({
+          tone: 'error',
+          title: '准备转发失败',
+          source: conversationNotificationSource(conversation),
+          detail: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
     },
-    [buildMergeForwardDraft, mergeForwardMembersOf, pushToast],
   );
 
   const persistMergeForwardDraft = useCallback(
@@ -3758,12 +3957,17 @@ function MainWorkspace(): ReactElement {
    * 已发送 / 发送失败」标识。
    */
   const forwardMergeDraft = useCallback(
-    async (draft: MfDraft, target: MfTarget, binding?: CompositionBinding) => {
+    async (
+      draft: MfDraft,
+      target: MfTarget,
+      binding?: CompositionBinding,
+      taskFeedback = false,
+    ) => {
       const pushToast = sourceToastPush(
         conversationNotificationSource({ id: target.conv, type: target.kind }),
       );
       const problem = validateDraft(draft);
-      if (problem) throw new Error(problem);
+      if (problem) throw new MergeForwardRejected(problem);
       const nodes = draftToSendNodes(draft, target.kind);
       const hasChatFiles = (rows: typeof nodes): boolean =>
         rows.some(
@@ -3830,7 +4034,7 @@ function MainWorkspace(): ReactElement {
         if (!outcome.ok) {
           const reason = outcome.card?.errMsg || outcome.hint || '发送失败';
           patch({ state: 'failed', error: reason });
-          throw new Error(reason);
+          throw new MergeForwardRejected(reason);
         }
         // 卡片那一步的回执带 random / seq：与 Ark 同款，cid 用于对账、seq 用于
         // 混排进真实消息之间（见 OptimisticForward.seq）。
@@ -3852,6 +4056,8 @@ function MainWorkspace(): ReactElement {
           ...(cardKeys.seqRejected ? { seqRejected: true } : {}),
         });
         if (cardKeys.seqRejected) {
+          if (taskFeedback)
+            throw new MergeForwardUnconfirmed('QQ 未返回消息序号，请核对目标会话中的发送结果。');
           pushToast({
             tone: 'warning',
             message: '聊天记录卡片可能未被服务端接收',
@@ -3860,14 +4066,16 @@ function MainWorkspace(): ReactElement {
               '请让对方确认；若没有，重发一次。',
           });
         }
-        return true;
+        return { seq: cardKeys.seq };
       } catch (error) {
-        patch({ state: 'failed', error: error instanceof Error ? error.message : String(error) });
-        pushToast({
-          tone: 'error',
-          message: '发送失败',
-          detail: error instanceof Error ? error.message : String(error),
-        });
+        if (!(error instanceof MergeForwardUnconfirmed))
+          patch({ state: 'failed', error: error instanceof Error ? error.message : String(error) });
+        if (!taskFeedback)
+          pushToast({
+            tone: 'error',
+            message: '发送失败',
+            detail: error instanceof Error ? error.message : String(error),
+          });
         throw error;
       }
     },
@@ -5677,6 +5885,11 @@ function MainWorkspace(): ReactElement {
     !dressUpOpen &&
     !interactionViewportLocked &&
     (!mobileLayout || !mobileConversationList);
+  useOutgoingTransferTasks(
+    optimisticMessages,
+    pinSession.binding,
+    messagesTabActive && readViewportActive ? selectedConversation?.id : undefined,
+  );
   const readPolicy = useRef({ readSettingsReady, readThroughViewport, readViewportActive });
   readPolicy.current = { readSettingsReady, readThroughViewport, readViewportActive };
   const applyUnreadRows = useCallback(
@@ -5705,6 +5918,7 @@ function MainWorkspace(): ReactElement {
         conv.type === 'group' ? (2 as const) : (unreadChatType(conv.chatType ?? 1) ?? 1);
       const isCurrent = ({ visibleSeqs, throughSeq }: AutoRead) =>
         Boolean(binding) &&
+        !qqReadOnlyRef.current &&
         readPolicy.current.readSettingsReady &&
         readPolicy.current.readThroughViewport === Boolean(visibleSeqs) &&
         ((!visibleSeqs && !throughSeq && chatType !== 8 && chatType !== 134) ||
@@ -5811,13 +6025,14 @@ function MainWorkspace(): ReactElement {
   const confirmVisibleReplies = useCallback(
     async (uid: string, sequences: string[]) => {
       const binding = messageBindingRef.current;
-      if (!binding) return false;
+      if (!binding || qqReadOnlyRef.current) return false;
       const source = messageScopeRef.current;
       const stillCurrent = () =>
         messageScopeRef.current === source &&
         selectionRef.current?.kind === 'group' &&
         selectionRef.current.id === uid &&
         messagesTabActiveRef.current &&
+        !qqReadOnlyRef.current &&
         readPolicy.current.readViewportActive &&
         document.visibilityState !== 'hidden';
       const result = await retryConversationRead(
@@ -5900,6 +6115,7 @@ function MainWorkspace(): ReactElement {
       };
       readUndoRef.current = undo;
       setReadUndo(undo);
+      if (rows.length === 1 && !result.failed) return;
       pushToast({
         tone: result.failed ? 'warning' : 'success',
         title: (
@@ -5986,7 +6202,7 @@ function MainWorkspace(): ReactElement {
     }
   }
   useReadStateUndo(
-    readUndo?.accountUin === openedUin && messagesTabActive && !readStateBusy,
+    !qqReadOnly && readUndo?.accountUin === openedUin && messagesTabActive && !readStateBusy,
     () => void undoConversationReadState(),
     readUndo?.action,
   );
@@ -6218,7 +6434,7 @@ function MainWorkspace(): ReactElement {
         unread,
       });
 
-      if (!readPolicy.current.readThroughViewport)
+      if (!qqReadOnlyRef.current && !readPolicy.current.readThroughViewport)
         request.autoRead = { snapshot: info, revision: startedAt };
       finishSnapshot(dock, {
         readSeq: info.readSeq,
@@ -6429,9 +6645,11 @@ function MainWorkspace(): ReactElement {
   ]);
 
   // Scroll the loaded list to a message row by id and briefly flash it.
-  const { run: runMessageLocate, cancel: cancelMessageLocate } = useMessageLocateFeedback(
-    `${messageScope}:${shell.view}:${selectedUid ?? ''}`,
-  );
+  const {
+    run: runMessageLocate,
+    cancel: cancelMessageLocate,
+    locating: locatingMessage,
+  } = useMessageLocateFeedback(`${messageScope}:${shell.view}:${selectedUid ?? ''}`);
   const scrollToMsgId = useStableCallback((msgId: string, flash: boolean = true): boolean => {
     const scroll = nativeMessageScrollRef.current;
     if (!scroll) return false;
@@ -6439,7 +6657,10 @@ function MainWorkspace(): ReactElement {
     const id = msgId.startsWith('optimistic-')
       ? (templateMessages.find((message) => message.outgoingId === msgId)?.id ?? msgId)
       : msgId;
-    return revealTimelineMessage(scroll, id, flash);
+    if (!revealTimelineMessage(scroll, id, flash)) return false;
+    cachedScrollRef.current = null;
+    pendingScrollRestoreRef.current = null;
+    return true;
   });
 
   // Rebuild the loaded window centred on `targetSeq` straight from the DB,
@@ -6470,47 +6691,44 @@ function MainWorkspace(): ReactElement {
         readingPosition?: ConversationReadingPosition;
       } = {},
     ): Promise<boolean> =>
-      runMessageLocate(
-        async (isCurrent) => {
-          pendingProxyJump.current = null;
-          const pushToast = sourceToastPush(
-            notificationSource({ kind: 'conversation', conversationKind: kind, conv }),
-          );
-          const scope = messageScopeRef.current,
-            binding = messageBindingRef.current,
-            revision = conversationWindows.revision;
-          const selection = selectionRef.current;
-          if (
-            !scope ||
-            !binding ||
-            selection?.id !== conv ||
-            selection.kind !== (kind === 'group' ? 'group' : 'direct')
-          )
-            return false;
-          const current = () =>
-            isCurrent() && scope === messageScopeRef.current && selectionRef.current === selection;
-          const proxyTarget = messageId?.startsWith('proxy:') ? messageId : undefined;
-          const revealLoadedProxyTarget = () => {
-            if (!proxyTarget || entryLoadingRef.current) return false;
-            const exact = findTimelineMessageById(loadedRef.current, proxyTarget, targetSeq);
-            if (!exact || !scrollToMsgId(timelineRowKey(exact))) return false;
-            selection.explicitWindow = true;
-            setMissingJumpSeq(null);
-            return true;
-          };
-          if (revealLoadedProxyTarget()) return true;
-          const query = {
-            ...binding,
-            readWindow: selection.readWindow,
-            deferReplyMedia: true,
-            kind,
-            conv,
-          };
-          let before: ChatMsgWire[];
-          let after: ChatMsgWire[] = [];
-          try {
-            if (targetSeq) {
-              [before, after] = await Promise.all([
+      runMessageLocate(async (isCurrent) => {
+        cancelProxyJump();
+        const pushLocateToast = sourceToastPush(
+          notificationSource({ kind: 'conversation', conversationKind: kind, conv }),
+        );
+        const scope = messageScopeRef.current,
+          binding = messageBindingRef.current,
+          revision = conversationWindows.revision;
+        const selection = selectionRef.current;
+        if (
+          !scope ||
+          !binding ||
+          selection?.id !== conv ||
+          selection.kind !== (kind === 'group' ? 'group' : 'direct')
+        )
+          return false;
+        const current = () =>
+          isCurrent() && scope === messageScopeRef.current && selectionRef.current === selection;
+        const proxyTarget = messageId?.startsWith('proxy:') ? messageId : undefined;
+        const revealLoadedProxyTarget = () => {
+          if (!proxyTarget || entryLoadingRef.current) return false;
+          const exact = findTimelineMessageById(loadedRef.current, proxyTarget, targetSeq);
+          if (!exact || !scrollToMsgId(timelineRowKey(exact))) return false;
+          selection.explicitWindow = true;
+          setMissingJumpSeq(null);
+          return true;
+        };
+        if (revealLoadedProxyTarget()) return true;
+        const query = {
+          ...binding,
+          readWindow: selection.readWindow,
+          deferReplyMedia: true,
+          kind,
+          conv,
+        };
+        const readWindow = async (): Promise<[ChatMsgWire[], ChatMsgWire[]]> =>
+          targetSeq
+            ? Promise.all([
                 // listBefore 不含边界，加 1 才能把目标算进这一页。
                 client.account.listBefore.query({
                   ...query,
@@ -6518,169 +6736,198 @@ function MainWorkspace(): ReactElement {
                   limit: PAGE_SIZE,
                 }),
                 client.account.listAfter.query({ ...query, afterSeq: targetSeq, limit: PAGE_SIZE }),
-              ]);
-            } else {
-              // 刚发出的卡片可能还未落库，先读最新页，再从时间线中定位回显。
-              before = await client.account.listLatest.query({ ...query, limit: PAGE_SIZE });
-            }
-          } catch (err) {
-            if (!current()) return false;
-            console.error('[centerWindowOnSeq] fetch failed', err);
-            pushToast({
-              tone: 'info',
-              durationKind: 'failure',
-              title: mode === 'firstUnread' ? '未读消息加载失败' : '未找到该消息',
-              detail:
-                mode === 'firstUnread'
-                  ? err instanceof Error
-                    ? err.message
-                    : String(err)
-                  : '该消息可能已被撤回或删除。',
-            });
-            return false;
-          }
+              ])
+            : [await client.account.listLatest.query({ ...query, limit: PAGE_SIZE }), []];
+        // 先登记身份，落库事件可能在定点查询返回之前到达。
+        const available = proxyTarget ? Promise.withResolvers<boolean>() : undefined;
+        const wait =
+          proxyTarget && available
+            ? { scope, selection, id: proxyTarget, resolve: available.resolve }
+            : null;
+        if (wait) pendingProxyJump.current = wait;
+        let before: ChatMsgWire[];
+        let after: ChatMsgWire[];
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+          [before, after] = await readWindow();
           if (!current()) return false;
-
-          const seen = new Set<string>();
-          let merged: MessageWire[] = [];
-          // before is DESC (newest-first) incl. centre → reverse to ASC; after is ASC.
-          for (const m of [...before.map(toMessageWire).reverse(), ...after.map(toMessageWire)]) {
-            if (seen.has(timelineRowKey(m))) continue;
-            seen.add(timelineRowKey(m));
-            merged.push(m);
-          }
-
-          if (exactRecord && !merged.some((message) => message.msgId === exactRecord.msgId))
-            merged.unshift(toMessageWire(exactRecord));
-          const exactId = messageId ?? exactRecord?.msgId;
-          const findTarget = () => {
-            if (mode === 'firstUnread' && targetSeq) return firstUnreadMessage(merged, targetSeq);
-            if (exactId) return findTimelineMessageById(merged, exactId, targetSeq);
-            if (targetSeq) return findUnreadMessage(merged, targetSeq, importantMessage);
-          };
-          let target = findTarget();
-          if (!target && proxyTarget) {
+          if (
+            proxyTarget &&
+            available &&
+            !before.some((row) => proxyNoticeIdentity(row) === proxyTarget)
+          ) {
             if (revealLoadedProxyTarget()) return true;
-            // 等现有消息订阅交付，不把同序号的其他消息当目标，也不补发请求。
-            pendingProxyJump.current = {
-              scope,
-              selection,
-              id: proxyTarget,
-              expires: Date.now() + 30_000,
-            };
-            return false;
+            timeout = setTimeout(() => available.resolve(true), 30_000);
+            if (!(await available.promise) || !current()) return false;
+            if (revealLoadedProxyTarget()) return true;
+            [before, after] = await readWindow();
           }
-
-          const autoContext = () =>
-            preferenceValue('autoFetchMissingMessages') ||
-            preferenceValue('autoFetchMissingContext');
-          let contextFetchFailed = false;
-          if (!target && targetSeq && autoContext()) {
-            try {
-              const rows = await fetchMissingContext(
-                targetSeq,
-                preferenceValue('autoFetchMissingMessages')
-                  ? preferenceDefaults.missingMessageContextCount
-                  : preferenceValue('missingMessageContextCount'),
-                (range) =>
-                  client.account.fetchGapMessages.query({ ...binding, kind, conv, ...range }),
-                () => current() && autoContext(),
-              );
-              if (!current()) return false;
-              merged = mergeRoamingTimeline(
-                kind,
-                merged,
-                rows
-                  .filter((row) => kind === 'group' || row.ntSeqVerified === true)
-                  .map((row) => ({ ...toMessageWire(row), source: 'roaming' as const })),
-              );
-              target = findTarget();
-            } catch (error) {
-              if (!current()) return false;
-              contextFetchFailed = true;
-              pushToast({
-                tone: 'warning',
-                title: '自动拉取上下文失败',
-                detail: error instanceof Error ? error.message : String(error),
-              });
-            }
-          }
+        } catch (err) {
           if (!current()) return false;
-          if (!target && mode === 'firstUnread') {
-            pushToast({
-              tone: 'info',
-              durationKind: 'failure',
-              title: '未找到可定位的未读消息',
-              detail: '本地未读区间暂无可用消息，可稍后重试或拉取缺失消息。',
-            });
-            return false;
-          }
-          if (target) setMissingJumpSeq(null);
-
-          const atLatest =
-            after.length < PAGE_SIZE && (!exactRecord || BigInt(targetSeq ?? '0') > 0n);
-          // Update the live-subscription's window descriptor synchronously: a
-          // db-changed tick between this setLoaded and the passive windowRef effect
-          // must not see the stale (anchored, old-minSeq) descriptor and replace our
-          // freshly-jumped window via refreshWindow's listFrom.
-          selection.explicitWindow = true;
-          entryLoadingRef.current = false;
-          entryScrollIntentRef.current = null;
-          cachedScrollRef.current = null;
-          pendingScrollRestoreRef.current = null;
-          windowRef.current = { minSeq: merged[0]?.msgSeq ?? null, anchored: atLatest };
-          loadedRef.current = merged;
-          verifiedWindowRowsRef.current = merged;
-          loadedRevisionRef.current = revision;
-          windowVerifiedAtRef.current = Date.now();
-          // 目标和这次提交的窗口同帧交付，避免先绘制在旧的滚动坐标上。
-          flushSync(() => {
-            setLoaded(merged);
-            setMessagesLoading(false);
-            setLoadingNewerMessages(false);
-            setInitialReadingPosition(undefined);
-            setHasOlder(before.length >= PAGE_SIZE);
-            setHasNewer(!atLatest);
-            setAnchoredToLatest(atLatest);
+          console.error('[centerWindowOnSeq] fetch failed', err);
+          pushToast({
+            system: false,
+            tone: 'info',
+            durationKind: 'failure',
+            title: mode === 'firstUnread' ? '未读消息加载失败' : '目标消息加载失败',
+            detail:
+              mode === 'firstUnread'
+                ? err instanceof Error
+                  ? err.message
+                  : String(err)
+                : '暂时无法读取这段聊天记录，可重试定位。',
+            action: {
+              label: '重试定位',
+              icon: 'conversation',
+              run: () => {
+                if (
+                  scope === messageScopeRef.current &&
+                  selectionRef.current === selection &&
+                  messagesTabActiveRef.current
+                )
+                  void centerWindowOnSeq(conv, kind, targetSeq, exactRecord, messageId, {
+                    mode,
+                    importantMessage,
+                    onMissing,
+                    readingPosition,
+                  });
+              },
+            },
           });
-          // Exact row present → flash it. Otherwise fall back to the nearest real
-          // message: the clickable gap divider sits right beside it.
-          if (!current()) return false;
-          if (!targetSeq && exactId) {
-            const positioned = scrollToMsgId(target ? timelineRowKey(target) : exactId);
-            if (!positioned) pushToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
-            return positioned;
-          }
-          const anchor = target ?? (targetSeq ? nearestBySeq(merged, targetSeq) : undefined);
-          if (!target && targetSeq) {
-            if (!contextFetchFailed) onMissing?.();
-            setMissingJumpSeq(targetSeq);
-            pushToast({
-              tone: 'info',
-              durationKind: 'success',
-              title: '未找到该条消息',
-              detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
+          return false;
+        } finally {
+          clearTimeout(timeout);
+          if (pendingProxyJump.current === wait) pendingProxyJump.current = null;
+        }
+        if (!current()) return false;
+
+        const seen = new Set<string>();
+        let merged: MessageWire[] = [];
+        // before is DESC (newest-first) incl. centre → reverse to ASC; after is ASC.
+        for (const m of [...before.map(toMessageWire).reverse(), ...after.map(toMessageWire)]) {
+          if (seen.has(timelineRowKey(m))) continue;
+          seen.add(timelineRowKey(m));
+          merged.push(m);
+        }
+
+        if (exactRecord && !merged.some((message) => message.msgId === exactRecord.msgId))
+          merged.unshift(toMessageWire(exactRecord));
+        const exactId = messageId ?? exactRecord?.msgId;
+        const findTarget = () => {
+          if (mode === 'firstUnread' && targetSeq) return firstUnreadMessage(merged, targetSeq);
+          if (exactId) return findTimelineMessageById(merged, exactId, targetSeq);
+          if (targetSeq) return findUnreadMessage(merged, targetSeq, importantMessage);
+        };
+        let target = findTarget();
+        const autoContext = () =>
+          preferenceValue('autoFetchMissingMessages') || preferenceValue('autoFetchMissingContext');
+        let contextFetchFailed = false;
+        if (!target && targetSeq && !proxyTarget && autoContext()) {
+          try {
+            const rows = await fetchMissingContext(
+              targetSeq,
+              preferenceValue('autoFetchMissingMessages')
+                ? preferenceDefaults.missingMessageContextCount
+                : preferenceValue('missingMessageContextCount'),
+              (range) =>
+                client.account.fetchGapMessages.query({ ...binding, kind, conv, ...range }),
+              () => current() && autoContext(),
+            );
+            if (!current()) return false;
+            merged = mergeRoamingTimeline(
+              kind,
+              merged,
+              rows
+                .filter((row) => kind === 'group' || row.ntSeqVerified === true)
+                .map((row) => ({ ...toMessageWire(row), source: 'roaming' as const })),
+            );
+            target = findTarget();
+          } catch (error) {
+            if (!current()) return false;
+            contextFetchFailed = true;
+            pushLocateToast({
+              tone: 'warning',
+              title: '自动拉取上下文失败',
+              detail: error instanceof Error ? error.message : String(error),
             });
           }
-          if (anchor) {
-            const scroll = nativeMessageScrollRef.current;
-            if (readingPosition && scroll) {
-              restoreReadingPosition(scroll, {
-                ...readingPosition,
-                anchorId: timelineRowKey(anchor),
-              });
-              return true;
-            }
-            const positioned = scrollToMsgId(timelineRowKey(anchor), Boolean(target));
-            if (target && !positioned && (exactId || importantMessage || mode === 'firstUnread')) {
-              pushToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
-              return false;
-            }
+        }
+        if (!current()) return false;
+        if (!target && mode === 'firstUnread') {
+          pushLocateToast({
+            tone: 'info',
+            durationKind: 'failure',
+            title: '未找到可定位的未读消息',
+            detail: '本地未读区间暂无可用消息，可稍后重试或拉取缺失消息。',
+          });
+          return false;
+        }
+        if (target) setMissingJumpSeq(null);
+
+        const atLatest =
+          after.length < PAGE_SIZE && (!exactRecord || BigInt(targetSeq ?? '0') > 0n);
+        // Update the live-subscription's window descriptor synchronously: a
+        // db-changed tick between this setLoaded and the passive windowRef effect
+        // must not see the stale (anchored, old-minSeq) descriptor and replace our
+        // freshly-jumped window via refreshWindow's listFrom.
+        selection.explicitWindow = true;
+        entryLoadingRef.current = false;
+        entryScrollIntentRef.current = null;
+        cachedScrollRef.current = null;
+        pendingScrollRestoreRef.current = null;
+        windowRef.current = { minSeq: merged[0]?.msgSeq ?? null, anchored: atLatest };
+        loadedRef.current = merged;
+        verifiedWindowRowsRef.current = merged;
+        loadedRevisionRef.current = revision;
+        windowVerifiedAtRef.current = Date.now();
+        // 目标和这次提交的窗口同帧交付，避免先绘制在旧的滚动坐标上。
+        flushSync(() => {
+          setLoaded(merged);
+          setMessagesLoading(false);
+          setLoadingNewerMessages(false);
+          setInitialReadingPosition(undefined);
+          setHasOlder(before.length >= PAGE_SIZE);
+          setHasNewer(!atLatest);
+          setAnchoredToLatest(atLatest);
+        });
+        // Exact row present → flash it. Otherwise fall back to the nearest real
+        // message: the clickable gap divider sits right beside it.
+        if (!current()) return false;
+        if (!targetSeq && exactId) {
+          const positioned = scrollToMsgId(target ? timelineRowKey(target) : exactId);
+          if (!positioned) pushLocateToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
+          return positioned;
+        }
+        const anchor = target ?? (targetSeq ? nearestBySeq(merged, targetSeq) : undefined);
+        if (!target && targetSeq) {
+          if (!contextFetchFailed) onMissing?.();
+          setMissingJumpSeq(targetSeq);
+          pushLocateToast({
+            tone: 'info',
+            durationKind: 'success',
+            title: '未找到该条消息',
+            detail: anchor
+              ? '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。'
+              : '该消息可能已被撤回、删除或未同步，当前也没有可定位的附近消息。',
+          });
+        }
+        if (anchor) {
+          const scroll = nativeMessageScrollRef.current;
+          if (readingPosition && scroll) {
+            restoreReadingPosition(scroll, {
+              ...readingPosition,
+              anchorId: timelineRowKey(anchor),
+            });
+            return true;
           }
-          return Boolean(target);
-        },
-        notificationSource({ kind: 'conversation', conversationKind: kind, conv }),
-      ),
+          const positioned = scrollToMsgId(timelineRowKey(anchor), Boolean(target));
+          if (target && !positioned && (exactId || importantMessage || mode === 'firstUnread')) {
+            pushLocateToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
+            return false;
+          }
+        }
+        return Boolean(target);
+      }),
   );
 
   // Scroll the loaded message list to a reply target, then briefly flash it. The
@@ -6702,7 +6949,7 @@ function MainWorkspace(): ReactElement {
       if (!sel) {
         return false;
       }
-      pendingProxyJump.current = null;
+      cancelProxyJump();
       closeForwardWindows();
       cancelMessageLocate();
       setMissingJumpSeq(null);
@@ -6808,7 +7055,15 @@ function MainWorkspace(): ReactElement {
 
       return centerWindowOnSeq(sel.id, kind, targetSeq, undefined, jumpTarget.msgId, jumpTarget);
     },
-    [centerWindowOnSeq, scrollToMsgId, pushToast, cancelMessageLocate, selectionRef, loadedRef],
+    [
+      centerWindowOnSeq,
+      scrollToMsgId,
+      pushToast,
+      cancelMessageLocate,
+      cancelProxyJump,
+      selectionRef,
+      loadedRef,
+    ],
   );
 
   const searchQuery = shell.query.trim();
@@ -6885,7 +7140,7 @@ function MainWorkspace(): ReactElement {
       setSearchDismissed(true);
       if (!conv) return;
       pendingSearchJumpRef.current = null;
-      pendingProxyJump.current = null;
+      cancelProxyJump();
       cancelMessageLocate();
       closeForwardWindows();
       if (!searchTarget?.retainChatRecords) setChatRecordsTarget(null);
@@ -7444,26 +7699,14 @@ function MainWorkspace(): ReactElement {
     void centerWindowOnSeq(jump.conv, jump.kind, jump.seq, jump.record, jump.messageId);
   }, [messagesTabActive, selectedUid, isGroup, pendingSearchJumpRef, centerWindowOnSeq]);
 
+  useLayoutEffect(
+    () => cancelProxyJump,
+    [messageScope, selectedUid, messagesTabActive, cancelProxyJump],
+  );
   useEffect(() => {
     const jump = pendingProxyJump.current;
-    if (!jump) return;
-    if (
-      jump.scope !== messageScope ||
-      jump.selection !== selectionRef.current ||
-      !messagesTabActive ||
-      jump.expires < Date.now()
-    ) {
-      pendingProxyJump.current = null;
-      return;
-    }
-    const exact = findTimelineMessageById(loaded, jump.id);
-    if (!exact || !scrollToMsgId(timelineRowKey(exact))) return;
-    pendingProxyJump.current = null;
-    jump.selection.explicitWindow = true;
-    setMissingJumpSeq(null);
-  }, [loaded, messageScope, messagesTabActive, scrollToMsgId, selectionRef, setMissingJumpSeq]);
-
-  useSearchDismissal(searchQuery, searchFocused, setSearchDismissed, setSearchFocused);
+    if (jump && findTimelineMessageById(loaded, jump.id)) jump.resolve(true);
+  }, [loaded]);
 
   function updateConversationPreference(
     conversationId: string,
@@ -7591,25 +7834,69 @@ function MainWorkspace(): ReactElement {
     account: string;
     configId?: string;
     messages: Message[];
-    conversation?: Conversation;
+    sourceKind?: ForwardChatKind;
+    includeReplyExcerpt: boolean;
   } | null>(null);
-  const openSequentialForward = (messages: Message[], conversation?: Conversation) => {
-    const prepared = partitionForwardMessages(messages);
-    if (!prepared.sendable.length) {
-      pushToast({
-        tone: 'warning',
-        title: '没有可转发的消息',
-        detail: prepared.ignored[0]?.reason,
-      });
-      return;
-    }
-    setForwardBatch({
-      account: user.identityValue,
-      configId,
-      messages: structuredClone(messages),
-      conversation,
-    });
-  };
+  const openSequentialForward = useStableCallback(
+    async (messages: Message[], conversation?: Conversation) => {
+      if (forwardPreparation.current || forwardReview.review) return;
+      forwardPreparation.current = true;
+      forwardReplyExcerpt.current = false;
+      const scope = forwardReviewScopeRef.current;
+      const prepared = new Map<string, NonNullable<Message['composerDraft']>>();
+      const assessments = new Map<string, MessageBatchDecision>();
+      try {
+        for (const message of messages) {
+          if (scope !== forwardReviewScopeRef.current || messageScopeRef.current !== messageScope)
+            return;
+          const draft = failedForwardDraft(message);
+          if (!draft) continue;
+          try {
+            const locals = await resolveFailedForwardMedia(draft);
+            const stickers = new Map<string, ComposerSuperSticker>();
+            if (composerNeedsStickerCatalog(draft.body))
+              collectSuperStickers(await client.account.emojiPanel.overview.query(), stickers);
+            buildComposerSendPlan({ body: draft.body, locals, superStickers: stickers });
+            prepared.set(message.id, { body: draft.body, locals });
+          } catch (error) {
+            assessments.set(message.id, {
+              label: '原稿或附件不可用',
+              detail: composerSendError(error),
+            });
+          }
+        }
+        if (scope !== forwardReviewScopeRef.current) return;
+        const accepted = await reviewForwardSelection(
+          'forward',
+          messages,
+          conversation,
+          assessments,
+        );
+        if (!accepted?.length || scope !== forwardReviewScopeRef.current) return;
+        setForwardBatch({
+          account: user.identityValue,
+          configId,
+          sourceKind:
+            conversation?.type === 'group'
+              ? 'group'
+              : conversation?.type === 'direct'
+                ? 'c2c'
+                : undefined,
+          includeReplyExcerpt: forwardReplyExcerpt.current,
+          messages: structuredClone(
+            accepted.map((message) => {
+              const draft = prepared.get(message.id);
+              return draft ? { ...message, composerDraft: draft } : message;
+            }),
+          ),
+        });
+      } catch (error) {
+        pushToast({ tone: 'error', title: '准备转发失败', detail: composerSendError(error) });
+      } finally {
+        forwardPreparation.current = false;
+      }
+    },
+  );
   const openForwardTarget = (target: MfTarget) => {
     if (useViewState.getState().openedUin !== user.identityValue) {
       pushToast({
@@ -7624,7 +7911,18 @@ function MainWorkspace(): ReactElement {
       });
       return;
     }
-    shell.openConversation(target.id);
+    openNotificationSource(
+      notificationSource(
+        {
+          kind: 'conversation',
+          conversationKind: target.kind,
+          conv: target.id,
+          dismissTaskPanel: true,
+        },
+        '打开转发目标会话',
+        pinSession.binding,
+      ),
+    );
   };
   repeatContext.current = selectedConversation?.id ?? null;
   useEffect(() => {
@@ -7746,24 +8044,68 @@ function MainWorkspace(): ReactElement {
     return resolveMentionLabels(elements, people);
   }
 
+  async function resolveOriginalForwardReply(
+    message: Message,
+    kind: ForwardChatKind,
+    conv: string,
+    data: Record<string, unknown>,
+    expectedAccountUin: string,
+    expectedAccountConfigId: string | undefined,
+    isCurrent: () => boolean,
+  ) {
+    const lookup = forwardReplyLookup(kind, data);
+    let seq = lookup.index ? String(lookup.index) : null;
+    if (!seq && lookup.clientSeq && (lookup.senderUin || lookup.sendTime)) {
+      seq = await client.account.resolveReplySeq.query({
+        conv,
+        clientSeq: String(lookup.clientSeq),
+        senderUin: lookup.senderUin ? String(lookup.senderUin) : undefined,
+        sendTime: lookup.sendTime ? String(lookup.sendTime) : undefined,
+      });
+    }
+    if (!seq || !isCurrent()) return;
+    const { items } = await client.account.readSelectionRange.query({
+      kind,
+      conv,
+      startSeq: seq,
+      endSeq: seq,
+      limit: 2,
+      expectedAccountUin,
+      expectedAccountConfigId,
+    });
+    if (!isCurrent()) return;
+    const matches = items.filter(
+      (row) =>
+        row.msgId !== (message.msgId ?? message.id) &&
+        !row.deletedKind &&
+        !row.recall &&
+        !grayTipOf(row) &&
+        matchesForwardReply(kind, data, row),
+    );
+    if (matches.length === 1) return originalForwardReplyTarget(kind, matches[0]!);
+  }
+
   async function forwardMessage(
     message: Message,
     target: MfTarget,
     signal: AbortSignal,
     account = forwardBatch?.account,
     expectedAccountConfigId?: string,
+    reply?: { receipt?: ForwardReceipt; includeExcerpt: boolean; sourceKind?: ForwardChatKind },
   ) {
     const scope = messageScopeRef.current;
     const isCurrent = () =>
       !signal.aborted &&
       scope === messageScopeRef.current &&
       account === useViewState.getState().openedUin;
-    if (!isCurrent()) throw new Error('账号已切换或转发已停止');
+    if (!isCurrent()) throw new ForwardNotSubmitted('账号已切换或转发已停止');
     const reason = forwardMessageBlockReason(message);
-    if (reason) throw new Error(reason);
+    if (reason) throw new ForwardNotSubmitted(reason);
     const destination = conversations.find((item) => item.id === target.id);
-    if (!destination || destination.type === 'merged') throw new Error('目标会话已不存在');
-    const file = singleChatFile(message);
+    if (!destination || destination.type === 'merged')
+      throw new ForwardNotSubmitted('目标会话已不存在');
+    const draft = failedForwardDraft(message);
+    const file = draft ? undefined : singleChatFile(message);
     if (file) {
       const peer = sendTargetOf(destination);
       if (!peer || peer.tempGroupCode) throw new Error('此会话暂不支持转发文件');
@@ -7813,17 +8155,54 @@ function MainWorkspace(): ReactElement {
         const keys = expectedKeysOf({ peerType: peer.peerType, ...sent.file, ok: true });
         if (keys.seqRejected) throw new Error('QQ 未分配消息序号，文件转发结果未确认');
         patch({ state: 'sent', fileSync: { fileId: sent.file.fileId, existingMsgIds }, ...keys });
+        return sent.file;
       } catch (error) {
         patch({ state: 'failed', error: composerSendError(error) });
         throw error;
       }
-      return;
     }
-    // 引用指针属于来源会话，不能指向目标会话中同序号的另一条消息。
+    const quote = reply && forwardReplyData(message);
+    const kind = destination.type === 'group' ? 'group' : 'c2c';
+    const prefix =
+      quote && reply && account
+        ? await resolveForwardReplyPrefix({
+            data: quote,
+            kind,
+            uin: account,
+            receipt: reply.receipt,
+            includeExcerpt: reply.includeExcerpt,
+            original:
+              !message.forwardSnapshot &&
+              message.conversationId === destination.id &&
+              reply.sourceKind === kind
+                ? () =>
+                    resolveOriginalForwardReply(
+                      message,
+                      kind,
+                      destination.id,
+                      quote,
+                      account,
+                      expectedAccountConfigId,
+                      isCurrent,
+                    ).catch(() => undefined)
+                : undefined,
+          })
+        : undefined;
+    if (draft)
+      return sendMessage(
+        draft.body,
+        draft.locals,
+        undefined,
+        destination,
+        isCurrent,
+        expectedAccountConfigId,
+        undefined,
+        prefix,
+      );
     const source = (
       (message as Message & { qqElements?: RepeatElement[] }).qqElements ?? []
     ).filter((element) => element.type !== 'reply');
-    await sendMessage(
+    return sendMessage(
       messageBody(source),
       undefined,
       {
@@ -7833,8 +8212,57 @@ function MainWorkspace(): ReactElement {
       destination,
       isCurrent,
       expectedAccountConfigId,
+      undefined,
+      prefix,
     );
   }
+
+  const resumeForwardRef = useRef<(id: string, plan: ForwardPlan) => Promise<void>>(() =>
+    Promise.resolve(),
+  );
+  resumeForwardRef.current = (id, plan) => {
+    const { uin, configId: source } = plan.scope;
+    if (!source || uin !== user.identityValue || source !== configId)
+      throw new Error('请回到原账号和数据源继续。');
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled)
+      throw new Error('请先连接 QQ 再继续。');
+    if (plan.kind === 'merged') {
+      const sourceScope = messageScopeRef.current;
+      return runMergeForwardTask({
+        draft: plan.draft,
+        targets: plan.targets,
+        binding: { expectedAccountUin: uin, expectedAccountConfigId: source },
+        send: forwardMergeDraft,
+        isCurrent: () =>
+          sourceScope === messageScopeRef.current && uin === useViewState.getState().openedUin,
+        resume: { id, plan },
+      }).then(() => undefined);
+    }
+    if (!conversations.some((item) => item.id === plan.target.id && item.type !== 'merged'))
+      throw new Error('目标会话尚未加载或已不存在。');
+    return startSequentialForward({
+      scope: plan.scope,
+      targets: [plan.target],
+      messages: plan.messages,
+      options: plan.options,
+      sourceKind: plan.sourceKind,
+      includeExcerpt: plan.includeExcerpt,
+      onOpenTarget: openForwardTarget,
+      onSend: (message, target, signal, receipt) =>
+        forwardMessage(message, target, signal, uin, source, {
+          receipt,
+          includeExcerpt: plan.includeExcerpt,
+          sourceKind: plan.sourceKind,
+        }),
+      resume: { id, plan },
+    }).done;
+  };
+  useEffect(() => {
+    if (configId)
+      return registerForwardResumeHandler({ uin: user.identityValue, configId }, (id, plan) =>
+        resumeForwardRef.current(id, plan),
+      );
+  }, [configId, user.identityValue]);
 
   function outgoingFontRequest(
     target: ReturnType<typeof sendTargetOf>,
@@ -7953,6 +8381,11 @@ function MainWorkspace(): ReactElement {
     const preparingFont = Boolean(
       fontRequest && sendAccess.data?.qqOnline && sendAccess.data.attachEnabled,
     );
+    submission.mediaSend = outgoingMediaSend(
+      render.elements,
+      { name: conversationRowName(conversation), type: conversation.type },
+      scope,
+    );
     submission.pictures = outgoingPicturePreviews(render.elements);
     // 会话切换时输入框会释放自己的持有，已发气泡仍需要这些 Blob。
     const urls = new Set(
@@ -7968,6 +8401,7 @@ function MainWorkspace(): ReactElement {
         afterSeq: submission.afterSeq,
         ...render,
         composerDraft: submission.draft,
+        mediaSend: submission.mediaSend,
         preparingFont,
         state: 'queued',
         at: submission.at ?? Date.now(),
@@ -8005,6 +8439,7 @@ function MainWorkspace(): ReactElement {
                 state: 'sending',
                 preparingFont: item.preparingFont || (preparingFont && !fontPreparation),
                 hostReceived: false,
+                transferId: undefined,
                 error: undefined,
               }
             : item,
@@ -8016,7 +8451,7 @@ function MainWorkspace(): ReactElement {
           const result = await fontPreparation;
           if ('error' in result) {
             fontPreparation = undefined;
-            if (isCurrent()) {
+            if (isCurrent() && !submission.mediaSend) {
               const pushToast = sourceToastPush(conversationNotificationSource(conversation));
               pushToast({
                 tone: 'error',
@@ -8067,7 +8502,8 @@ function MainWorkspace(): ReactElement {
     isCurrent = () => repeatContext.current === selectedConversation?.id,
     expectedAccountConfigId = pinSession.binding?.expectedAccountConfigId,
     submission?: FontAwareSubmission,
-  ): Promise<void> {
+    forwardPrefix?: ForwardReplyPrefix,
+  ): Promise<ForwardReceipt | undefined> {
     if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
     const conversation = destination ?? selectedConversation;
     const pushToast = sourceToastPush(conversationNotificationSource(conversation));
@@ -8075,23 +8511,26 @@ function MainWorkspace(): ReactElement {
       pushToast({ tone: 'warning', durationKind: 'success', message: '没有选中的会话' });
       throw new Error('no conversation');
     }
+    let mediaSend = submission?.mediaSend;
     if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
-      pushToast({
-        tone: 'warning',
-        message: 'QQ 未在线或处于完全离线模式',
-        detail: '发送消息需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
-      });
-      throw new Error('qq offline');
+      if (!mediaSend)
+        pushToast({
+          tone: 'warning',
+          message: 'QQ 未在线或处于完全离线模式',
+          detail: '发送消息需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+        });
+      throw new Error(mediaSend ? '请登录 QQ 并退出完全离线模式后重试' : 'qq offline');
     }
     const target = sendTargetOf(conversation);
     if (!target) {
-      pushToast({
-        tone: 'warning',
-        message: '这个会话不支持发送消息',
-        durationKind: 'success',
-        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
-      });
-      throw new Error('unsupported conversation');
+      if (!mediaSend)
+        pushToast({
+          tone: 'warning',
+          message: '这个会话不支持发送消息',
+          durationKind: 'success',
+          detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+        });
+      throw new Error(mediaSend ? '这个会话不支持发送附件' : 'unsupported conversation');
     }
 
     // 正文回显与请求共用字体快照，目录、媒体和提及仍在回显后准备。
@@ -8099,10 +8538,17 @@ function MainWorkspace(): ReactElement {
     const optimisticId = submission?.id ?? `optimistic-${mfId('msg')}`;
     let preparedChatFont = submission?.preparedChatFont;
     if (submission) submission.started = true;
-    if (!submission) {
-      const render = repeated
+    const render = submission
+      ? undefined
+      : repeated
         ? { body, elements: repeated.elements }
         : buildOptimisticRender({ body, locals: locals ?? [], superStickers: new Map() });
+    if (render) {
+      mediaSend = outgoingMediaSend(
+        render.elements,
+        { name: conversationRowName(conversation), type: conversation.type },
+        messageScopeRef.current,
+      );
       const fontRequest = outgoingFontRequest(target, render.elements);
       if (fontRequest)
         preparedChatFont = await prepareOutgoingFont(
@@ -8117,8 +8563,10 @@ function MainWorkspace(): ReactElement {
         convId: conversation.id,
         afterSeq: outgoingAfterSeq(conversation.id),
         body: render.body,
+        mediaSend,
         elements: render.elements,
         decoration: preparedChatFont ? outgoingFontDecoration(preparedChatFont) : undefined,
+        ...(!repeated ? { composerDraft: { body, locals } } : {}),
         state: 'sending',
         at: Date.now(),
       };
@@ -8153,6 +8601,8 @@ function MainWorkspace(): ReactElement {
       hint?: string;
       groupSequence?: number;
       privateSequence?: number;
+      clientSequence?: number;
+      timestamp?: number;
       random?: number;
       fileHash?: string;
       fileName?: string;
@@ -8172,6 +8622,11 @@ function MainWorkspace(): ReactElement {
           ? await repeated.plan()
           : repeated.plan
         : buildComposerSendPlan({ body, locals: locals ?? [], superStickers });
+      if (forwardPrefix && render && plan.kind === 'elements') {
+        plan = { ...plan, elements: [forwardPrefix.element, ...plan.elements] };
+        const elements = [forwardPrefix.preview, ...render.elements];
+        patchOptimistic({ elements, body: messageBody(elements) });
+      }
       if (
         plan.kind === 'file' ||
         (plan.kind === 'elements' &&
@@ -8206,13 +8661,7 @@ function MainWorkspace(): ReactElement {
         if (target.tempGroupCode) {
           // 私聊文件走的是 trans0x211 路由（c2c 专用），临时会话还没验证过对应的文件
           // 管线：与其发一条大概率被拒的 c2c 文件，不如如实说清楚。
-          pushToast({
-            tone: 'warning',
-            message: '群临时会话暂不支持发文件',
-            durationKind: 'success',
-            detail: '文件走的是私聊专用的 trans0x211 管线，临时会话还没有对应实现。',
-          });
-          throw new Error('temp session file unsupported');
+          throw new Error('群临时会话暂不支持发文件');
         }
         const sendFile = (source: { path: string } | { uploadId: string }) =>
           client.account.sendFile.mutate({
@@ -8251,6 +8700,8 @@ function MainWorkspace(): ReactElement {
             isCurrent,
             (uploadId) => sendFile({ uploadId }),
             reportToHost,
+            `${target.peerType}:${target.targetId}`,
+            (result) => !result.ok && (result.scene === 'group' || Boolean(result.result)),
           );
         }
       } else if (plan.kind === 'voice') {
@@ -8306,11 +8757,7 @@ function MainWorkspace(): ReactElement {
     } catch (error) {
       const reason = composerSendError(error);
       patchOptimistic({ state: 'failed', error: reason });
-      pushToast({
-        tone: 'error',
-        message: '发送失败',
-        detail: reason,
-      });
+      if (!mediaSend) pushToast({ tone: 'error', message: '发送失败', detail: reason });
       throw error;
     } finally {
       if (transferId) transferActivity?.setLocal(transferId);
@@ -8320,7 +8767,7 @@ function MainWorkspace(): ReactElement {
     if (!outcome.ok) {
       const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条消息';
       patchOptimistic({ state: 'failed', error: reason });
-      pushToast({ tone: 'error', message: '发送失败', detail: reason });
+      if (!mediaSend) pushToast({ tone: 'error', message: '发送失败', detail: reason });
       throw new Error(reason);
     }
 
@@ -8352,7 +8799,7 @@ function MainWorkspace(): ReactElement {
         }),
         state: 'sent',
       });
-      return;
+      return outcome;
     }
     if (plan.kind === 'aiVoice' || plan.kind === 'flashTransfer') {
       // AI 声聊回执提供音频哈希，QQ 的正式语音元素也携带该文件标识。
@@ -8390,15 +8837,21 @@ function MainWorkspace(): ReactElement {
         return next;
       });
     }
-    patchOptimistic({ ...keys, state: 'sent' });
+    patchOptimistic({
+      ...keys,
+      ...(mediaSend && rejected ? { seqRejected: true } : {}),
+      state: 'sent',
+    });
     if (rejected) {
-      pushToast({
-        tone: 'warning',
-        message: '这条消息可能未被服务端接收',
-        detail: '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。请让对方确认。',
-      });
+      if (!mediaSend)
+        pushToast({
+          tone: 'warning',
+          message: '这条消息可能未被服务端接收',
+          detail: '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。请让对方确认。',
+        });
       throw new Error('服务端未分配消息序号，未确认发送成功');
     }
+    return outcome;
   }
 
   /** 发起通话。群聊先选择邀请对象。 */
@@ -8578,6 +9031,12 @@ function MainWorkspace(): ReactElement {
       {
         id: optimisticId,
         transferId,
+        mediaSend: {
+          scope,
+          subject: payload.name || '闪照',
+          conversationName: conversationRowName(conversation),
+          conversationKind: target.peerType,
+        },
         convId: conversation.id,
         body: FLASH_PHOTO_PLACEHOLDER_TEXT,
         afterSeq: outgoingAfterSeq(conversation.id),
@@ -8625,24 +9084,17 @@ function MainWorkspace(): ReactElement {
             : {}),
           ...(outcome.random !== undefined ? { random: outcome.random } : {}),
         }),
+        seqRejected: isSeqRejected({
+          ...outcome,
+          peerType: target.peerType,
+          targetId: target.targetId,
+        }),
         state: 'sent',
       });
-      if (isSeqRejected({ ...outcome, peerType: target.peerType, targetId: target.targetId })) {
-        pushToast({
-          tone: 'warning',
-          message: '这条闪照可能未被服务端接收',
-          detail: '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。',
-        });
-      }
     } catch (error) {
       patchOptimistic({
         state: 'failed',
         error: error instanceof Error ? error.message : String(error),
-      });
-      pushToast({
-        tone: 'error',
-        message: '发送失败',
-        detail: error instanceof Error ? error.message : String(error),
       });
       throw error;
     } finally {
@@ -8702,10 +9154,18 @@ function MainWorkspace(): ReactElement {
       payload.file ?? new Blob([bytes], { type: 'video/mp4' }),
     );
     const optimisticId = `optimistic-${mfId('bub')}`;
+    const transferId = newOutgoingRequestId();
     setOptimisticMessages((current) => [
       ...current,
       {
         id: optimisticId,
+        transferId,
+        mediaSend: {
+          scope,
+          subject: payload.name || '泡泡视频',
+          conversationName: conversationRowName(conversation),
+          conversationKind: target.peerType,
+        },
         convId: conversation.id,
         body: '[泡泡消息]',
         afterSeq: outgoingAfterSeq(conversation.id),
@@ -8742,6 +9202,7 @@ function MainWorkspace(): ReactElement {
         ...outgoingReceipt(optimisticId),
         expectedAccountUin: user.identityValue,
         expectedAccountConfigId,
+        transferId,
         peerType: target.peerType,
         targetId: target.targetId,
         elements: toIpcElements([
@@ -8770,24 +9231,17 @@ function MainWorkspace(): ReactElement {
             : {}),
           ...(outcome.random !== undefined ? { random: outcome.random } : {}),
         }),
+        seqRejected: isSeqRejected({
+          ...outcome,
+          peerType: target.peerType,
+          targetId: target.targetId,
+        }),
         state: 'sent',
       });
-      if (isSeqRejected({ ...outcome, peerType: target.peerType, targetId: target.targetId })) {
-        pushToast({
-          tone: 'warning',
-          message: '这条泡泡消息可能未被服务端接收',
-          detail: '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。',
-        });
-      }
     } catch (error) {
       patchOptimistic({
         state: 'failed',
         error: error instanceof Error ? error.message : String(error),
-      });
-      pushToast({
-        tone: 'error',
-        message: '发送失败',
-        detail: error instanceof Error ? error.message : String(error),
       });
       throw error;
     } finally {
@@ -9429,6 +9883,21 @@ function MainWorkspace(): ReactElement {
     preferences: conversationPrefs,
     groupAssistantIds,
     resolveGroupSenderName: resolveNoticeGroupSenderName,
+    onMessageBatch: (messages) => {
+      const jump = pendingProxyJump.current;
+      if (!jump || jump.scope !== messageScope || jump.selection !== selectionRef.current) return;
+      const { selection, id } = jump;
+      if (
+        messages.some(
+          (row) =>
+            !row.live &&
+            row.conv === selection.id &&
+            row.kind === (selection.kind === 'group' ? 'group' : 'c2c') &&
+            proxyNoticeIdentity(row) === id,
+        )
+      )
+        jump.resolve(true);
+    },
     badgeCount: messageBadgeCount,
     foregroundConversation:
       messagesTabActive && !settingsOpen && !dressUpOpen ? selectedUid : undefined,
@@ -9682,23 +10151,16 @@ function MainWorkspace(): ReactElement {
       ),
     );
   }
-  const [cloneCreateRequest, setCloneCreateRequest] = useState<{
-    revision: number;
-    friendUids?: string[];
+  const [cloneCreation, setCloneCreation] = useState<{
+    scope: string;
+    request: CloneCreationRequest;
   } | null>(null);
   function handleCreateClone(friendUids?: string[]): void {
-    flushAllDirtyDrafts();
-    setSettingsOpen(false);
-    setMobileConversationList(false);
-    setCloneCreateRequest((current) => ({
-      revision: (current?.revision ?? 0) + 1,
-      friendUids,
-    }));
-    changeConversationView('clone', conversationView === 'regular');
-    setSpecialChat(null);
-    shell.switchView('agentlab');
+    setCloneCreation({ scope: messageScope, request: { kind: 'persona', friendUids } });
   }
-  const [cloneGroupRequest, setCloneGroupRequest] = useState(0);
+  function handleCreateCloneGroup(): void {
+    setCloneCreation({ scope: messageScope, request: { kind: 'group' } });
+  }
   const [overviewCalendar, setOverviewCalendar] = useState<{
     query: string;
     task?: CalendarTaskOpening & { accountScope: string };
@@ -10232,7 +10694,7 @@ function MainWorkspace(): ReactElement {
       onLoadMore={deletions.loadMore}
       error={deletions.error}
       onRetry={() => void deletions.retry()}
-      onRestore={(msgId) => handleRestoreMessage(msgId, deletedConv)}
+      onRestore={qqReadOnly ? undefined : (msgId) => handleRestoreMessage(msgId, deletedConv)}
       onLocate={(seq, messageId) => {
         const target = convFetchKey(deletedConv);
         if (mobileLayout) closeConversationRecords();
@@ -10362,13 +10824,8 @@ function MainWorkspace(): ReactElement {
         revision: (previous?.revision ?? 0) + 1,
       }));
     } else if (target.kind === 'clone-create') {
-      if (target.group) {
-        flushAllDirtyDrafts();
-        setCloneGroupRequest((current) => current + 1);
-        changeConversationView('clone', conversationView === 'regular');
-        setSpecialChat(null);
-        shell.switchView('agentlab');
-      } else handleCreateClone();
+      if (target.group) handleCreateCloneGroup();
+      else handleCreateClone();
     } else if (target.kind === 'self-profile') {
       if (shell.view === 'messages') flushAllDirtyDrafts();
       setMemberCard(null);
@@ -10499,7 +10956,7 @@ function MainWorkspace(): ReactElement {
       jumpToConvSeq(
         destination.kind,
         destination.id,
-        undefined,
+        destination.seq,
         false,
         undefined,
         destination.messageId,
@@ -10908,6 +11365,7 @@ function MainWorkspace(): ReactElement {
               setSearchFocused(true);
               setSearchDismissed(false);
             }}
+            onSearchDismiss={dismissGlobalSearch}
             // 搜索框下方的浮层：范围先于输入显示，结果由关键词控制。
             // 它挂在搜索框上（不是可滚动列表里），所以会话列表怎么滚都看得见。
             searchPanel={
@@ -11200,16 +11658,6 @@ function MainWorkspace(): ReactElement {
                           if (mobileLayout) setMobileConversationList(true);
                           else setArkFeedState(null);
                         }}
-                        onEditMessage={async (msgId: string) => {
-                          try {
-                            const result = await client.account.getRawElements.query({ msgId });
-                            if (result) {
-                              setEditorState({ msgId, elements: result.elements });
-                            }
-                          } catch (e) {
-                            console.error('[MainView] Failed to fetch raw elements:', e);
-                          }
-                        }}
                       />
                     ) : shell.view === 'home' ? (
                       <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
@@ -11218,18 +11666,7 @@ function MainWorkspace(): ReactElement {
                         <AgentLabView
                           searchTarget={cloneSearchTarget}
                           openTarget={virtualOpen}
-                          createRequest={cloneCreateRequest}
-                          openGroupRequest={cloneGroupRequest}
                           embedded
-                          onConversationCreated={(target) => {
-                            setVirtualOpen({ ...target, revision: Date.now() });
-                            setConversationLocate({
-                              id: `virtual:${target.kind}:${target.id}`,
-                              revision: Date.now(),
-                            });
-                            setSearchViewOrigin(null);
-                            setConversationView('clone');
-                          }}
                           onBackToDirectory={() => {
                             if (mobileLayout) {
                               setMobileConversationList(true);
@@ -11336,8 +11773,10 @@ function MainWorkspace(): ReactElement {
                               activeConversation?.type === 'merged' ? undefined : activeConversation
                             }
                             messages={templateMessages}
+                            peerTyping={qqPeerTyping}
                             messageRenderers={messageRenderers}
                             loadingMessages={loadingInitialMessages}
+                            locatingMessage={locatingMessage}
                             loadError={
                               failedStage === 'entry'
                                 ? loaded.length
@@ -11446,7 +11885,9 @@ function MainWorkspace(): ReactElement {
                                   )
                                 : undefined
                             }
-                            onSeeInteractions={interactionBadges.acknowledge}
+                            onSeeInteractions={
+                              qqReadOnly ? undefined : interactionBadges.acknowledge
+                            }
                             conversationPrefs={conversationPrefs}
                             drafts={drafts}
                             query={shell.query}
@@ -11495,8 +11936,10 @@ function MainWorkspace(): ReactElement {
                             onSentSpeechDraft={clearSentSpeechDraft}
                             onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                             onBackConversation={shell.backConversation}
-                            onEditRaw={handleEditRaw}
-                            onDeleteMessage={handleDeleteMessage}
+                            onMessageRecordEdited={
+                              qqReadOnly ? undefined : handleMessageRecordEdited
+                            }
+                            onDeleteMessage={qqReadOnly ? undefined : handleDeleteMessage}
                             onDismissUnsentMessage={dismissUnsentOutgoing}
                             onOpenGroupAlbums={handleOpenGroupAlbums}
                             onOpenGroupFiles={handleOpenGroupFiles}
@@ -11558,8 +12001,10 @@ function MainWorkspace(): ReactElement {
                             }}
                             deletedIds={deletedIds}
                             hiddenDeletedIds={hiddenDeletedIds}
-                            onRestoreMessage={(msgId) =>
-                              handleRestoreMessage(msgId, selectedConversation)
+                            onRestoreMessage={
+                              qqReadOnly
+                                ? undefined
+                                : (msgId) => handleRestoreMessage(msgId, selectedConversation)
                             }
                             unreadDock={unreadSelectionId === null ? null : unreadDock}
                             unreadDockEntryPending={
@@ -11578,15 +12023,6 @@ function MainWorkspace(): ReactElement {
               </WorkspaceContent>
             }
           />
-
-          {editorState ? (
-            <MsgElementEditor
-              msgId={editorState.msgId}
-              elements={editorState.elements}
-              onClose={() => setEditorState(null)}
-              onSave={handleSaveRaw}
-            />
-          ) : null}
 
           {settingsOpen ? (
             <SettingsDialog
@@ -11630,6 +12066,7 @@ function MainWorkspace(): ReactElement {
                 accountScope={messageScope}
                 footerControls={controls}
                 onOpenCalendarTask={openCalendarTask}
+                onOpenAnalysisReport={openAnalysisReport}
                 onOpenAssistant={(target) => {
                   changeConversationView('assistant');
                   if (target?.sessionId) openAssistantConversation(target.sessionId, target);
@@ -11996,15 +12433,15 @@ function MainWorkspace(): ReactElement {
             onClose={compositionWindow.close}
             onForward={forwardMergeDraft}
             onOpenTarget={openForwardTarget}
-            onSend={(message, target, signal, binding) =>
-              forwardMessage(
+            onSend={async (message, target, signal, binding) => {
+              await forwardMessage(
                 message,
                 target,
                 signal,
                 user.identityValue,
                 binding.expectedAccountConfigId,
-              )
-            }
+              );
+            }}
           />
           {floatingPreview ? conversationPreviewContent : null}
           {specialPreview && messageBindingRef.current ? (
@@ -12053,17 +12490,42 @@ function MainWorkspace(): ReactElement {
               onClose={() => setUnplacedRoaming(null)}
             />
           ) : null}
+          {forwardReview.review ? (
+            <MessageBatchActionDialog
+              {...forwardReview.review}
+              conversation={forwardReviewSource ?? selectedConversation}
+              user={user}
+              renderers={messageRenderers}
+              deleted={(message) => deletedIdentities.has(deletionIdentity(message.id))}
+              onClose={() => forwardReview.finish(null)}
+              onContinue={(messages, includeReplyExcerpt) => {
+                forwardReplyExcerpt.current = includeReplyExcerpt;
+                forwardReview.finish(messages);
+              }}
+            />
+          ) : null}
           {forwardBatch &&
           forwardBatch.account === user.identityValue &&
           forwardBatch.configId === configId ? (
             <SequentialForwardDialog
               messages={forwardBatch.messages}
-              conversation={forwardBatch.conversation}
               user={user}
-              renderers={messageRenderers}
               targets={mergeForwardTargets}
-              onSend={(message, target, signal) =>
-                forwardMessage(message, target, signal, forwardBatch.account, forwardBatch.configId)
+              sourceKind={forwardBatch.sourceKind}
+              includeExcerpt={forwardBatch.includeReplyExcerpt}
+              onSend={(message, target, signal, receipt) =>
+                forwardMessage(
+                  message,
+                  target,
+                  signal,
+                  forwardBatch.account,
+                  forwardBatch.configId,
+                  {
+                    receipt,
+                    includeExcerpt: forwardBatch.includeReplyExcerpt,
+                    sourceKind: forwardBatch.sourceKind,
+                  },
+                )
               }
               onOpenTarget={openForwardTarget}
               onClose={() => setForwardBatch(null)}
@@ -12082,6 +12544,16 @@ function MainWorkspace(): ReactElement {
               />
             ) : null,
           )}
+          {cloneCreation?.scope === messageScope ? (
+            <CloneCreationDialog
+              request={cloneCreation.request}
+              profiles={profileByUid}
+              resolveProfiles={resolveProfiles}
+              onClose={() =>
+                setCloneCreation((current) => (current === cloneCreation ? null : current))
+              }
+            />
+          ) : null}
           {overviewCalendar && (!calendarTask || calendarTask.accountScope === messageScope) ? (
             <ConversationOverviewCalendar
               key={calendarTask?.taskId}
@@ -12583,8 +13055,9 @@ function MainWorkspace(): ReactElement {
                               }));
                             },
                             onRoaming: handleRoamingTargets,
-                            onReadState: (rows, unread) =>
-                              void changeConversationReadState(rows, unread),
+                            onReadState: qqReadOnly
+                              ? undefined
+                              : (rows, unread) => void changeConversationReadState(rows, unread),
                             readStateBusy,
                             onVisibleConversations: prefetchVisibleConversations,
                             onConversationIntent: (row) => {
@@ -12609,14 +13082,7 @@ function MainWorkspace(): ReactElement {
                               shell.switchView('agentlab');
                             },
                             onCreate: handleCreateClone,
-                            onCreateGroup: () => {
-                              flushAllDirtyDrafts();
-                              setMobileConversationList(false);
-                              setCloneGroupRequest((current) => current + 1);
-                              changeConversationView('clone', conversationView === 'regular');
-                              setSpecialChat(null);
-                              shell.switchView('agentlab');
-                            },
+                            onCreateGroup: handleCreateCloneGroup,
                           })}
                         >
                           <FriendDirectoryControls>
@@ -12791,10 +13257,24 @@ function MainWorkspace(): ReactElement {
       </GroupResourceNavigationContext.Provider>
     </ConversationSettingsNavigationContext.Provider>,
   );
+  const fileTransferTipScope = useMemo(
+    () =>
+      messageScope && selectedUid && openedUin && configId
+        ? {
+            kind: isGroup ? ('group' as const) : ('c2c' as const),
+            conv: selectedUid,
+            expectedAccountUin: openedUin,
+            expectedAccountConfigId: configId,
+          }
+        : null,
+    [messageScope, selectedUid, openedUin, configId, isGroup],
+  );
   return (
     <ProfileChatShortcutContext.Provider value={profileChatShortcut}>
       <GrayTipNamesContext.Provider value={previewDisplayNames}>
-        {workspace}
+        <FileTransferTipScopeContext.Provider value={fileTransferTipScope}>
+          {workspace}
+        </FileTransferTipScopeContext.Provider>
       </GrayTipNamesContext.Provider>
     </ProfileChatShortcutContext.Provider>
   );

@@ -20,10 +20,15 @@
 
 import { setTimeout as delay } from 'node:timers/promises';
 import { AccountQqSync } from '../qq_sync/account';
+import type { LiveMessage } from '../qq_sync/live_messages';
 import { GroupReactionWatch } from '../qq_sync/group_reaction_watch';
 import { coalesceLiveDbWatch, createLiveMessageObservers } from '../qq_sync/live_db_watch';
-import { ensureQqSyncProxy, isQqSyncProxyEnabled, qqSyncStatus } from '../qq_sync/runtime';
-import { readAccountQqSync } from '../qq_sync/preferences';
+import {
+  ensureQqSyncProxy,
+  isQqSyncProxyEnabled,
+  qqSyncStatus,
+  setQqSyncProxyEnabled,
+} from '../qq_sync/runtime';
 import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { onSettingsChanged } from '@weq/service/settings-changes';
@@ -59,7 +64,10 @@ import {
   AnnualReportIndexDb,
   GroupNotifyStatus,
   MessageReadIndexDb,
+  configureQqDatabaseReadOnly,
+  configureQqFileWriteRoots,
   databaseUnderMaintenance,
+  qqDatabaseReadOnly,
   withDatabasePriority,
   waitForDatabaseQuiet,
 } from '@weq/db';
@@ -104,6 +112,7 @@ import { createSourceSearchQuery } from '../source_search';
 import { createLocalModelResources } from './local_model_resources';
 import { createEnhancementResources } from '../enhancements/resources';
 import { createSearchIndexRetirement } from '../source_search_retirement';
+import { activeQqDataRoots, applyNativeQqReadOnly } from '../qq_output_path';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
 import {
@@ -262,6 +271,7 @@ import { mountGroupInfoWatch } from '../group_info_watch';
 import { mountContactNoticeWatch } from '../contact_notice_watch';
 import { CONTACT_NOTICE_LIMIT } from '../../shared/contact_notices';
 import type { MessageDbNotice } from '../../shared/message_read';
+import type { QqLiveBusinessBatch, QqLivePeer } from '../../shared/qq_live_business';
 import { ContactDirectoryRuntime } from './contact_metrics';
 
 /**
@@ -289,6 +299,7 @@ export interface RoamingCacheChange {
   conv: string;
   messages: GapFetchedMessage[];
   live?: true;
+  livePeer?: QqLivePeer;
   recallPatch?: true;
 }
 
@@ -655,9 +666,13 @@ function mountDbWatch(session: AccountSession): void {
     (change) => dbEventBus.emit('group-info-changed', change),
     () => getAppContext().services?.qqClientSync?.hasRecentGroupUpdates() === true,
   );
+  const knownChanges = new WeakSet<DbChange>();
   const notification = createDbChangeNotification((file: DbChange) => {
     if (getAppContext().account !== session) return;
-    dbEventBus.emit('changed', { at: file.at } satisfies MessageDbNotice);
+    dbEventBus.emit('changed', {
+      at: file.at,
+      ...(knownChanges.has(file) ? { backgroundReconcile: true } : {}),
+    } satisfies MessageDbNotice);
   });
   state.dbChangeNotification = notification;
   const hasRecentPush = () =>
@@ -679,6 +694,7 @@ function mountDbWatch(session: AccountSession): void {
     usesSharedRead,
   );
   const messageWatch = createNtMsgDbHook(session, {
+    onWatermarksAdvanced: (file) => knownChanges.add(file),
     onDbChanged: (file) => {
       if (usesSharedRead()) deferredChanges.add(file);
       return reconcile.onDbFileChangeHook(file);
@@ -919,6 +935,7 @@ export function closeSalvageConnections(ctx: AppContext): number {
  */
 function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platform: Platform): void {
   cancelAnnualReportWarmup();
+  if (qqDatabaseReadOnly()) return;
   const controller = new AbortController();
   runtimeState().annualIndexController = controller;
   const logger = getLogger().child({ scope: 'database-index' });
@@ -1686,10 +1703,29 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     logDir: getLogDir(),
   });
   const userConfig = files.config;
-  if (isQqSyncProxyEnabled(qqSyncRoot)) {
+  readDataRootOverride = () => userConfig.read().tencentFilesRootOverride ?? null;
+  const proxyEnabled = isQqSyncProxyEnabled(qqSyncRoot);
+  try {
+    userConfig.migrateQqCapabilityMode(proxyEnabled);
+  } catch (error) {
+    logger.warn('QQ 能力档位迁移未保存，下次启动时重试', logErrorContext(error));
+  }
+  configureQqDatabaseReadOnly(() => userConfig.getSetting('qqCapabilityMode') === 'read-only');
+  configureQqFileWriteRoots(() => activeQqDataRoots(platform, userConfig, state.cached));
+  if (qqDatabaseReadOnly()) {
+    try {
+      applyNativeQqReadOnly(platform, userConfig, true);
+    } catch (error) {
+      const message = (error as Error).message;
+      state.cached = unavailableContext({ kind: 'damaged', status: null, message }, message);
+      return state.cached;
+    }
+  }
+  if (proxyEnabled || userConfig.getSetting('qqCapabilityMode') === 'complete') {
     void logRequest('qq-sync', 'qqSync.startProxy', 'operation', async () => {
       try {
-        await ensureQqSyncProxy(qqSyncRoot);
+        if (proxyEnabled) await ensureQqSyncProxy(qqSyncRoot);
+        else await setQqSyncProxyEnabled(qqSyncRoot, true);
       } finally {
         await qqSyncStatus(qqSyncRoot);
       }
@@ -1709,7 +1745,6 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         return path ? readFileSync(path, 'utf-8') : null;
       },
     });
-  readDataRootOverride = () => userConfig.read().tencentFilesRootOverride ?? null;
   readUidFromConfig = (uin: string): string | null => {
     for (const rec of userConfig.listAccountConfigs()) {
       if (rec.uin === uin && rec.uid) return rec.uid;
@@ -1808,7 +1843,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
   // change between 进入 and 使用 is honoured). Factored here to avoid duplication.
   const transcribeSilk = async (silkPath: string): Promise<TranscribeSilkResult> => {
     const modelId = userConfig.getLocalModelId('voice');
-    if (!modelId) return { ok: false, error: '请先到「设置 → 能力 → 增强包」准备本地语音转写' };
+    if (!modelId) return { ok: false, error: '请先到「设置 → 应用 → 增强包」准备本地语音转写' };
     const model = getVoiceModel(modelId);
     if (!model) return { ok: false, error: '转录模型不存在' };
     const status = bootstrap.voiceTranscribe.getModelStatus(modelId);
@@ -1887,6 +1922,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       const base = this.platform;
       if (!base) throw new Error('原生组件尚未就绪');
       const platform = base;
+      if (qqDatabaseReadOnly()) applyNativeQqReadOnly(platform, userConfig, true, metadata.dataDir);
       cancelAnnualReportWarmup();
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
@@ -1911,6 +1947,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
       this.services?.unifiedSearch.dispose();
+      this.services?.mediaResource?.dispose();
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await this.services?.qqClientSync?.dispose();
@@ -2211,16 +2248,16 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         session,
         nt: platform.native.ntHelper,
         proxyEnabled: () => isQqSyncProxyEnabled(qqSyncRoot),
-        enabled: () => this.account === session && readAccountQqSync(this).enabled,
+        enabled: () =>
+          this.account === session && userConfig.getSetting('qqCapabilityMode') === 'complete',
         liveEnabled: () =>
-          this.account === session &&
-          userConfig.getSetting('realtimeEnabled') &&
-          readAccountQqSync(this).liveMessages,
+          this.account === session && userConfig.getSetting('qqCapabilityMode') === 'complete',
         allowLiveMessage: (row) => !deletedMsgs.isHiddenCached(row),
         onLiveMessages: (messages) => {
           if (this.account !== session) return;
-          state.groupKeyword?.observeLiveText(messages);
-          const byConversation = new Map<string, GapFetchedMessage[]>();
+          const incoming = messages.filter((row) => row.senderUid !== session.selfUid);
+          state.groupKeyword?.observeLiveText(incoming);
+          const byConversation = new Map<string, LiveMessage[]>();
           for (const row of messages) {
             const key = `${row.kind}:${row.conv}`;
             const rows = byConversation.get(key);
@@ -2228,31 +2265,32 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             else byConversation.set(key, [row]);
           }
           for (const rows of byConversation.values()) {
-            const { kind, conv } = rows[0]!;
+            const { kind, conv, livePeer } = rows[rows.length - 1]!;
             this.services?.unreadInfo.observeLiveUnread(
               { chatType: kind === 'group' ? 2 : 1, uid: conv },
-              rows.map((row) => row.msgSeq),
+              rows.filter((row) => row.senderUid !== session.selfUid).map((row) => row.msgSeq),
             );
             dbEventBus.emit('roaming', {
               session,
               kind,
               conv,
-              messages: rows,
+              messages: rows.map(({ livePeer: _livePeer, ...row }) => row),
               live: true,
+              livePeer,
             } satisfies RoamingCacheChange);
           }
-          if (dbEventBus.listenerCount('live-message-notice')) {
+          if (incoming.length && dbEventBus.listenerCount('live-message-notice')) {
             dbEventBus.emit('live-message-notice', {
               session,
               observedAt: Date.now(),
-              messages: messages.map((row) => ({
+              messages: incoming.map((row) => ({
                 row,
                 groupKeyword: state.groupKeyword?.matchObservedLiveText(row),
               })),
             } satisfies LiveMessageNoticeBatch);
           }
         },
-        onLiveUpdates: ({ reads, groups, reactions, interactions }) => {
+        onLiveUpdates: ({ reads, groups, reactions, interactions, business }) => {
           if (this.account !== session) return;
           this.services?.unreadInfo.observeProxyReads(reads);
           this.services?.interactionBadges.observeProxyConversations(interactions);
@@ -2261,6 +2299,10 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
           const at = Date.now();
           for (const { groupCode, directory } of groups)
             dbEventBus.emit('group-info-changed', { at, groupCode, directory });
+          if (business.length)
+            dbEventBus.emit('qq-live-business', session, {
+              events: business,
+            } satisfies QqLiveBusinessBatch);
         },
         onLiveClosed: () => {
           proxyReactions.clearPending();
@@ -2268,6 +2310,9 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             this.services?.unreadInfo.clearProxyReads();
             this.services?.interactionBadges.clearProxyConversations();
             state.groupKeyword?.clearProxyMatches();
+            dbEventBus.emit('qq-live-business', session, {
+              disconnected: true,
+            } satisfies QqLiveBusinessBatch);
           }
         },
         current: () => {
@@ -2390,6 +2435,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         ),
         accountConfig,
         annualReport: new AnnualReportService(session, {
+          pageCacheDirectory: join(userConfig.cacheDir('annual-report'), exportConfigId),
           preferences: userConfig.getSharedPreference('annualReport'),
           resolveDressNames: createDressNameResolver(dressInstall),
           qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
@@ -2548,9 +2594,10 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
               import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
             // Voice → text transcription (shared closure; see transcribeSilk above).
             transcribe: transcribeSilk,
+            voiceModelReady: voiceReady,
             // 在线转写（QQ 服务端 ASR）：导出前由 IPC arm 抓包会话，导出时优先走它，
             // 漏包 / 过期的语音由上面的本地模型补全。
-            onlineTranscribe: onlineTranscriber.transcribe,
+            onlineTranscribe: onlineTranscriber.transcribeFor(String(session.context.uin)),
             // 图片文字识别（导出时自动 OCR）：本地 PP-OCR（onnxruntime 原生，住在
             // app 侧）+ 筛图 + 在线的 0xe07_0。三条都按需注入 —— 本地模型没下好时
             // 闭包会自己返回失败，导出阶段据此回退 / 记失败。
@@ -3052,6 +3099,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     ): Promise<void> {
       const backup = await resolveBackupLocation(dirPath);
       if (!backup) throw new Error('未找到 QQ 账号数据库目录');
+      if (this.platform && qqDatabaseReadOnly())
+        applyNativeQqReadOnly(this.platform, userConfig, true, backup.dbDir);
       const openedAt = performance.now();
       retireFullModeSource(this);
       dirPath = backup.dbDir;
@@ -3077,6 +3126,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
       this.services?.unifiedSearch.dispose();
+      this.services?.mediaResource?.dispose();
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await this.services?.qqClientSync?.dispose();
@@ -3364,6 +3414,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         }),
         accountConfig,
         annualReport: new AnnualReportService(session, {
+          pageCacheDirectory: join(userConfig.cacheDir('annual-report'), exportConfigId),
           preferences: userConfig.getSharedPreference('annualReport'),
           resolveDressNames: createDressNameResolver(dressInstall),
           qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
@@ -3983,6 +4034,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
       this.services?.unifiedSearch.dispose();
+      this.services?.mediaResource?.dispose();
       const agentLabClosed = this.services?.agentLab.close();
       const unreadClosed = this.services?.unreadInfo.dispose();
       await this.services?.qqClientSync?.dispose();
@@ -4119,7 +4171,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       // 停用本进程的资源服务；会话行的删除仍需要开着账号，best-effort。
       if (!config.enabled) {
         await assistantResourceServer.stop();
-        if (this.account && this.platform) {
+        if (this.account && this.platform && !qqDatabaseReadOnly()) {
           // 静态账号禁止往原生 nt_data 写助手头像（见下方开启路径的说明）。
           const svc = new WeqAssistantService(
             this.account,
@@ -4163,7 +4215,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       // 4) 注入/刷新 QQ 库里的卡片：ensureMapping + 逐条补卡 + rewriteArkPort
       //    （存量卡片端口刷成当前实际端口）+ 会话列表预览。需要开着账号，
       //    best-effort：失败只记日志，不阻断开关。
-      if (this.account && this.platform) {
+      if (this.account && this.platform && !qqDatabaseReadOnly()) {
         // 静态账号禁止往原生 nt_data 写助手头像：库来自别处，uin 却可能与本机某个
         // 在线账号相同，写进去就污染了别人的数据。
         const svc = new WeqAssistantService(
@@ -4245,11 +4297,23 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     },
   };
 
-  let onlineEnabled = userConfig.getSettings().autoAttachQq;
+  let onlineEnabled = userConfig.getSetting('autoAttachQq');
+  let capabilityMode = userConfig.getSetting('qqCapabilityMode');
   state.stopFullModeSettings = onSettingsChanged(
     currentAccountRuntime().bind((change) => {
+      if (!change || change.fields.includes('qqCapabilityMode')) {
+        ctx.services?.qqClientSync?.refreshLive();
+        const mode = userConfig.getSetting('qqCapabilityMode');
+        if (mode === 'read-only' && capabilityMode !== mode) {
+          cancelAnnualReportWarmup();
+          ctx.services?.unreadInfo.suspendReadChanges();
+        }
+        if (capabilityMode === 'read-only' && mode !== capabilityMode)
+          ctx.services?.antiRecall.reconcileTriggersWhenWritable();
+        capabilityMode = mode;
+      }
       if (change && !change.fields.includes('autoAttachQq')) return;
-      const enabled = userConfig.getSettings().autoAttachQq;
+      const enabled = userConfig.getSetting('autoAttachQq');
       if (onlineEnabled === enabled) return;
       onlineEnabled = enabled;
       if (enabled) return;

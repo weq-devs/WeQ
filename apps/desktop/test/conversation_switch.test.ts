@@ -24,6 +24,7 @@ import type { ChatSidebarContent } from '../src/renderer/src/im-template/templat
 import { ConversationList } from '../src/renderer/src/im-template/template/conversationLists';
 import type { GroupSearchHit } from '../src/renderer/src/components/search/types';
 import type { MessageDbNotice, MessagePageStage } from '../src/shared/message_read';
+import type { QqLiveBusinessBatch, QqLivePeer } from '../src/shared/qq_live_business';
 import { publishQQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
 import type { GapMessagesModal } from '../src/renderer/src/components/compose/GapMessagesModal';
 import {
@@ -38,11 +39,18 @@ import { UNREAD_BATCH_SIZE } from '../src/renderer/src/lib/unreadRefresh';
 import type { QQWriteBinding } from '../src/renderer/src/hooks/useQQWriteSession';
 import { ReplyJumpContext } from '../src/renderer/src/state/messageContext';
 import type { ReplyJumpTarget } from '../src/renderer/src/components/QqMessageContent';
-import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
+import {
+  acceptPreferences,
+  accountBinding,
+  bindAccountState,
+} from '../src/renderer/src/lib/clientPreferences';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { elementToToken } from '../src/renderer/src/im-template/template/draftElements';
+import { pageSnapshots } from '../src/renderer/src/lib/pageSnapshots';
 import { releaseObjectUrl } from '../src/renderer/src/lib/objectUrl';
+import { WEB_NOTICE_OPEN } from '../src/renderer/src/lib/browserNotifications';
+import { useNotificationPolicy } from '../src/renderer/src/lib/notificationPolicy';
 
 beforeAll(() => LazyGapMessagesModal.preload());
 
@@ -80,6 +88,13 @@ type TestMessage = {
   recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
 };
 type UnreadInput = { targets: Array<{ chatType: number; uid: string }>; watermarksOnly?: boolean };
+type TestLiveConversation = {
+  kind: 'c2c' | 'group';
+  conv: string;
+  live: true;
+  livePeer: QqLivePeer;
+  messages: TestMessage[];
+};
 
 const f = vi.hoisted(() => ({
   refreshing: false,
@@ -120,6 +135,10 @@ const f = vi.hoisted(() => ({
   readCurrent: undefined as (() => void) | undefined,
   markReadReply: undefined as (() => Promise<void>) | undefined,
   dbChanged: undefined as ((notice?: MessageDbNotice) => void) | undefined,
+  liveBusiness: undefined as ((batch: QqLiveBusinessBatch) => void) | undefined,
+  liveConversation: undefined as ((change: TestLiveConversation) => void) | undefined,
+  newMessages: undefined as ((batch: { messages: TestMessage[] }) => void) | undefined,
+  peerTyping: undefined as string | undefined,
   notificationSubscriptions: { group: [], conversation: [] } as Record<
     'group' | 'conversation',
     Array<{ notify: () => void; unsubscribe: () => void }>
@@ -367,7 +386,12 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             input: { conv: string },
             handlers: {
               onData: (
-                data: MessagePageStage<TestMessage> | UnreadInput['targets'] | { at?: number },
+                data:
+                  | MessagePageStage<TestMessage>
+                  | UnreadInput['targets']
+                  | { at?: number }
+                  | QqLiveBusinessBatch
+                  | TestLiveConversation,
               ) => void;
             },
           ) => {
@@ -386,6 +410,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               f.dbChanged = (notice) => handlers.onData(notice ?? {});
             if (path.at(-1) === 'onUnreadChanged')
               f.unreadChanged = (targets) => handlers.onData(targets);
+            if (path.at(-1) === 'onQqLiveBusiness') f.liveBusiness = handlers.onData;
+            if (path.at(-1) === 'onRoamingMessages') f.liveConversation = handlers.onData;
+            if (path.at(-1) === 'onNewMessages') f.newMessages = handlers.onData;
             return { unsubscribe: vi.fn() };
           };
         return proxy([...path, String(key)]);
@@ -490,6 +517,7 @@ vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (impor
     ChatMainContent: (props: ComponentProps<typeof ChatMainContent>) => {
       f.jump = useContext(ReplyJumpContext);
       f.messages = props.messages;
+      f.peerTyping = props.peerTyping;
       f.send = props.onSend;
       f.readCurrent = () => {
         if (props.activeConversation) props.onReadCurrentConversation?.(props.activeConversation);
@@ -593,6 +621,10 @@ afterEach(() => {
   f.unreadFailures = 0;
   f.unreadReply = undefined;
   f.dbChanged = undefined;
+  f.liveBusiness = undefined;
+  f.liveConversation = undefined;
+  f.newMessages = undefined;
+  f.peerTyping = undefined;
   f.notificationSubscriptions = { group: [], conversation: [] };
   f.notificationReads = { group: 0, conversation: 0 };
   f.groupJumps = [];
@@ -624,6 +656,8 @@ afterEach(() => {
   f.readCurrent = undefined;
   f.markReadReply = undefined;
   f.atLatest = true;
+  // 先把排队的页面快照写进本用例的 Storage，避免下个用例恢复本次选择。
+  pageSnapshots.flush();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -970,6 +1004,19 @@ it('其他会话的新消息和当前未读变化都不重读当前正文，当�
       await vi.advanceTimersByTimeAsync(1000);
     });
     expect(f.headRefreshes).toBe(1);
+    f.headRefreshes = 0;
+    f.refreshReads.length = 0;
+    await act(async () => {
+      const observedAt = Date.now();
+      f.dbChanged!({ at: observedAt, targets: [{ kind: 'group', conv: '10002' }] });
+      f.dbChanged!({ at: observedAt, backgroundReconcile: true });
+      f.dbChanged!({ at: observedAt, draftChanged: true });
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(f.refreshReads).toEqual([]);
+    expect(f.headRefreshes).toBe(1);
+    await act(async () => vi.advanceTimersByTimeAsync(4000));
+    expect(f.refreshReads).toEqual(['10001']);
   } finally {
     act(() => root.unmount());
     client.clear();
@@ -2181,15 +2228,12 @@ it.each(['success', 'failed', 'pending'] as const)(
           finishSnapshot = () =>
             resolve(f.recent.map((row) => ({ uid: row.targetUid, unreadCount: 0 })));
         });
-    const reconcile = vi.spyOn(conversationRows, 'reconcileConversationRows');
+    const projectOrder = vi.spyOn(conversationRows, 'updateConversationOrder');
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const projected = () =>
-      reconcile.mock.calls
-        .filter(([, rows]) => rows.some((row) => 'pinStateKnown' in row))
-        .at(-1)?.[1];
+    const projected = () => projectOrder.mock.results.at(-1)?.value.rows;
     const count = () =>
       (
         JSON.parse(host.querySelector('[data-previews]')!.textContent!) as Array<{
@@ -2207,7 +2251,7 @@ it.each(['success', 'failed', 'pending'] as const)(
       await act(async () => vi.advanceTimersByTimeAsync(200));
       const before = new Map(projected()!.map((row) => [row.id, row]));
       expect(before.size).toBe(f.recent.length);
-      reconcile.mockClear();
+      projectOrder.mockClear();
       f.unreadCounts['10001'] = 9;
       await act(async () => {
         f.unreadChanged!([{ chatType: 2, uid: '10001' }]);
@@ -2226,7 +2270,7 @@ it.each(['success', 'failed', 'pending'] as const)(
         expect(count()).toBe(9);
       }
       const byId = new Map(after.map((row) => [row.id, row]));
-      reconcile.mockClear();
+      projectOrder.mockClear();
       f.unreadCounts['10001'] = 0;
       await act(async () => {
         f.unreadChanged!([{ chatType: 2, uid: '10001' }]);
@@ -2247,7 +2291,7 @@ it.each(['success', 'failed', 'pending'] as const)(
   },
 );
 
-it('MainView 单行预览更新时每条会话只计算一次排序时间', async () => {
+it('MainView 单行预览更新时只计算该会话的排序时间', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
@@ -2284,7 +2328,7 @@ it('MainView 单行预览更新时每条会话只计算一次排序时间', asyn
       lastMessage?: { body: string };
     }>;
     expect(rows.find((row) => row.id === '10001')?.lastMessage?.body).toBe('最新消息');
-    expect(time).toHaveBeenCalledTimes(f.recent.length);
+    expect(time).toHaveBeenCalledOnce();
   } finally {
     act(() => root.unmount());
     client.clear();
@@ -3202,6 +3246,86 @@ it('未读请求有失败批次时主列表和群助手仍显示成功结果，�
   }
 });
 
+it('代理首条私聊先进入列表，输入状态只显示给当前对方并随切换清理', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const select = (id: string) =>
+    act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === id)!
+        .click(),
+    );
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await select('u_peer');
+    const expiresAt = Date.now() + 3000;
+    const typing = (uid: string) =>
+      act(async () =>
+        f.liveBusiness?.({
+          events: [{ kind: 'input-status', uid, speaking: false, expiresAt }],
+        }),
+      );
+    await typing('u_other');
+    expect(f.peerTyping).toBeUndefined();
+    await typing('u_peer');
+    expect(f.peerTyping).toBe('对方正在输入…');
+    await select('10001');
+    expect(f.peerTyping).toBeUndefined();
+    await select('u_peer');
+    expect(f.peerTyping).toBeUndefined();
+    await typing('u_peer');
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
+    expect(f.peerTyping).toBeUndefined();
+
+    const first: TestLiveConversation = {
+      kind: 'c2c',
+      conv: 'u_new',
+      live: true,
+      livePeer: { peerUin: '20022', peerName: '新会话', temporary: true },
+      messages: [
+        {
+          source: 'roaming',
+          ntSeqVerified: true,
+          msgId: '9',
+          msgSeq: '1',
+          msgRandom: '9',
+          sendTime: '1794200001',
+          senderUid: 'u_new',
+          senderUin: '20022',
+          elements: [{ type: 'text', data: { textContent: '第一条' } }],
+        },
+      ],
+    };
+    await act(async () => {
+      f.liveConversation?.(first);
+      f.liveConversation?.(first);
+    });
+    const rows = () =>
+      JSON.parse(host.querySelector('[data-previews]')!.textContent!).filter(
+        (row: { id: string }) => row.id === 'u_new',
+      );
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]?.lastMessage.body).toBe('第一条');
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(rows()).toHaveLength(0);
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
+
 it.each([
   { from: '10001', to: '10002', deferred: false, strict: false },
   { from: '10001', to: '10002', deferred: true, strict: false },
@@ -3378,6 +3502,80 @@ it('跳转订阅不随重绘重建，通知仍能连续切换会话，旧工作�
     expect(JSON.parse(host.querySelector('output')!.textContent!).id).toBe('10002');
   } finally {
     act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
+
+it.each([false, true])('代理通知按精确落库信号重读并高亮消息（信号先到=%s）', async (early) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  const previousBinding = accountBinding();
+  bindAccountState({ expectedAccountUin: '90001', expectedAccountConfigId: 'switch-test' });
+  const policy = useNotificationPolicy.getState();
+  useNotificationPolicy.getState().setEvents({
+    ...policy.events,
+    directMessage: { banner: true, system: false },
+  });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const neighbor = {
+    kind: 'c2c',
+    conv: 'u_peer',
+    msgId: '9007199254740993',
+    msgSeq: '70',
+    msgRandom: '8',
+    sendTime: '1794200000',
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    elements: [{ type: 'text', data: { textContent: '同序号的其他消息' } }],
+  };
+  const target = { ...neighbor, msgId: '9007199254740994', msgRandom: '7' };
+  const before = vi.fn(() => f.beforeRows);
+  const firstAfter = Promise.withResolvers<TestMessage[]>();
+  if (early) f.afterReply = () => firstAfter.promise;
+  f.beforeReply = before;
+  f.beforeRows = [neighbor];
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-contacts]')!.click());
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent(WEB_NOTICE_OPEN, {
+          detail: {
+            uin: '90001',
+            configId: 'switch-test',
+            kind: 'message',
+            target: { kind: 'c2c', conv: 'u_peer', seq: '70', msgId: 'proxy:70:7:u_peer' },
+          },
+        }),
+      );
+    });
+    expect(before.mock.calls).toEqual([['71']]);
+    await act(async () => f.newMessages!({ messages: [neighbor] }));
+    expect(before).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('.weq-reply-target-flash')).toBeNull();
+    f.beforeRows = [target, neighbor];
+    await act(async () => f.newMessages!({ messages: [target] }));
+    if (early) {
+      expect(before).toHaveBeenCalledTimes(1);
+      await act(async () => firstAfter.resolve([]));
+    }
+    expect(before.mock.calls).toEqual([['71'], ['71']]);
+    expect(host.querySelector('.weq-reply-target-flash')?.getAttribute('data-message-id')).toBe(
+      target.msgId,
+    );
+  } finally {
+    act(() => root.unmount());
+    bindAccountState(previousBinding);
+    useNotificationPolicy.setState({ events: policy.events, ready: policy.ready });
     client.clear();
     host.remove();
   }

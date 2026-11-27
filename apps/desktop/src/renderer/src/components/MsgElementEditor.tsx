@@ -14,6 +14,7 @@ import '../styles/msg-element-editor.css';
 
 export interface Props {
   msgId: string;
+  embedded?: boolean;
   msgSeq?: number;
   elements: any[];
   onClose: () => void;
@@ -22,6 +23,7 @@ export interface Props {
 
 export function MsgElementEditor({
   msgId,
+  embedded,
   msgSeq,
   elements: initialElements,
   onClose,
@@ -47,8 +49,11 @@ export function MsgElementEditor({
       await onSave(elements);
       onClose();
     } catch (e) {
-      console.error('[editor] Save failed:', e);
-      alert(`保存失败: ${e instanceof Error ? e.message : String(e)}`);
+      notificationToast.push({
+        tone: 'error',
+        title: '保存失败',
+        detail: e instanceof Error ? e.message : String(e),
+      });
     } finally {
       setSending(false);
     }
@@ -80,16 +85,11 @@ export function MsgElementEditor({
     }
   };
 
-  return (
-    <Modal
-      onClose={onClose}
-      labelledBy={titleId}
-      className="weq-msg-editor"
-      layerClassName="weq-msg-editor-layer"
-    >
+  const content = (
+    <>
       <header className="weq-editor-header">
         <div className="weq-editor-title">
-          <h3 id={titleId}>修改本地消息元件（不同步服务器）</h3>
+          <h3 id={titleId}>{embedded ? '修改本地记录' : '修改本地消息元件（不同步服务器）'}</h3>
           <code>
             msgId: <span className="weq-number weq-number-inherit">{msgId}</span>
             {msgSeq !== undefined && (
@@ -164,7 +164,7 @@ export function MsgElementEditor({
             <Copy size={16} />
             <ToolbarLabel>复制 JSON</ToolbarLabel>
           </button>
-          <button className="weq-btn-cancel" onClick={onClose}>
+          <button className="weq-btn-cancel" onClick={onClose} disabled={saving}>
             取消
           </button>
           <button className="weq-btn-save" onClick={handleSave} disabled={saving}>
@@ -172,6 +172,20 @@ export function MsgElementEditor({
           </button>
         </div>
       </footer>
+    </>
+  );
+  return embedded ? (
+    <section className="weq-msg-editor weq-msg-editor-embedded" aria-labelledby={titleId}>
+      {content}
+    </section>
+  ) : (
+    <Modal
+      onClose={onClose}
+      labelledBy={titleId}
+      className="weq-msg-editor"
+      layerClassName="weq-msg-editor-layer"
+    >
+      {content}
     </Modal>
   );
 }

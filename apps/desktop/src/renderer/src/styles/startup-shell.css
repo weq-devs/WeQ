@@ -57,31 +57,11 @@
   cursor: default;
 }
 
-.weq-home-shell .weq-bootstrap-settings > .weq-workspace-page-fallback {
-  position: absolute;
-  inset: 32px 0 0;
-}
-.weq-bootstrap-settings::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto;
-  height: 32px;
-  -webkit-app-region: drag;
+.weq-bootstrap-settings > .weq-workspace-page-fallback {
+  inset: 0;
 }
 .weq-bootstrap-settings .weq-mobile-settings-header {
   --weq-window-safe-top: 0px;
-}
-.weq-bootstrap-settings .weq-settings-nav-heading:has(.weq-bootstrap-settings-close) {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: space-between;
-  margin: 0 2px 14px 0;
-}
-.weq-bootstrap-settings
-  .weq-settings-nav-heading:has(.weq-bootstrap-settings-close)
-  .weq-settings-nav-title {
-  margin: 0 8px;
 }
 
 @media (max-width: 520px) {

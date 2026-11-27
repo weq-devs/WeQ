@@ -1,3 +1,5 @@
+import { AnimatedDisclosure } from '../AnimatedDisclosure';
+import { ConnectionTestStatus } from './ConnectionTestStatus';
 import { FormSelect } from '../FormSelect';
 import { NumericText } from '../NumericText';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
@@ -1457,129 +1459,135 @@ export function AgentLabSection(): ReactElement {
                       >
                         <X size={14} />
                       </button>
-                      <div
-                        className="weq-provider-model-details"
+                      <AnimatedDisclosure
                         id={`model-parameters-${model.rowKey}`}
-                        hidden={!expandedModels.has(model.rowKey)}
+                        open={expandedModels.has(model.rowKey)}
+                        keepMounted
                       >
-                        <div className="weq-provider-model-controls">
-                          <input
-                            className="weq-set-input weq-provider-model-reasoning"
-                            aria-label={`模型 ${index + 1} 思考档位`}
-                            placeholder={
-                              model.metadata?.reasoning.supported === false
-                                ? '不支持思考'
-                                : model.metadata?.reasoning.controls.length
-                                  ? model.metadata.reasoning.controls
-                                      .map((control) =>
-                                        control.kind === 'toggle'
-                                          ? `开关：${control.values?.join(', ') ?? '支持'}`
-                                          : control.kind === 'budget'
-                                            ? `预算：${control.min ?? '?'}–${control.max ?? '?'}`
-                                            : control.kind === 'adaptive'
-                                              ? '自适应思考'
-                                              : '思考档位（逗号分隔）',
-                                      )
-                                      .join('；')
-                                  : '思考档位（未知）'
-                            }
-                            title={
-                              model.metadata
-                                ? `${model.metadata.reasoning.controls.map((control) => `${control.kind}：${control.values?.join(', ') ?? ''}${control.default === undefined ? '' : `；默认 ${control.default}`}`).join('\n') || '思考控制未知'}\n手动填写命名档位，以逗号分隔；留空不声明档位。`
-                                : '思考控制未知；可手动填写命名档位，以逗号分隔'
-                            }
-                            value={
-                              model.reasoningEffortsText ??
-                              (model.overrides?.reasoning
-                                ? model.reasoningEfforts?.join(', ')
-                                : (model.metadata?.reasoning.controls
-                                    .find((control) => control.kind === 'effort')
-                                    ?.values?.join(', ') ?? model.reasoningEfforts?.join(', '))) ??
-                              ''
-                            }
-                            onChange={(event) =>
-                              updateModel(index, {
-                                reasoningEffortsText: event.target.value,
-                              })
-                            }
-                          />
-                          <button
-                            type="button"
-                            className="weq-set-iconbtn weq-provider-model-detect"
-                            onPointerDown={(event) => event.preventDefault()}
-                            onClick={() =>
-                              inspectModels(formRef.current, [model.rowKey], undefined, true)
-                            }
-                            disabled={
-                              detectingModel !== null || !model.id.trim() || !form.baseUrl.trim()
-                            }
-                            aria-label={`检测模型 ${index + 1} 能力与思考`}
-                            aria-busy={detectingModel === index}
-                            title={[
-                              detectingModel === index
-                                ? '检测中'
-                                : '读取模型元数据并探测缺失的能力与思考信息',
-                              ...CAPABILITIES.map(
-                                ({ value, label }) =>
-                                  `${label}：${model.metadata?.capabilities[value] === 'supported' ? '服务商声明支持或已验证' : model.metadata?.capabilities[value] === 'unsupported' ? '不支持' : '未知'}`,
-                              ),
-                              ...CAPABILITIES.flatMap(({ value }) =>
-                                (model.probe ?? []).filter((result) => result.capability === value),
-                              ).map(
-                                (result) =>
-                                  `${CAPABILITIES.find((item) => item.value === result.capability)?.label}：${result.status === 'supported' ? '已验证' : result.status === 'unsupported' ? '不支持' : '未确定'}；${result.detail}`,
-                              ),
-                              model.reasoningProbe?.detail,
-                              model.metadata?.error,
-                            ]
-                              .filter(Boolean)
-                              .join('\n')}
-                          >
-                            {detectingModel === index ? (
-                              <Loader2 size={12} className="weq-spin" />
-                            ) : (
-                              <FlaskConical size={12} />
-                            )}
-                          </button>
-                          <div
-                            className="weq-search-scope weq-provider-model-capabilities"
-                            role="group"
-                            aria-label={`模型 ${index + 1} 能力`}
-                          >
-                            {CAPABILITIES.map(({ value, label, Icon }) => (
-                              <button
-                                key={value}
-                                type="button"
-                                aria-pressed={model.capabilities.includes(value)}
-                                onClick={() =>
-                                  updateModel(
-                                    index,
-                                    {
-                                      capabilities: model.capabilities.includes(value)
-                                        ? model.capabilities.filter((item) => item !== value)
-                                        : [...model.capabilities, value],
-                                    },
-                                    value,
-                                  )
-                                }
-                              >
-                                <Icon size={14} aria-hidden />
-                                {label}
-                              </button>
-                            ))}
+                        <div className="weq-provider-model-details">
+                          <div className="weq-provider-model-controls">
+                            <input
+                              className="weq-set-input weq-provider-model-reasoning"
+                              aria-label={`模型 ${index + 1} 思考档位`}
+                              placeholder={
+                                model.metadata?.reasoning.supported === false
+                                  ? '不支持思考'
+                                  : model.metadata?.reasoning.controls.length
+                                    ? model.metadata.reasoning.controls
+                                        .map((control) =>
+                                          control.kind === 'toggle'
+                                            ? `开关：${control.values?.join(', ') ?? '支持'}`
+                                            : control.kind === 'budget'
+                                              ? `预算：${control.min ?? '?'}–${control.max ?? '?'}`
+                                              : control.kind === 'adaptive'
+                                                ? '自适应思考'
+                                                : '思考档位（逗号分隔）',
+                                        )
+                                        .join('；')
+                                    : '思考档位（未知）'
+                              }
+                              title={
+                                model.metadata
+                                  ? `${model.metadata.reasoning.controls.map((control) => `${control.kind}：${control.values?.join(', ') ?? ''}${control.default === undefined ? '' : `；默认 ${control.default}`}`).join('\n') || '思考控制未知'}\n手动填写命名档位，以逗号分隔；留空不声明档位。`
+                                  : '思考控制未知；可手动填写命名档位，以逗号分隔'
+                              }
+                              value={
+                                model.reasoningEffortsText ??
+                                (model.overrides?.reasoning
+                                  ? model.reasoningEfforts?.join(', ')
+                                  : (model.metadata?.reasoning.controls
+                                      .find((control) => control.kind === 'effort')
+                                      ?.values?.join(', ') ??
+                                    model.reasoningEfforts?.join(', '))) ??
+                                ''
+                              }
+                              onChange={(event) =>
+                                updateModel(index, {
+                                  reasoningEffortsText: event.target.value,
+                                })
+                              }
+                            />
+                            <button
+                              type="button"
+                              className="weq-set-iconbtn weq-provider-model-detect"
+                              onPointerDown={(event) => event.preventDefault()}
+                              onClick={() =>
+                                inspectModels(formRef.current, [model.rowKey], undefined, true)
+                              }
+                              disabled={
+                                detectingModel !== null || !model.id.trim() || !form.baseUrl.trim()
+                              }
+                              aria-label={`检测模型 ${index + 1} 能力与思考`}
+                              aria-busy={detectingModel === index}
+                              title={[
+                                detectingModel === index
+                                  ? '检测中'
+                                  : '读取模型元数据并探测缺失的能力与思考信息',
+                                ...CAPABILITIES.map(
+                                  ({ value, label }) =>
+                                    `${label}：${model.metadata?.capabilities[value] === 'supported' ? '服务商声明支持或已验证' : model.metadata?.capabilities[value] === 'unsupported' ? '不支持' : '未知'}`,
+                                ),
+                                ...CAPABILITIES.flatMap(({ value }) =>
+                                  (model.probe ?? []).filter(
+                                    (result) => result.capability === value,
+                                  ),
+                                ).map(
+                                  (result) =>
+                                    `${CAPABILITIES.find((item) => item.value === result.capability)?.label}：${result.status === 'supported' ? '已验证' : result.status === 'unsupported' ? '不支持' : '未确定'}；${result.detail}`,
+                                ),
+                                model.reasoningProbe?.detail,
+                                model.metadata?.error,
+                              ]
+                                .filter(Boolean)
+                                .join('\n')}
+                            >
+                              {detectingModel === index ? (
+                                <Loader2 size={12} className="weq-spin" />
+                              ) : (
+                                <FlaskConical size={12} />
+                              )}
+                            </button>
+                            <div
+                              className="weq-search-scope weq-provider-model-capabilities"
+                              role="group"
+                              aria-label={`模型 ${index + 1} 能力`}
+                            >
+                              {CAPABILITIES.map(({ value, label, Icon }) => (
+                                <button
+                                  key={value}
+                                  type="button"
+                                  aria-pressed={model.capabilities.includes(value)}
+                                  onClick={() =>
+                                    updateModel(
+                                      index,
+                                      {
+                                        capabilities: model.capabilities.includes(value)
+                                          ? model.capabilities.filter((item) => item !== value)
+                                          : [...model.capabilities, value],
+                                      },
+                                      value,
+                                    )
+                                  }
+                                >
+                                  <Icon size={14} aria-hidden />
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
                           </div>
+                          <ModelRequestFields
+                            model={model}
+                            update={(patch) => updateModel(index, patch)}
+                          />
                         </div>
-                        <ModelRequestFields
-                          model={model}
-                          update={(patch) => updateModel(index, patch)}
-                        />
-                      </div>
+                      </AnimatedDisclosure>
                     </div>
                   ))
                 )}
               </div>
             </fieldset>
 
+            <ConnectionTestStatus testKey={testKey} />
             <div className="weq-provider-modal-actions">
               <button
                 type="submit"

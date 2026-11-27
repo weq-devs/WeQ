@@ -301,7 +301,6 @@ function shortHash(input: string): string {
 }
 
 export class AccountConfigService {
-  private qqSyncPreferences?: NonNullable<AccountConfig['qqClientSync']>;
   private readonly accountsDir: string;
   /**
    * Record id for the file this service reads/writes. Seeded from the bare uin
@@ -333,7 +332,6 @@ export class AccountConfigService {
     const uin = this.session.context.uin;
     const configId = accountConfigId(uin, metadata.dataDir);
     this.currentConfigId = configId;
-    this.qqSyncPreferences = undefined;
     let prev = this.readRecord();
     if (prev && this.sharedPreferences) {
       const {
@@ -390,18 +388,6 @@ export class AccountConfigService {
         ? (annualReport as AnnualReportPreferences)
         : undefined,
     };
-  }
-
-  getQqSyncPreferences(fallback: NonNullable<AccountConfig['qqClientSync']>) {
-    this.qqSyncPreferences ??= this.readRecord()?.qqClientSync ?? fallback;
-    return this.qqSyncPreferences;
-  }
-
-  setQqSyncPreferences(value: NonNullable<AccountConfig['qqClientSync']>): void {
-    const record = this.readRecord();
-    if (!record) throw new Error('账号配置不可用，请重新打开账号。');
-    this.writeRecord({ ...record, qqClientSync: value });
-    this.qqSyncPreferences = value;
   }
 
   /** 打开账号后刷新菜单昵称，不能把切号时传回的旧配置当作最新资料。 */

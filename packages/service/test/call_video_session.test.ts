@@ -7,7 +7,8 @@
  *   3. 开关摄像头发的是**同一条**空体控制包（连发两次）。
  */
 
-import { describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
+import { describe, expect, it, vi } from 'vitest';
 import {
   CallSession,
   type CallAudioCodec,
@@ -42,14 +43,64 @@ import {
   buildGcsPacket,
   buildVideoControl,
   buildVideoKeepalive,
+  buildVideoPackets,
+  buildVideoSubHeader,
   parseGcsPacket,
   pbGetBytes,
+  pbGetVarint,
   parseVideoPacket,
   pbBytes,
   pbVarint,
   videoFrameIndex,
   VideoStateCode,
 } from '@weqbot/protocol';
+
+describe('私聊 H.264 封包', () => {
+  it('P 帧使用异或校验，丢失数据片时不会把校验片当成完整帧', () => {
+    const header = buildVideoSubHeader({
+      direction: 'c2s',
+      codec: 'h264',
+      frameIndex: 1,
+      timestampMs: 10,
+      peerVideoBase: 0,
+    });
+    const data = new Uint8Array(2300).fill(0x81);
+    data.set([0, 0, 0, 1, 0x41]);
+    const frame = new Uint8Array(header.length + data.length);
+    frame.set(header);
+    frame.set(data, header.length);
+    const packets = buildVideoPackets({
+      frameData: frame,
+      frameIndex: 1,
+      sessionTs: 1,
+      tick: 1,
+      seq: 1,
+      fec: true,
+      codec: 'h264',
+      keyframe: false,
+    });
+    const parsed = packets.map((packet) => parseVideoPacket(packet)!);
+    expect(parsed[0]!.rtp.totalFec).toBe(1);
+    expect(packets.every((packet) => packet[4] === 3)).toBe(true);
+    const parity = parsed.at(-1)!.payload;
+    const xor = new Uint8Array(parity.length);
+    for (const part of parsed.slice(0, -1)) {
+      for (let i = 0; i < part.payload.length; i++) xor[i] = xor[i]! ^ part.payload[i]!;
+    }
+    expect(parity).toEqual(xor);
+    const incomplete = new VideoFrameAssembler();
+    for (const part of parsed.slice(1)) expect(incomplete.push(part)).toBeNull();
+    const assembler = new VideoFrameAssembler();
+    const frames = parsed.flatMap((part) => {
+      const result = assembler.push(part);
+      return result ? [result] : [];
+    });
+    expect(frames).toHaveLength(1);
+    expect(frames[0]!.isKeyframe).toBe(false);
+    expect(frames[0]!.frameData[3]).toBe(5);
+    expect(assembler.pendingCount).toBe(0);
+  });
+});
 
 // ─────────────────────────── 测试替身 ───────────────────────────
 
@@ -163,7 +214,9 @@ class FakeTransport implements UdpTransport {
   }
   onError(): void {}
   deliver(data: Uint8Array): void {
-    this.messageHandler?.(data, { address: '1.2.3.4', port: 8000 });
+    const target =
+      parseGcsPacket(data)?.bodyType === GcsBodyType.authRsp ? this.sent[0] : undefined;
+    this.deliverFrom(data, target ?? { address: '1.2.3.4', port: 8000 });
   }
   /** 从指定来源投递（模拟对端直连发包）。 */
   deliverFrom(data: Uint8Array, from: { address: string; port: number }): void {
@@ -413,6 +466,44 @@ describe('视频通话信令', () => {
     await ctx.session.start();
     expect(ctx.signaling.startedWith).toEqual([expect.objectContaining({ media: 'audio' })]);
   });
+
+  it.each(['audio', 'video'] as const)(
+    '%s 会话发送 QQ 样本中的入房、中继和状态能力声明',
+    async (media) => {
+      const ctx = makeSession({
+        media,
+        servers: [
+          { ip: '192.0.2.1', port: 8000, type: 1 },
+          { ip: '192.0.2.2', port: 8800, type: 2 },
+        ],
+      });
+      await connect(ctx);
+      const authPackets = ctx.transport.sent
+        .map(({ data }) => parseGcsPacket(data))
+        .filter((packet) => packet?.bodyType === GcsBodyType.authReq);
+      expect(authPackets).toHaveLength(2);
+      for (const packet of authPackets) {
+        const body = packet!.body;
+        expect(body).toHaveLength(618);
+        // 两通官方 QQ 的完整能力 body 一致，摘要覆盖内层编码条目与所有顶层字段。
+        expect(createHash('sha256').update(body).digest('hex')).toBe(
+          '0a45eaa387873c187e7f39a43ea4b887ce45eff87156c1734b2567b829b882d2',
+        );
+      }
+
+      const relay = ctx.transport.sent.find(({ data }) => data[0] === RELAY_STX);
+      expect(relay).toBeDefined();
+      expect(Array.from(relay!.data.subarray(53, 57))).toEqual([0x02, 0x0f, 0x27, 0x51]);
+
+      await ctx.timers.advanceAsync(2000);
+      const status = ctx.transport.sent
+        .map(({ data }) => parseGcsPacket(data))
+        .find((packet) => packet?.bodyType === GcsBodyType.statusReport);
+      expect(status).toBeDefined();
+      expect(pbGetVarint(status!.body, 120)).toBe(2566957248);
+      expect(pbGetVarint(status!.body, 120)).toBe(pbGetVarint(authPackets[0]!.body, 11));
+    },
+  );
 });
 
 describe('接收视频', () => {
@@ -934,6 +1025,26 @@ describe('发送视频', () => {
     ctx.session.setCamera(false);
     await ctx.timers.advanceAsync(200);
     expect(ctx.transport.media(VideoSubType.max).length).toBe(before);
+  });
+
+  it('快速关闭再开启时丢弃上一轮尚未完成的编码结果', async () => {
+    const encoder = new FakeVideoEncoder(1);
+    const pending = Promise.withResolvers<Uint8Array | null>();
+    const next = vi.spyOn(encoder, 'next').mockReturnValueOnce(pending.promise);
+    const ctx = makeSession({ videoEncoder: encoder });
+    await connect(ctx);
+    ctx.session.setCamera(true);
+    await ctx.timers.advanceAsync(10);
+    expect(next).toHaveBeenCalledTimes(1);
+    ctx.session.setCamera(false);
+    ctx.session.setCamera(true);
+    pending.resolve(new Uint8Array([0, 0, 0, 1, 0x26, 0x01, 0x80]));
+    await Promise.resolve();
+    expect(ctx.transport.media(VideoSubType.max)).toHaveLength(0);
+
+    await ctx.timers.advanceAsync(10);
+    expect(next).toHaveBeenCalledTimes(2);
+    expect(ctx.transport.media(VideoSubType.max)).toHaveLength(1);
   });
 
   it('没接通时开摄像头是空操作', async () => {

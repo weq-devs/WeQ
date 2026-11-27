@@ -1,3 +1,4 @@
+import { AnimatedDetails } from '../AnimatedDetails';
 import { NumericText } from '../NumericText';
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 /**
@@ -16,7 +17,7 @@ import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
  * settings mutation we refetch so a reopen reflects what was persisted.
  */
 
-import { useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import {
   ChevronDown,
   Copy,
@@ -25,7 +26,6 @@ import {
   EyeOff,
   FolderOpen,
   KeyRound,
-  Network,
   Radio,
   RefreshCw,
   Smartphone,
@@ -35,17 +35,11 @@ import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useTabActive } from '../RetainedTabs.shared';
 import { useDialog } from '../Dialog.shared';
-import { useToast } from '../Toast.shared';
-import { Card, Row, SectionHeader, SettingsStatusBadge, Toggle } from './controls';
-import { BeforeLoginSettingsContext } from './controls.shared';
+import { Card, Row, SectionHeader, Toggle } from './controls';
 import { DatabaseReadSettings } from './DatabaseReadSettings';
-import { FullFunctionSetup } from './FullFunctionSetup';
+import { QqCapabilitySetup } from './QqCapabilitySetup';
 import { QqStatusReminderSettings } from './QqStatusReminderSettings';
 import { CopyButton } from '../CopyButton';
-import { useRestrictedMode } from '../../state/restrictedMode';
-import { useViewState } from '../../state/view';
-import { QQ_STATUS_DETAILS_ID } from '../RestrictedMode.shared';
-import { isQqProxyWaiting, QQ_PROXY_WAITING, qqProxySetupGuide } from '../QqProxyConnection.shared';
 import { formatExpiry } from './AccountBasicsSection.shared';
 import { SETTINGS_PAGE_LABELS } from './navigation';
 
@@ -134,11 +128,7 @@ export function AccountBasicsSection({
   databaseKeyTools?: ReactNode;
 }): ReactElement {
   const active = useTabActive();
-  const uin = useViewState((state) => (state.view === 'main' ? state.openedUin : null));
-  const beforeLogin = useContext(BeforeLoginSettingsContext);
-  const proxyDetailsOpen = useRestrictedMode((state) => state.settingsSection === 'proxy');
   const showError = useDialog((s) => s.showError);
-  const confirm = useDialog((s) => s.confirm);
   const autoRefresh = useQQAutoRefresh(true);
 
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
@@ -156,114 +146,7 @@ export function AccountBasicsSection({
     ...autoRefresh,
     enabled: autoRefresh.enabled && page === 'credentials',
   });
-  const systemInfo = trpc.bootstrap.systemInfo.useQuery(undefined, {
-    ...autoRefresh,
-    enabled: autoRefresh.enabled && page === 'account',
-  });
-
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
-  const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
-  const [qqSyncPortDraft, setQqSyncPortDraft] = useState<string | null>(null);
-  const pushToast = useToast((state) => state.push);
-  const qqSyncStatus = trpc.bootstrap.getQqClientSyncStatus.useQuery(undefined, {
-    enabled: active && page === 'account',
-    staleTime: 0,
-    refetchInterval: active && page === 'account' ? 5000 : false,
-  });
-  const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, { enabled: false });
-  const setQqProxyEnabled = trpc.bootstrap.setQqProxyEnabled.useMutation({
-    onSuccess: async () => {
-      await qqSyncStatus.refetch();
-    },
-    onError: (error) => showError('更改 QQ 代理状态失败', error.message),
-  });
-  const setQqLiveMessages = trpc.bootstrap.setQqLiveMessagesEnabled.useMutation({
-    onSuccess: () => {
-      void settings.refetch();
-      void qqSyncStatus.refetch();
-    },
-    onError: (error) => showError('更改代理实时消息设置失败', error.message),
-  });
-  const setQqClientSync = trpc.bootstrap.setQqClientSyncEnabled.useMutation({
-    onSuccess: () => {
-      void settings.refetch();
-      void qqSyncStatus.refetch();
-    },
-    onError: (error) => showError('更改 QQ 同步设置失败', error.message),
-  });
-  const setQqClientSyncPort = trpc.bootstrap.setQqClientSyncPort.useMutation({
-    onSuccess: async ({ port }) => {
-      await qqSyncStatus.refetch();
-      setQqSyncPortDraft(null);
-      pushToast({
-        tone: 'success',
-        title: 'QQ 代理端口已更新',
-        message: `请在使用本机代理的 QQ 登录窗口中，将「网络设置」的端口更新为 ${port}。`,
-      });
-    },
-    onError: (error) => showError('更改 QQ 代理端口失败', error.message),
-  });
-  const proxy = qqSyncStatus.data;
-  const proxyWaiting =
-    !qqSyncStatus.isError && !access.isError && isQqProxyWaiting(proxy, access.data, uin);
-  const proxyEnabled = proxy?.enabled === true;
-  const qqSyncPort = proxy?.port;
-  const toggleQqProxy = async (enabled: boolean) => {
-    if (
-      !enabled &&
-      proxy?.tunnels &&
-      !(await confirm(
-        '关闭 QQ 代理',
-        '关闭后，正在使用代理的 QQ 连接会断开。请先在 QQ 登录窗口的「网络设置」中恢复直连。',
-        { okLabel: '关闭代理' },
-      ))
-    )
-      return;
-    setQqProxyEnabled.mutate({ enabled });
-  };
-  const proxyStatusText = qqSyncStatus.isError
-    ? '状态待确认'
-    : !proxy
-      ? '检查中'
-      : !proxyEnabled
-        ? '已关闭'
-        : settings.data?.autoAttachQq === false
-          ? '等待在线能力'
-          : proxy.connected
-            ? '已连接'
-            : proxy.connecting
-              ? '正在确认连接'
-              : proxyWaiting
-                ? QQ_PROXY_WAITING
-                : proxy.running
-                  ? '未连接'
-                  : '代理未运行';
-  const proxyStatusError = qqSyncStatus.isError
-    ? '无法读取代理状态。'
-    : proxyEnabled && proxy && !proxy.running
-      ? proxy.error || '本机代理尚未启动。'
-      : '';
-  const syncTasks = settings.data?.qqClientSyncEnabled ? proxy?.tasks : null;
-  const taskError = syncTasks?.error;
-  const proxyStatusDetails = [
-    syncTasks?.pending ? `待同步 ${syncTasks.pending} 项` : '',
-    // 等待连接由当前代理状态表示。队列在重试前可能仍保留上一次等待的原因。
-    proxyEnabled && taskError !== '等待 QQ 通过代理连接' && taskError !== proxyStatusError
-      ? taskError
-      : '',
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  const newQqSyncPort = Number(qqSyncPortDraft);
-  const canSaveQqSyncPort =
-    qqSyncPort !== undefined &&
-    Number.isInteger(newQqSyncPort) &&
-    newQqSyncPort >= 1 &&
-    newQqSyncPort <= 65535 &&
-    newQqSyncPort !== qqSyncPort &&
-    !setQqProxyEnabled.isPending &&
-    !setQqClientSync.isPending &&
-    !setQqClientSyncPort.isPending;
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
 
@@ -276,7 +159,6 @@ export function AccountBasicsSection({
 
   // Local mirror for snappy toggles; re-seeded whenever server data changes.
   const [realtime, setRealtimeLocal] = useState(true);
-  const [autoAttach, setAutoAttach] = useState(false);
   // 外部安卓 chatpic 兜底（存在全局设置里）。
   const [externalChatpicDir, setExternalChatpicDir] = useState('');
   const [externalChatpicEnabled, setExternalChatpicEnabled] = useState(false);
@@ -286,7 +168,6 @@ export function AccountBasicsSection({
     const d = settings.data;
     if (!d) return;
     setRealtimeLocal(d.realtimeEnabled);
-    setAutoAttach(d.autoAttachQq);
   }, [settings.data]);
 
   useEffect(() => {
@@ -303,7 +184,6 @@ export function AccountBasicsSection({
   const clientKey = cfg?.clientKey;
   const settingsLoading = settings.isLoading;
   const attachAllowed = fullMode.data?.allowed === true;
-  const isMac = systemInfo.data?.platformKind === 'darwin';
   const settingsPage =
     page === 'media' ? 'resource-loading' : page === 'listening' ? 'database-management' : page;
 
@@ -580,162 +460,7 @@ export function AccountBasicsSection({
       )}
       {page === 'account' && (
         <>
-          <FullFunctionSetup
-            isMac={isMac}
-            enableSetting={
-              <Row
-                settingId="auto-full-mode"
-                desc="开启后，WeQ 会从已登录的 QQ 获取会话凭据。在线能力就绪时，WeQ 自动向 QQ 服务器上报已读位置。要把已读同步回本机 QQ，请在下方「同步与实时更新」开启同步。"
-                control={
-                  <Toggle
-                    checked={autoAttach}
-                    disabled={settingsLoading || setAutoAttachQq.isLoading}
-                    onChange={(v) =>
-                      void persist(
-                        () => setAutoAttach(v),
-                        () => setAutoAttachQq.mutateAsync({ enabled: v }),
-                      )
-                    }
-                    label="启用 QQ 在线能力"
-                  />
-                }
-              />
-            }
-          />
-          <Card
-            settingId="qq-proxy-connection"
-            title="代理连接"
-            titleBadge={
-              <SettingsStatusBadge
-                label={proxyStatusText}
-                tone={
-                  proxyStatusError ? 'warning' : proxyStatusText === '已连接' ? 'ready' : 'neutral'
-                }
-                loading={proxyStatusText === QQ_PROXY_WAITING}
-                details={{
-                  label: `QQ 代理连接：${proxyStatusText}，查看详情`,
-                  open: active && proxyDetailsOpen,
-                  controls: active && proxyDetailsOpen ? QQ_STATUS_DETAILS_ID : undefined,
-                  onClick: () => useRestrictedMode.getState().setOpen(!proxyDetailsOpen, 'proxy'),
-                }}
-              />
-            }
-            desc="连接本机 QQ，以便同步本人消息和已读，也可用来加速实时更新。"
-            icon={<Network size={15} strokeWidth={1.8} />}
-            resetId="qq-client-sync"
-          >
-            <Row
-              label="启用 QQ 代理"
-              desc="本机各账号窗口共用代理开关和端口。停用前请先在 QQ 的「网络设置」中恢复直连。"
-              control={
-                <Toggle
-                  checked={proxyEnabled}
-                  disabled={
-                    !proxy ||
-                    qqSyncStatus.isError ||
-                    setQqProxyEnabled.isPending ||
-                    setQqClientSyncPort.isPending
-                  }
-                  onChange={(enabled) => void toggleQqProxy(enabled)}
-                  label="启用 QQ 代理"
-                />
-              }
-            />
-            <Row
-              label="代理端口"
-              desc={proxyEnabled ? qqProxySetupGuide(qqSyncPort) : undefined}
-              control={
-                <form
-                  className="weq-set-btn-group"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (canSaveQqSyncPort) setQqClientSyncPort.mutate({ port: newQqSyncPort });
-                  }}
-                >
-                  <input
-                    className="weq-set-input weq-set-input-sm weq-number"
-                    aria-label="QQ 代理端口"
-                    inputMode="numeric"
-                    value={qqSyncPortDraft ?? qqSyncPort ?? ''}
-                    disabled={
-                      qqSyncPort === undefined ||
-                      setQqProxyEnabled.isPending ||
-                      setQqClientSyncPort.isPending
-                    }
-                    onChange={(event) =>
-                      setQqSyncPortDraft(event.target.value.replace(/\D/g, '').slice(0, 5))
-                    }
-                    title="请输入 1–65535 之间的整数"
-                  />
-                  <button
-                    type="submit"
-                    className="weq-set-btn weq-set-btn-primary weq-set-btn-sm"
-                    disabled={!canSaveQqSyncPort}
-                  >
-                    保存端口
-                  </button>
-                </form>
-              }
-            />
-            {proxyStatusError && (
-              <p className="weq-set-note weq-set-note-warn" role="alert">
-                {proxyStatusError}
-              </p>
-            )}
-          </Card>
-          <Card
-            settingId="qq-sync-and-live"
-            title="同步与实时更新"
-            icon={<RefreshCw size={15} strokeWidth={1.8} />}
-            desc={
-              beforeLogin
-                ? '打开在线账号后可用。'
-                : '使用代理同步或加速实时更新时，需要当前账号的 QQ 在线能力就绪。'
-            }
-          >
-            <Row
-              settingId="qq-client-sync"
-              desc="把 WeQ 发送的本人消息和已向 QQ 服务器成功上报的已读位置，同步回本机 QQ。"
-              control={
-                <Toggle
-                  checked={settings.data?.qqClientSyncEnabled ?? false}
-                  disabled={
-                    beforeLogin ||
-                    !proxyEnabled ||
-                    setQqProxyEnabled.isPending ||
-                    settingsLoading ||
-                    setQqClientSync.isPending ||
-                    setQqClientSyncPort.isPending
-                  }
-                  onChange={(enabled) => setQqClientSync.mutate({ enabled })}
-                  label="自动同步本人消息与已读"
-                />
-              }
-            />
-            {proxyStatusDetails && (
-              <p className="weq-set-note" role="status">
-                {proxyStatusDetails}
-              </p>
-            )}
-            <Row
-              settingId="qq-live-messages"
-              desc="利用 QQ 推送减少消息、未读、互动和群资料的重复读库与刷新，可能显著提升性能。代理断开后由数据库监听接手。"
-              control={
-                <Toggle
-                  checked={settings.data?.qqLiveMessagesEnabled ?? false}
-                  disabled={
-                    beforeLogin ||
-                    !proxyEnabled ||
-                    setQqProxyEnabled.isPending ||
-                    settingsLoading ||
-                    setQqLiveMessages.isPending
-                  }
-                  onChange={(enabled) => setQqLiveMessages.mutate({ enabled })}
-                  label="通过 QQ 代理加速实时更新"
-                />
-              }
-            />
-          </Card>
+          <QqCapabilitySetup mode={settings.data?.qqCapabilityMode} />
           <QqStatusReminderSettings />
         </>
       )}
@@ -799,7 +524,7 @@ export function AccountBasicsSection({
               </div>
             }
           />
-          <details className="weq-set-details">
+          <AnimatedDetails className="weq-set-details">
             <summary>
               <ChevronDown size={13} aria-hidden />
               安卓 chatpic 备份教程（点击展开）
@@ -841,7 +566,7 @@ export function AccountBasicsSection({
                 chatthumb），而不是它的父目录。
               </p>
             </div>
-          </details>
+          </AnimatedDetails>
         </Card>
       )}
     </div>

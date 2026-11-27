@@ -23,6 +23,7 @@ import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { useTabActive } from '../RetainedTabs.shared';
+import { SegmentedControl } from '../SegmentedControl';
 import { shellBridge } from '../../lib/target.shared';
 import {
   fetchSystemAuthStatus,
@@ -317,23 +318,16 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
                 : autoLockBlockReason || '满足解锁条件后可开启自动锁定。'
             }
             control={
-              <div className="weq-set-seg" role="radiogroup" aria-label="空闲自动锁定时长">
-                {AUTO_LOCK_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={autoLockMinutes === opt.value}
-                    className={`weq-set-seg-item${autoLockMinutes === opt.value ? ' is-on' : ''}`}
-                    disabled={
-                      settings.isLoading || setAutoLock.isLoading || (opt.value > 0 && !canAutoLock)
-                    }
-                    onClick={() => void onSetAutoLock(opt.value)}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+              <SegmentedControl
+                label="空闲自动锁定时长"
+                value={autoLockMinutes}
+                options={AUTO_LOCK_OPTIONS.map((option) => ({
+                  ...option,
+                  disabled: option.value > 0 && !canAutoLock,
+                }))}
+                disabled={settings.isLoading || setAutoLock.isLoading}
+                onChange={(minutes) => void onSetAutoLock(minutes)}
+              />
             }
           />
         </div>

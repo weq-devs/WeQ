@@ -35,7 +35,13 @@
 
 :is(.weq-title-online-status, .weq-mobile-online-status),
 :is(.weq-title-online-status, .weq-mobile-online-status) > .weq-online-status,
-:is(.chat-status-desktop, .chat-status-mobile) .weq-online-status {
+:is(
+    .chat-status-desktop,
+    .chat-status-mobile,
+    .weq-contact-status-line,
+    .weq-contact-self-status-row
+  )
+  .weq-online-status {
   display: inline-flex;
   align-items: center;
   overflow: hidden;
@@ -46,8 +52,9 @@
   line-height: 1.25;
 }
 
-.chat-status-desktop > .weq-self-online-status {
-  min-width: 0;
+.chat-status-desktop > :is(.weq-self-online-status, span) {
+  min-inline-size: 0;
+  max-inline-size: 100%;
 }
 
 .weq-online-status-base,
@@ -55,7 +62,14 @@
   flex: none;
 }
 
-:is(.weq-title-online-status, .weq-mobile-online-status, .chat-status-desktop, .chat-status-mobile)
+:is(
+    .weq-title-online-status,
+    .weq-mobile-online-status,
+    .chat-status-desktop,
+    .chat-status-mobile,
+    .weq-contact-status-line,
+    .weq-contact-self-status-row
+  )
   .weq-online-status-text {
   min-width: 0;
   overflow: hidden;

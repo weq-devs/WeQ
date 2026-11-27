@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
-const oldTerms = /完整(?:功能|模式|体验)/;
+const oldTerms = /完整(?:功能|体验)/;
 const extensions = new Set(['.ts', '.tsx', '.md', '.html', '.mjs', '.json']);
 
 function files(directory: string): string[] {
@@ -15,7 +15,7 @@ function files(directory: string): string[] {
   });
 }
 
-it('运行界面、服务提示与内置帮助统一使用 QQ 在线能力，不混入旧称', () => {
+it('在线能力的运行提示与帮助不使用退役名称', () => {
   const found = ['apps/desktop/src', 'apps/web/src', 'packages/service/src', 'resources/help']
     .flatMap((directory) => files(join(root, directory)))
     .flatMap((file) =>

@@ -17,6 +17,7 @@ export const DEFAULT_DATABASE_READ_CONCURRENCY = 4;
 export const MAX_DATABASE_READ_CONCURRENCY = 8;
 let readConcurrency = DEFAULT_DATABASE_READ_CONCURRENCY;
 let activeReadJobs = 0;
+let activeBulkReads = 0;
 let nextJobSequence = 0;
 const configuredBindings = new Set<NtHelperBinding>();
 const execution = new AsyncLocalStorage<{ job: Job; path: string }>();
@@ -233,6 +234,7 @@ export function promoteDatabaseSignal(signal: AbortSignal): void {
     queue.background = queue.background.filter((job) => job.signal !== signal);
     for (const job of jobs) {
       job.priority = 'interactive';
+      job.workload = 'latency';
       if (job.trace) job.trace.priority = 'interactive';
       queue.interactive.push(job);
     }
@@ -404,7 +406,12 @@ export function scheduleDatabase<T>(
     const job: Job = {
       sequence: ++nextJobSequence,
       read: options.read === true,
-      workload: options.bulk === true ? 'bulk' : (context?.workload ?? 'latency'),
+      workload:
+        signal && promotedSignals.has(signal)
+          ? 'latency'
+          : options.bulk === true
+            ? 'bulk'
+            : (context?.workload ?? 'latency'),
       trace: beginQueryTrace(path, kind, source, state.current?.trace),
       at: performance.now(),
       priority: kind,
@@ -503,7 +510,9 @@ export function scheduleDatabase<T>(
           if (item.sequence > writeAt) return false;
           return (
             item.workload !== 'bulk' ||
-            ![...state.active].some((active) => active.workload === 'bulk')
+            // 不同库共用宿主。批量查询即使分散到多个库，也不能占满工作位。
+            (activeBulkReads < Math.max(1, readConcurrency - 1) &&
+              ![...state.active].some((active) => active.workload === 'bulk'))
           );
         };
         let index = pending.findIndex(eligible);
@@ -517,11 +526,14 @@ export function scheduleDatabase<T>(
         state.interactiveBurst = selected === state.interactive ? state.interactiveBurst + 1 : 0;
         state.active.add(next);
         if (next.read) activeReadJobs++;
+        const bulkRead = next.read && next.workload === 'bulk';
+        if (bulkRead) activeBulkReads++;
         state.running = true;
         state.current = state.active.values().next().value;
         void next.start().finally(() => {
           state.active.delete(next);
           if (next.read) activeReadJobs--;
+          if (bulkRead) activeBulkReads--;
           state.current = state.active.values().next().value;
           state.running = state.active.size > 0;
           if (!state.running && !state.interactive.length && !state.background.length) {

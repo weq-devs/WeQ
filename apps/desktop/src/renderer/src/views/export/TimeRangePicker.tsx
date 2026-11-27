@@ -138,7 +138,6 @@ export function TimeRangePicker({
           「自定义」是固定区间，不会滚动。
         </p>
       ) : null}
-      {/* 预设区间与别处的单选一样走共享分段控件，不再另写一排胶囊按钮。 */}
       <FormSelect
         className="weq-set-input"
         aria-label="时间范围"

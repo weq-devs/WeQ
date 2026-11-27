@@ -27,7 +27,7 @@ html[data-theme='dark'] .weq-perf {
 }
 .weq-perf button,
 .weq-perf .weq-select-trigger,
-.weq-perf-menu input {
+.weq-perf-menu input[type='datetime-local'] {
   min-width: 0;
   min-height: 30px;
   border: 1px solid var(--weq-border-subtle);
@@ -413,14 +413,13 @@ html[data-theme='dark'] .weq-perf-band {
 .weq-perf-menu form label {
   display: grid;
 }
-.weq-perf-menu input {
+.weq-perf-menu input[type='datetime-local'] {
   max-width: 100%;
   padding: 6px;
   background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);
   border: 1px solid var(--weq-border-strong);
   border-radius: 5px;
-  accent-color: var(--weq-accent-effective);
 }
 @media (max-width: 1099px) {
   .weq-perf-workspace {

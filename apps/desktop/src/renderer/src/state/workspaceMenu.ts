@@ -31,7 +31,7 @@ interface WorkspaceMenuState {
   close: () => void;
   resetTaskBadges: () => void;
   syncTasks: (scope: string, items: WorkspaceTaskIndicator[]) => void;
-  readTasks: () => void;
+  readTask: (scope: string, id: string, result: string) => void;
 }
 
 export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
@@ -67,7 +67,9 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
         ...readTaskResults(taskScope),
       };
       for (const item of taskItems) {
-        if (item.activity !== 'finished' || previousRead[item.id] !== item.result)
+        if (item.activity === 'finished' && item.resultSeen && !item.archived)
+          previousRead[item.id] = item.result;
+        else if (item.activity !== 'finished' || previousRead[item.id] !== item.result)
           delete previousRead[item.id];
       }
       const readResults = retainTaskResults(previousRead);
@@ -76,6 +78,7 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
         state.taskScope === taskScope &&
         taskItems.some(
           (item) =>
+            !item.archived &&
             item.autoOpenTaskList !== false &&
             !previousIds.has(item.id) &&
             !(item.activity === 'finished' && readResults[item.id] === item.result),
@@ -83,6 +86,7 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
       const unreadResults = taskItems.filter(
         (item) =>
           item.activity === 'finished' &&
+          !item.archived &&
           item.showResultBadge !== false &&
           readResults[item.id] !== item.result,
       );
@@ -100,25 +104,39 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
         finished: unreadResults.length,
       };
     }),
-  readTasks: () =>
+  readTask: (scope, id, result) =>
     set((state) => {
+      if (
+        state.taskScope !== scope ||
+        state.readTaskResults[id] === result ||
+        !state.taskItems.some(
+          (item) =>
+            item.id === id &&
+            item.activity === 'finished' &&
+            item.result === result &&
+            !item.waiting,
+        )
+      )
+        return state;
       const results = {
         ...state.readTaskResults,
-        ...(state.taskScope ? readTaskResults(state.taskScope) : {}),
+        ...readTaskResults(scope),
+        [id]: result,
       };
-      for (const item of state.taskItems) {
-        delete results[item.id];
-        if (item.activity === 'finished') results[item.id] = item.result;
-      }
       const readResults = retainTaskResults(results);
-      if (state.taskScope) rememberTaskResults(state.taskScope, readResults);
+      rememberTaskResults(scope, readResults);
+      const unread = state.taskItems.filter(
+        (item) =>
+          item.activity === 'finished' &&
+          !item.archived &&
+          item.showResultBadge !== false &&
+          readResults[item.id] !== item.result,
+      );
       return {
-        finished: 0,
-        unreadFailed: 0,
+        finished: unread.length,
+        unreadFailed: unread.filter((item) => item.failed).length,
         readTaskResults: readResults,
-        readTaskResultsByScope: state.taskScope
-          ? { ...state.readTaskResultsByScope, [state.taskScope]: readResults }
-          : state.readTaskResultsByScope,
+        readTaskResultsByScope: { ...state.readTaskResultsByScope, [scope]: readResults },
       };
     }),
 }));

@@ -124,6 +124,7 @@ export {
   copyFoundMedia,
   decodeFoundVoices,
   transcribeFoundVoices,
+  toOnlineVoiceRequest,
   downloadMissingImages,
   downloadMissingVideos,
   downloadMissingFiles,
@@ -171,6 +172,7 @@ export {
 } from './ocr_rewrite';
 export {
   scanConvMedia,
+  findChatVoiceRef,
   mediaDirsFromAccountDir,
   mediaDirsFromNtDataDir,
   type MediaKind,

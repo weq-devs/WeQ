@@ -9,20 +9,39 @@ import { type MsgService, VOICE_MODELS } from '@weq/service';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import { bootstrapRouter } from '../src/main/ipc/routers/bootstrap';
 import { SentVoiceTranscripts } from '../src/main/sent_voice_transcripts';
+import { UNKNOWN_NETWORK } from '@weq/service/data-saver';
+import { updateTransferPolicy } from '@weq/service/transfer-policy';
 
 const state = vi.hoisted(() => ({
   switched: false,
   downloaded: true,
+  onlineReady: false,
+  priority: 'local' as 'local' | 'qq',
+  voiceMessage: vi.fn(),
+  transcribeOnline: vi.fn(),
   infer: vi.fn(),
   write: vi.fn(async () => true),
   read: vi.fn(),
   find: vi.fn(async () => ({ source: '/synthetic/voice.silk' })),
+  download: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
-    accountConfig: { getRecord: () => ({ configId: 'source-a' }) },
+    accountConfig: {
+      getRecord: () => ({
+        configId: 'source-a',
+        uin: '10001',
+        qqOnline: state.onlineReady,
+        qqPid: 10,
+      }),
+    },
     fileSearch: { findFile: state.find },
-    msgs: { setPttTranscript: state.write, getRawElements: state.read },
+    mediaDownload: { download: state.download },
+    msgs: {
+      setPttTranscript: state.write,
+      getRawElements: state.read,
+      getChatMessageForVoice: state.voiceMessage,
+    },
   };
   const context = {
     account: { context: { uin: '10001' } },
@@ -30,7 +49,12 @@ vi.mock('../src/main/context/app_context', () => {
       return state.switched ? { ...services } : services;
     },
     bootstrap: {
-      userConfig: { getLocalModelId: () => VOICE_MODELS[0]!.id },
+      userConfig: {
+        getLocalModelId: () => VOICE_MODELS[0]!.id,
+        getSetting: () => ({ priority: state.priority }),
+        getSettings: () => ({ autoAttachQq: state.onlineReady }),
+        cacheDir: () => tmpdir(),
+      },
       voiceTranscribe: {
         getModelStatus: () => ({ downloaded: state.downloaded }),
         resolveModelPaths: () => ({
@@ -46,6 +70,12 @@ vi.mock('../src/main/context/app_context', () => {
     requireBootstrap: () => context.bootstrap,
   };
 });
+vi.mock('../src/main/capture_session', () => ({
+  probeCaptureBackend: () => ({ available: state.onlineReady }),
+}));
+vi.mock('../src/main/online_transcribe', () => ({
+  onlineTranscriber: { transcribeOne: state.transcribeOnline },
+}));
 vi.mock('../src/main/voice', () => ({
   decodeSilkToWav16kBuffer: async () => Buffer.from('synthetic-wav'),
 }));
@@ -61,9 +91,40 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.switched = false;
   state.downloaded = true;
+  state.onlineReady = false;
+  state.priority = 'local';
+  state.voiceMessage.mockReset();
+  state.transcribeOnline.mockReset();
   state.infer.mockResolvedValue({ success: true, text: '合成识别结果' });
   state.read.mockReset();
   state.write.mockResolvedValue(true);
+});
+
+it('省流量时自动转写只查本地语音，手动转写仍可补取', async () => {
+  const api = accountRouter.createCaller({});
+  try {
+    updateTransferPolicy('always', UNKNOWN_NETWORK);
+    await expect(api.transcribeVoice({ ...input, automatic: true })).resolves.toMatchObject({
+      success: true,
+    });
+    expect(state.download).not.toHaveBeenCalled();
+    state.find.mockResolvedValueOnce({ source: '' }).mockResolvedValueOnce({ source: '' });
+    state.download.mockImplementation((_token, options) =>
+      options.localOnly ? null : '/synthetic/voice.silk',
+    );
+    await expect(
+      api.transcribeVoice({ ...input, token: 'fixture', automatic: true }),
+    ).resolves.toMatchObject({ deferred: true, success: false });
+    await expect(api.transcribeVoice({ ...input, token: 'fixture' })).resolves.toMatchObject({
+      success: true,
+    });
+    expect(state.download.mock.calls.map(([, options]) => options.localOnly === true)).toEqual([
+      true,
+      false,
+    ]);
+  } finally {
+    updateTransferPolicy('auto', UNKNOWN_NETWORK);
+  }
 });
 
 function makeRecordingWav(sampleRate = 16_000) {
@@ -142,6 +203,52 @@ it('识别结果返回并写回原消息，保留原有调用兼容性', async (
     expect.objectContaining({ ifEmpty: false }),
   );
 });
+it('手动转写按优先级交给 QQ 并可回退，自动识别只用本地', async () => {
+  const request = { ...input, token: 'test-token' };
+  const msg = {
+    msgId: 42n,
+    msgSeq: 3n,
+    sendTime: 1_700_000_000n,
+    senderUin: 10002n,
+    targetGroupCode: '10003',
+    elements: [
+      {
+        type: 'ptt',
+        data: { fileName: input.name, fileToken: request.token, md5: 'a'.repeat(32) },
+      },
+    ],
+  };
+  state.onlineReady = true;
+  state.priority = 'qq';
+  state.downloaded = false;
+  state.voiceMessage.mockResolvedValue(msg);
+  state.transcribeOnline.mockResolvedValueOnce('QQ 识别结果');
+  const api = accountRouter.createCaller({});
+  await expect(api.transcribeVoice(request)).resolves.toMatchObject({
+    success: true,
+    source: 'qq',
+    text: 'QQ 识别结果',
+  });
+  expect(state.transcribeOnline).toHaveBeenCalledWith(
+    '10001',
+    expect.objectContaining({ msgId: '42', peerUin: '10003', fileName: input.name }),
+    expect.any(Function),
+  );
+  expect(state.infer).not.toHaveBeenCalled();
+
+  state.downloaded = true;
+  state.transcribeOnline.mockRejectedValueOnce(new Error('QQ 暂时不可用'));
+  await expect(api.transcribeVoice(request)).resolves.toMatchObject({
+    success: true,
+    source: 'local',
+  });
+  await expect(api.transcribeVoice({ ...request, automatic: true })).resolves.toMatchObject({
+    success: true,
+    source: 'local',
+  });
+  expect(state.transcribeOnline).toHaveBeenCalledTimes(2);
+});
+
 it('已有原文时跳过自动识别，识别中的迟到结果也沿用已保存的原文', async () => {
   const api = accountRouter.createCaller({});
   const stored = { elements: [{ kind: 'ptt', fileName: input.name, pttTranscript: '合成原文' }] };

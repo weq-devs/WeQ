@@ -18,13 +18,13 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, type BigIntStats } from 'node:fs';
-import { open, readFile, stat } from 'node:fs/promises';
+import { existsSync, readFileSync, type BigIntStats } from 'node:fs';
+import { mkdir, open, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { writeFileAtomic } from '@weq/service/atomic-write';
-import { decode, encode as silkEncode, getDuration, isSilk } from 'silk-wasm';
+import { encode as silkEncode, getDuration, isSilk } from 'silk-wasm';
 import { requirePlatform } from './context/app_context';
-import { decodePlayback } from './voice_playback_worker';
+import { decodeBackgroundVoice, decodePlayback } from './voice_playback_worker';
 
 const SAMPLE_RATE = 24000;
 const TRANSCRIBE_SAMPLE_RATE = 16000;
@@ -34,6 +34,8 @@ const BITS_PER_SAMPLE = 16;
 const SILK_MAGIC = Buffer.from('#!SILK_V3');
 const SILK_FLAG = 0x02;
 const pendingPlayback = new Map<string, Promise<string | null>>();
+const pendingBackground = new Map<string, Promise<Buffer | null>>();
+let backgroundTail = Promise.resolve();
 
 /**
  * Normalize a Tencent SILK buffer so silk-wasm accepts it: the wasm decoder
@@ -132,18 +134,46 @@ async function cachedPlayback(
   }
 }
 
+async function prepareBackgroundWav(silkPath: string, sampleRate: number): Promise<Buffer | null> {
+  if (!silkPath) return null;
+  const source = resolve(silkPath);
+  const info = await stat(source, { bigint: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined;
+    throw error;
+  });
+  if (!info?.isFile()) return null;
+  const revision = voiceSourceRevision(info);
+  const key = JSON.stringify([source, revision, sampleRate]);
+  const pending = pendingBackground.get(key);
+  if (pending) return pending;
+
+  // 等到轮到本条才读取文件，批量任务不会提前把待转换语音都留在内存中。
+  const task = backgroundTail
+    .then(async () => {
+      const silk = normalizeSilk(await readFile(source));
+      if (voiceSourceRevision(await stat(source, { bigint: true })) !== revision) return null;
+      return wrapWav(await decodeBackgroundVoice(silk, sampleRate), sampleRate);
+    })
+    .finally(() => pendingBackground.delete(key));
+  pendingBackground.set(key, task);
+  backgroundTail = task.then(
+    () => undefined,
+    () => undefined,
+  );
+  return task;
+}
+
 /**
  * Decode the SILK file at `silkPath` directly to `destPath` (a `.wav`). Used by
  * the media export pipeline, which needs the WAV at a predictable bundle path
  * rather than the shared voice cache. Returns true on success.
  */
 export async function decodeSilkToFile(silkPath: string, destPath: string): Promise<boolean> {
-  if (!silkPath || !existsSync(silkPath)) return false;
   try {
-    const silk = normalizeSilk(readFileSync(silkPath));
-    const { data: pcm } = await decode(silk, SAMPLE_RATE);
-    mkdirSync(dirname(destPath), { recursive: true });
-    writeFileSync(destPath, wrapWav(pcm));
+    const wav = await prepareBackgroundWav(silkPath, SAMPLE_RATE);
+    if (!wav) return false;
+    await mkdir(dirname(destPath), { recursive: true });
+    await writeFile(destPath, wav);
     return true;
   } catch (e) {
     console.error(`[voice] failed to decode SILK ${silkPath} → ${destPath}:`, e);
@@ -158,11 +188,8 @@ export async function decodeSilkToFile(silkPath: string, destPath: string): Prom
  * Not cached — the WAV is consumed once by the recognizer worker.
  */
 export async function decodeSilkToWav16kBuffer(silkPath: string): Promise<Buffer | null> {
-  if (!silkPath || !existsSync(silkPath)) return null;
   try {
-    const silk = normalizeSilk(readFileSync(silkPath));
-    const { data: pcm } = await decode(silk, TRANSCRIBE_SAMPLE_RATE);
-    return wrapWav(pcm, TRANSCRIBE_SAMPLE_RATE);
+    return await prepareBackgroundWav(silkPath, TRANSCRIBE_SAMPLE_RATE);
   } catch (e) {
     console.error(`[voice] failed to decode SILK ${silkPath} to 16k wav:`, e);
     return null;

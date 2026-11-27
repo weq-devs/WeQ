@@ -56,7 +56,6 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { openExternalLink } from '../../lib/openExternalLink';
 import { isRemoteClient } from '../../lib/remoteClient';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
-import { useSettingsSaveBanner } from '../../hooks/useSettingsSaveBanner';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { useExportReportDialog } from '../export/ExportReportControl.shared';
 
@@ -808,7 +807,6 @@ function PersonaSettingsBody({
     if (!result) throw new Error('克隆体已不存在');
     onSaved();
   });
-  useSettingsSaveBanner(form.saving);
   const guard = useDraftClose(onClose, null, update.isLoading || deleting);
 
   return (
@@ -902,9 +900,10 @@ function PersonaSettingsBody({
               ))}
             </fieldset>
           </div>
-          {!form.valid || form.error ? (
+          {!form.valid || form.error || form.saving ? (
             <footer className="weq-persona-savebar">
               {!form.valid ? <span role="status">请检查配置值</span> : null}
+              {form.saving ? <span role="status">保存中…</span> : null}
               {form.error ? (
                 <>
                   <span role="alert">保存失败：{form.error}</span>

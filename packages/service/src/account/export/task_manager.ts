@@ -27,6 +27,7 @@ import {
   lstatSync,
   realpathSync,
 } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { basename, dirname, join, relative } from 'node:path';
 import { fileExtension, sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import type { MsgService } from '../msg';
@@ -91,7 +92,7 @@ import {
   watchTransferPolicy,
 } from '../../common/transfer_policy';
 import { MessageJournal } from './message_journal';
-import { isLikelyCorruptionError } from '@weq/db';
+import { beginQqFileWrite, isLikelyCorruptionError, withDatabaseWorkload } from '@weq/db';
 import {
   DatabaseRecoveryGate,
   DatabaseRecoveryStopped,
@@ -123,7 +124,7 @@ import {
   type ExportOutputCapabilities,
   type ExportOutputShape,
 } from './output_shape';
-import { writeFileAtomicSync } from '../../common/atomic_write';
+import { writeFileAtomic, writeFileAtomicSync } from '../../common/atomic_write';
 import { writeZipFile } from '../../common/zip';
 import {
   collectFriends,
@@ -355,6 +356,7 @@ export interface MediaExportOptions {
    * 漏包 / 过期的再用本地模型补全。缺省关闭。
    */
   onlineTranscribe?: boolean;
+  voicePriority?: 'local' | 'qq';
   /** 在线转写的并发请求数（默认 5）。 */
   onlineConcurrency?: number;
   /**
@@ -368,6 +370,7 @@ export interface MediaExportOptions {
    * 模型。前提是 QQ 在线且有发包物料；不开启就是纯本地识别。
    */
   onlineOcr?: boolean;
+  ocrPriority?: 'local' | 'qq';
   /** 在线识别的并发请求数（默认 5）。 */
   onlineOcrConcurrency?: number;
   /**
@@ -409,6 +412,8 @@ export interface ExportTask {
   /** 独立资源任务；仅声明了 resume 请求的执行器可以在重启后重建。 */
   resource?: {
     resume?: ResumableResourceRequest;
+    stagedInput?: true;
+    fileNameFromResult?: boolean;
     networkTransfer?: { batch?: boolean; bytes?: number };
     kind:
       | 'group-albums'
@@ -527,6 +532,7 @@ export interface TaskProgress {
 }
 
 export interface ResourceExportSummary {
+  onPublished?(directory: string, taskId: string): void;
   metadata?: ResourceDirectoryEntry[];
   fileName?: string;
   total: number;
@@ -542,6 +548,42 @@ export interface ResourceExportSummary {
 
 export type ResumableResourceRequest =
   | { type: 'favorite-emoji' }
+  | { type: 'assistant-artifact'; id: string; name: string; fileName: string }
+  | { type: 'database'; mode: 'safe' | 'fast'; items: Array<{ dbPath: string; name: string }> }
+  | { type: 'annual-report'; extension: 'html' | 'pdf' | 'png'; fileName: string }
+  | { type: 'analytics-report'; fileName: string }
+  | { type: 'composition' }
+  | { type: 'persona-bot'; personaId: string }
+  | { type: 'decoration'; fileName: string }
+  | {
+      type: 'qzone-videos';
+      hostUin: string;
+      items: Array<{ id: string; name: string; video: boolean }>;
+      fileName?: string;
+    }
+  | {
+      type: 'dress-download';
+      kind: 'bubble' | 'font' | 'widget' | 'callbg';
+      items: Array<{ itemId: number; name: string; video?: boolean }>;
+      bundleName: string;
+    }
+  | { type: 'market-image'; packId: string; hash: string; name: string; fileName: string }
+  | {
+      type: 'mail-attachment';
+      mailId: string;
+      sourceKey: string;
+      name: string;
+      size: number;
+      big: boolean;
+      fileName: string;
+    }
+  | {
+      type: 'qzone-album-media';
+      hostUin: string;
+      topicId: string;
+      items: Array<{ key: string; name?: string; isVideo: boolean }>;
+      fileName?: string;
+    }
   | {
       type: 'media-file';
       source:
@@ -552,7 +594,17 @@ export type ResumableResourceRequest =
             fileName: string;
             busId?: number;
           }
-        | { kind: 'chat-file'; msgId: string; name: string; conv?: string };
+        | {
+            kind: 'chat-file';
+            msgId: string;
+            name?: string;
+            conv?: string;
+            token?: string;
+            fwdMsgId?: string;
+            fwdKind?: 'c2c' | 'group';
+            fwdResId?: string;
+          }
+        | { kind: 'url'; url: string; name?: string };
       fileName: string;
     }
   | {
@@ -598,7 +650,10 @@ export type ResumableResourceRequest =
 type ResourceAlbumSelection = { id: string; title?: string; mediaKeys?: string[] };
 
 function resourceResumeKind(request: ResumableResourceRequest) {
+  if (request.type === 'qzone-videos') return 'media';
+  if (request.type === 'dress-download') return 'decoration';
   if (request.type === 'mail') return 'mail-messages';
+  if (request.type === 'qzone-album-media') return 'qzone-albums';
   if (request.type === 'media-file') return 'media';
   if (request.type === 'album-references')
     return request.items.every((item) => item.kind.startsWith('qzone-'))
@@ -609,6 +664,7 @@ function resourceResumeKind(request: ResumableResourceRequest) {
 
 export interface ResourceExportRunContext {
   checkpoint?: ExportCheckpoint;
+  stagedInput?: Buffer;
   archive?: ArchiveOptions;
   directory: string;
   signal: AbortSignal;
@@ -685,6 +741,7 @@ export interface MediaDeps {
   decodeSilk?: DecodeSilk;
   /** SILK voice → text transcription (native engine; injected from the app). */
   transcribe?: TranscribeVoiceFn;
+  voiceModelReady?: () => boolean;
   /**
    * 在线转写（QQ 服务端 ASR）—— 由 app 注入：native 发包 + 网卡抓 push。
    * 抓包会话需在导出前先 arm；不可用时抛错，转写阶段自动回退本地模型。
@@ -795,6 +852,11 @@ export class ExportTaskManager extends EventEmitter {
     return Boolean(
       task.resource?.resume && (this.networkRunners.has(task.id) || this.deps.resumeResource),
     );
+  }
+
+  private resourceInputPath(id: string) {
+    if (!/^resource-[a-f0-9-]{36}$/i.test(id)) throw new Error('资源任务标识无效。');
+    return join(this.cacheDir, '.resource-inputs', id);
   }
 
   private resumableBundle(task: ExportTask): AtomicExportBundle {
@@ -1027,7 +1089,7 @@ export class ExportTaskManager extends EventEmitter {
             intent: task?.networkOverride ? 'interactive' : 'batch',
             override: task?.networkOverride,
           },
-          run,
+          () => withDatabaseWorkload('bulk', run),
         );
         this.executions.set(id, execution);
         void execution
@@ -1273,14 +1335,11 @@ export class ExportTaskManager extends EventEmitter {
       ...(previousSavedAt !== undefined ? { savedAt: previousSavedAt } : {}),
     };
     this.saveTasks();
-    const saving = saveExportOutput(
-      task,
-      selectedFile ? { filePath: target, unique } : target,
-      undefined,
-      {
+    const write = () =>
+      saveExportOutput(task, selectedFile ? { filePath: target, unique } : target, undefined, {
         requireExistingDirectory: true,
-      },
-    )
+      });
+    const saving = write()
       .then((path) => {
         task.save = {
           policy: task.save?.policy ?? policy,
@@ -1367,7 +1426,7 @@ export class ExportTaskManager extends EventEmitter {
             Boolean(
               task.journalPath || (task.archiveId && task.incrementalSupport && task.current > 0),
             ),
-          isFinalizing: this.finalizing.has(task.id),
+          isFinalizing: this.isTaskFinalizing(task.id),
           ...(canResume
             ? {
                 resumeMode:
@@ -1383,6 +1442,10 @@ export class ExportTaskManager extends EventEmitter {
 
   getTask(id: string): ExportTask | null {
     return this.tasks.get(id) ?? null;
+  }
+
+  isTaskFinalizing(id: string): boolean {
+    return this.finalizing.has(id);
   }
 
   backgroundResourceTask(id: string, unfinishedOnly = false): boolean {
@@ -1612,9 +1675,15 @@ export class ExportTaskManager extends EventEmitter {
     if (localMessagesOnly && opts.media?.completeMessages) {
       opts = { ...opts, media: { ...opts.media, completeMessages: false } };
     }
+    const requestedFormats = opts.formats ?? [opts.format];
+    if (
+      opts.content?.messages === 'none' &&
+      requestedFormats.some((format) => format === 'chatlab.json' || format === 'chatlab.jsonl')
+    )
+      throw new Error('ChatLab 需要导出消息正文，请选择消息正文或移除 ChatLab 格式。');
     const resourceOnly = opts.formats?.length === 0;
     if (opts.chatlab && (opts.formats ?? [opts.format]).includes('jsonl.gz'))
-      throw new Error('JSONL（压缩）使用 WeQ 正式归档，不支持 ChatLab。');
+      throw new Error('旧版 ChatLab 模式不支持 JSONL.GZ。');
     if (
       resourceOnly &&
       (!opts.content ||
@@ -2014,6 +2083,7 @@ export class ExportTaskManager extends EventEmitter {
   async startResourceExport(opts: {
     display?: import('../../common/task_display').TaskDisplay;
     resume?: ResumableResourceRequest;
+    stagedInput?: Uint8Array;
     networkTransfer?: { batch?: boolean; bytes?: number };
     archive?: ArchiveOptions;
     name: string;
@@ -2060,6 +2130,8 @@ export class ExportTaskManager extends EventEmitter {
       format: opts.archive?.formats?.[0] ?? 'json',
       resource: {
         ...(opts.resume ? { resume: structuredClone(opts.resume) } : {}),
+        ...(opts.stagedInput ? { stagedInput: true } : {}),
+        ...(opts.fileNameFromResult ? { fileNameFromResult: true } : {}),
         networkTransfer: opts.networkTransfer,
         kind: opts.kind,
         ...(output ? { output } : {}),
@@ -2110,7 +2182,16 @@ export class ExportTaskManager extends EventEmitter {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    this.registerTask(task, opts.browserOutput ? null : opts.savePolicy);
+    if (opts.stagedInput) {
+      if (!opts.resume || !opts.stagedInput.length) throw new Error('资源任务缺少可续作的输入。');
+      await writeFileAtomic(this.resourceInputPath(id), opts.stagedInput);
+    }
+    try {
+      this.registerTask(task, opts.browserOutput ? null : opts.savePolicy);
+    } catch (error) {
+      if (opts.stagedInput) rmSync(this.resourceInputPath(id), { force: true });
+      throw error;
+    }
     this.log(id, 'task', `资源任务已创建：${task.name}`);
     if (tracksResourceTransfer(task)) this.beginResourceTransfer(task);
     this.saveTasks();
@@ -2151,6 +2232,9 @@ export class ExportTaskManager extends EventEmitter {
       mkdirSync(directory, { recursive: true });
       const summary = await run({
         checkpoint: task.resource?.resume ? this.checkpoint(task, abort.signal) : undefined,
+        stagedInput: task.resource?.stagedInput
+          ? await readFile(this.resourceInputPath(task.id), { signal: abort.signal })
+          : undefined,
         archive: {
           ...task.resourceArchive,
           ...(await this.archiveOptions(task)),
@@ -2270,6 +2354,7 @@ export class ExportTaskManager extends EventEmitter {
         if (output) task.filePath = join(bundle.finalDir, 'files', summary.fileName!);
         else task.bundleDir = bundle.finalDir;
         onPublished?.(join(bundle.finalDir, 'files'));
+        summary.onPublished?.(join(bundle.finalDir, 'files'), task.id);
       }
       const counts = summary.contents ?? summary;
       task.current = stage.current = counts.ok;
@@ -2314,7 +2399,15 @@ export class ExportTaskManager extends EventEmitter {
       }
       this.releaseTask(task);
       task.updatedAt = Date.now();
-      this.saveTasks();
+      if (this.saveTasks() && task.status === 'completed') {
+        this.networkRunners.delete(task.id);
+        if (task.resource?.resume) this.clearResumeState(task);
+        try {
+          if (task.resource?.stagedInput) rmSync(this.resourceInputPath(task.id), { force: true });
+        } catch {
+          this.log(task.id, 'file', '输入快照清理失败，删除任务时将重试。', 'warn');
+        }
+      }
       this.emit('progress', {
         taskId: task.id,
         status: task.status,
@@ -2716,7 +2809,18 @@ export class ExportTaskManager extends EventEmitter {
     const aborted = (): boolean => abort.signal.aborted;
     const paused = (): boolean => this.tasks.get(id)?.status === 'paused';
 
+    let finishWrite: (() => void) | undefined;
     try {
+      const explicitTargets = [
+        task.outputDirectory,
+        task.bundleDir,
+        task.filePath,
+        task.directOutput?.journalDirectory,
+        ...Object.values(task.archiveTargets ?? {}),
+        task.save?.policy.filePath,
+        task.save?.policy.directory,
+      ].filter((path): path is string => Boolean(path));
+      finishWrite = beginQqFileWrite(explicitTargets);
       const sourceStamp = task.guild
         ? this.deps.guildDirect?.exportSourceStamp?.()
         : this.msgs.exportSourceStamp?.(task.kind, task.conv);
@@ -3851,13 +3955,13 @@ export class ExportTaskManager extends EventEmitter {
             this.log(
               id,
               'transcribe',
-              `在线转写已开启（并发 ${task.media?.onlineConcurrency ?? 5}），漏包 / 过期将回退本地模型`,
+              `QQ 在线转写可用（并发 ${task.media?.onlineConcurrency ?? 5}） · ${task.media?.voicePriority === 'local' ? '本地模型' : 'QQ 在线'}优先`,
             );
           }
           const r = await transcribeFoundVoices(
             found,
             outDir,
-            transcribe,
+            this.deps.voiceModelReady?.() === false ? undefined : transcribe,
             (done, total) => {
               if (aborted()) return;
               this.touchStage(task, 'transcribe', {
@@ -3887,6 +3991,7 @@ export class ExportTaskManager extends EventEmitter {
                     })
                     .catch(() => null)
               : undefined,
+            task.media?.voicePriority,
           );
           // 回写：消息文件早在转写跑的时候就落盘了，这里把 `[语音: 名字]` 锚点
           // 换成转写文本。必须等 messageJob 结束（否则可能改写正在写入的文件），
@@ -3911,6 +4016,7 @@ export class ExportTaskManager extends EventEmitter {
               const w = rewriteVoiceTranscripts(this.exportFilePaths(task, outDir), transcripts, {
                 plainText: true,
                 chatlabJson: task.chatlab === true,
+                chatlabFiles: this.chatlabOutputPaths(task, outDir),
                 onLog: (text, level) => this.log(id, 'transcribe', text, level ?? 'info'),
               });
               if (w.replaced > 0) {
@@ -3995,8 +4101,7 @@ export class ExportTaskManager extends EventEmitter {
             this.log(
               id,
               'ocr',
-              `在线识别已开启（并发 ${task.media?.onlineOcrConcurrency ?? 5}），` +
-                '连续失败 10 张即放弃在线、回退本地模型（单张回包超时不算连败）',
+              `QQ 在线识别可用（并发 ${task.media?.onlineOcrConcurrency ?? 5}） · ${task.media?.ocrPriority === 'local' ? '本地模型' : 'QQ 在线'}优先`,
             );
           }
 
@@ -4009,6 +4114,7 @@ export class ExportTaskManager extends EventEmitter {
               ...(ocrLocal ? { local: ocrLocal } : {}),
               ...(useOnlineOcr && onlineOcr ? { online: onlineOcr } : {}),
               onlineConcurrency: task.media?.onlineOcrConcurrency ?? 5,
+              priority: task.media?.ocrPriority,
               onFilterProgress: (done, total) => {
                 if (aborted()) return;
                 this.touchStage(task, 'ocrfilter', {
@@ -4079,6 +4185,7 @@ export class ExportTaskManager extends EventEmitter {
               const w = rewriteOcrTexts(this.exportFilePaths(task, outDir), parsed.images ?? {}, {
                 plainText: true,
                 chatlabJson: task.chatlab === true,
+                chatlabFiles: this.chatlabOutputPaths(task, outDir),
                 onLog: (text, level) => this.log(id, 'ocr', text, level ?? 'info'),
               });
               if (w.replaced > 0) {
@@ -4221,6 +4328,8 @@ export class ExportTaskManager extends EventEmitter {
             format !== 'jsonl' &&
             format !== 'jsonl.gz' &&
             format !== 'vcard' &&
+            format !== 'chatlab.json' &&
+            format !== 'chatlab.jsonl' &&
             task.content?.messages === 'none'
           ) {
             await writeArchiveView(
@@ -4397,6 +4506,7 @@ export class ExportTaskManager extends EventEmitter {
       }
       this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
+      finishWrite?.();
       if (aborted() && !paused()) task.status = 'cancelled';
       if (paused()) {
         const journal = this.journals.get(id);
@@ -5906,6 +6016,15 @@ export class ExportTaskManager extends EventEmitter {
     );
   }
 
+  private chatlabOutputPaths(task: ExportTask, outDir: string): Set<string> {
+    const formats = task.formats ?? [task.format];
+    return new Set(
+      this.exportFilePaths(task, outDir).filter(
+        (_, index) => formats[index] === 'chatlab.json' || formats[index] === 'chatlab.jsonl',
+      ),
+    );
+  }
+
   private async hashMessageOutputs(task: ExportTask): Promise<Record<string, string>> {
     const hashes: Record<string, string> = {};
     for (const path of this.exportFilePaths(task, task.outputDirectory!)) {
@@ -6241,16 +6360,18 @@ export class ExportTaskManager extends EventEmitter {
     const dressLookup = dressByMsg
       ? (msgId: string): MsgDecoration | undefined => dressByMsg.get(msgId)
       : undefined;
-    // ChatLab reuses json/jsonl but emits its own structure (header + members +
-    // normalized messages), and resolves names/roles itself — its own exporter.
-    if (task.chatlab && (format === 'json' || format === 'jsonl')) {
+    if (
+      format === 'chatlab.json' ||
+      format === 'chatlab.jsonl' ||
+      (task.chatlab && (format === 'json' || format === 'jsonl'))
+    ) {
       return exportToChatlab(
         this.msgsFor(task),
         {
           kind: task.kind,
           conv: task.conv,
           name: task.name,
-          format,
+          format: format === 'jsonl' || format === 'chatlab.jsonl' ? 'jsonl' : 'json',
           outputPath,
           range: task.range,
           roam,
@@ -6748,7 +6869,13 @@ export class ExportTaskManager extends EventEmitter {
       task.error = undefined;
       this.saveTasks();
       this.enqueue(
-        () => this.runResourceTask(task, (context) => this.deps.resumeResource!(request, context)),
+        () =>
+          this.runResourceTask(
+            task,
+            (context) => this.deps.resumeResource!(request, context),
+            undefined,
+            task.resource?.fileNameFromResult,
+          ),
         id,
       );
       return true;
@@ -7131,6 +7258,7 @@ export class ExportTaskManager extends EventEmitter {
     )
       return false;
     this.cleanupOutput(task);
+    if (task.resource?.stagedInput) rmSync(this.resourceInputPath(id), { force: true });
     this.tasks.delete(id);
     this.networkRunners.delete(id);
     this.taskLogs.delete(id);

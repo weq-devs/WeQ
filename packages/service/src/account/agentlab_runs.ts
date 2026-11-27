@@ -1,8 +1,68 @@
 import { setTimeout as wait } from 'node:timers/promises';
+import { automaticAiRestricted, watchTransferPolicy } from '../common/transfer_policy';
 
 export interface CloneConversationTarget {
   kind: 'persona' | 'group';
   id: string;
+}
+
+/** 省流量期间只保留每个对象最近的派生工作，限制解除后逐个处理。 */
+export class DeferredCloneLearning {
+  private readonly pending = new Map<
+    string,
+    {
+      targets: CloneConversationTarget[];
+      work: (signal: AbortSignal) => Promise<void>;
+    }
+  >();
+  private unwatch?: () => void;
+  private draining = false;
+
+  constructor(private readonly runs: CloneConversationRuns) {}
+
+  defer(
+    key: string,
+    targets: CloneConversationTarget[],
+    work: (signal: AbortSignal) => Promise<void>,
+  ) {
+    if (!automaticAiRestricted() && !this.pending.has(key)) return false;
+    this.pending.set(key, { targets, work });
+    this.unwatch ??= watchTransferPolicy(() => void this.drain());
+    void this.drain();
+    return true;
+  }
+
+  discard(target: CloneConversationTarget) {
+    for (const [key, job] of this.pending)
+      if (job.targets.some(({ kind, id }) => kind === target.kind && id === target.id))
+        this.pending.delete(key);
+    if (this.pending.size === 0) this.unwatchEmpty();
+  }
+
+  close() {
+    this.pending.clear();
+    this.unwatchEmpty();
+  }
+
+  private unwatchEmpty() {
+    this.unwatch?.();
+    this.unwatch = undefined;
+  }
+
+  private async drain() {
+    if (this.draining) return;
+    this.draining = true;
+    try {
+      for (const [key, { targets, work }] of this.pending) {
+        if (automaticAiRestricted()) break;
+        this.pending.delete(key);
+        await this.runs.start(targets, work).catch(() => undefined);
+      }
+    } finally {
+      this.draining = false;
+      if (this.pending.size === 0) this.unwatchEmpty();
+    }
+  }
 }
 
 interface ConversationRun {

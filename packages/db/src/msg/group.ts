@@ -575,13 +575,17 @@ export class GroupMsgDb {
    * rationale (QQ recall keeps 40002; our edits change it, so the trigger only
    * catches recall).
    */
-  async updateMsgBody(msgId: bigint, blob: Uint8Array): Promise<number> {
+  async updateMsgBody(
+    msgId: bigint,
+    blob: Uint8Array,
+    before?: { body: Uint8Array; rowId: bigint },
+  ): Promise<number> {
     const newRandom = BigInt(Math.floor(Math.random() * 0x7fffffff));
-    return this.qq.write(`UPDATE group_msg_table SET "40800" = ?, "40002" = ? WHERE "40001" = ?`, [
-      blob,
-      newRandom,
-      msgId,
-    ]);
+    const condition = before ? ' AND rowid = ? AND "40800" = ?' : '';
+    return this.qq.write(
+      `UPDATE group_msg_table SET "40800" = ?, "40002" = ? WHERE "40001" = ?${condition}`,
+      before ? [blob, newRandom, msgId, before.rowId, before.body] : [blob, newRandom, msgId],
+    );
   }
 
   /** 转写只更新正文，并检测期间发生的并发修改。 */

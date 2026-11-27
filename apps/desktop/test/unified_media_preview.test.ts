@@ -12,7 +12,10 @@ import { QqMessageContent } from '../src/renderer/src/components/QqMessageConten
 import { MarketFaceLightbox } from '../src/renderer/src/components/MarketFaceLightbox';
 import { openMarketFaceLightbox } from '../src/renderer/src/state/marketFaceLightbox';
 import { MediaPreviewHost } from '../src/renderer/src/components/mediaPreviewStore';
-import { openMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
+import {
+  openMediaPreview,
+  usePreviews,
+} from '../src/renderer/src/components/mediaPreviewStore.shared';
 import { QqMarketFace } from '../src/renderer/src/components/QqMedia';
 import { useDataSaver } from '../src/renderer/src/lib/dataSaver';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
@@ -86,6 +89,7 @@ beforeEach(() => {
   mocks.configId = 'fixture-a';
   mocks.page.mockReset();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('IntersectionObserver', undefined);
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
   host = document.createElement('div');
   document.body.append(host);
@@ -119,6 +123,10 @@ const key = (name: string) =>
       .dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true })),
   );
 const load = () => act(() => document.querySelector('img')!.dispatchEvent(new Event('load')));
+const markImagesLoaded = (selector: string) =>
+  act(() => {
+    for (const image of host.querySelectorAll(selector)) image.dispatchEvent(new Event('load'));
+  });
 it('空间视频从所点封面预览，可切换相邻媒体，导出只提交勾选的视频', async () => {
   mocks.bound = true;
   const videos = ['甲', '乙', '丙'].map((title, index) => ({
@@ -140,7 +148,11 @@ it('空间视频从所点封面预览，可切换相邻媒体，导出只提交�
       }),
     ),
   );
-  act(() => host.querySelector<HTMLButtonElement>('button[title="乙"]')!.click());
+  markImagesLoaded('.weq-qzal-album-cover img');
+  const second = [...host.querySelectorAll<HTMLButtonElement>('.weq-qzal-album-open')].find(
+    (tile) => tile.textContent?.includes('乙'),
+  )!;
+  act(() => second.click());
   const source = () => new URL(document.querySelector('video')!.src).searchParams.get('src');
   expect(source()).toBe(videos[1]!.videoUrl);
   act(() => button('下一项媒体').click());
@@ -156,7 +168,7 @@ it('空间视频从所点封面预览，可切换相邻媒体，导出只提交�
     expectedAccountUin: '10001',
     expectedAccountConfigId: mocks.configId,
     hostUin: '10002',
-    items: [{ id: '2', name: '乙', url: videos[1]!.videoUrl }],
+    items: [{ id: '2', name: '乙', url: videos[1]!.videoUrl, video: true }],
     savePolicy: { mode: 'before' },
   });
 });
@@ -647,6 +659,40 @@ it('聊天元素按消息与元素位置标识，不混入闪照、表情和嵌�
     ]).map((item) => item.key),
   ).toEqual(['roaming:native:10:1:0', 'roaming:native:11:1:0']);
 });
+it('MOV 附件沿用行内视频和同一组预览，保存仍使用原始聊天文件', async () => {
+  const mov = { type: 'file', data: { fileToken: 'movie', fileName: 'clip.MOV' } };
+  const pic = { type: 'pic', data: { fileToken: 'picture', fileName: 'same.png' } };
+  const messages = [{ msgId: '4', sendTime: 1, elements: [pic, mov, pic] }];
+  const items = galleryMedia(messages, '42', 'group');
+  expect(items.map(({ key, kind }) => [key, kind])).toEqual([
+    ['4:0', 'image'],
+    ['4:1', 'video'],
+    ['4:2', 'image'],
+  ]);
+  act(() =>
+    root.render(
+      h(
+        ChatMediaGallery,
+        { messages, conv: '42', kind: 'group' },
+        h(QqMessageContent, { elements: [pic, mov, pic], msgId: '4', sendTimeMs: 1000 }),
+      ),
+    ),
+  );
+  expect(host.querySelector('video')).toBeNull();
+  act(() => button('播放视频：clip.MOV').click());
+  expect(new URL(host.querySelector('video')!.src).searchParams.get('token')).toBe('movie');
+  act(() => host.querySelector('video')!.dispatchEvent(new Event('canplay')));
+  await act(async () => button('放大预览视频').click());
+  const session = usePreviews.getState().sessions.get(document);
+  expect(session?.initialKey).toBe('4:1');
+  expect(session?.items[1]?.saveSource).toMatchObject({
+    kind: 'chat-file',
+    msgId: '4',
+    name: 'clip.MOV',
+    token: 'movie',
+    conv: '42',
+  });
+});
 it('商城表情使用无全屏遮罩的小浮层，图片主动复用聊天路径并保留加密回退与分级Escape', () => {
   act(() => root.render(h(MarketFaceLightbox)));
   act(() => openMarketFaceLightbox('123', 'fixture'));
@@ -714,6 +760,7 @@ it('真实聊天入口传递锚点，同包切换更新高亮，点击背景继�
       ),
     ),
   );
+  markImagesLoaded('.qq-mface-wrap img');
   const triggers = document.querySelectorAll<HTMLButtonElement>('.qq-mface-wrap');
   act(() => triggers[0]!.click());
   expect(document.querySelector('.weq-mface-popover-layer.is-anchored-popover')).not.toBeNull();
@@ -782,6 +829,7 @@ it('真实消息渲染入口接入混排、双向分页、实时追加和账号�
       h(MediaPreviewHost),
     );
   await act(async () => root.render(scene(messages)));
+  markImagesLoaded('.qq-media-wrap img');
   const trigger = document.querySelector<HTMLButtonElement>(
     '[aria-label="查看图片：fixture.png"]',
   )!;
@@ -847,6 +895,7 @@ it('同一消息的连续图片组成网格，按原媒体位置打开并继续�
       ),
     ),
   );
+  markImagesLoaded('.qq-image-grid img');
   const tiles = document.querySelectorAll<HTMLButtonElement>('.qq-image-grid button.qq-media-wrap');
   expect([...tiles].map((tile) => tile.getAttribute('aria-label'))).toEqual([
     '查看图片：next.png',

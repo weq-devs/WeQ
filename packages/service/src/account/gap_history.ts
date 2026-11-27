@@ -53,6 +53,10 @@ export interface GapFetchedMessage {
   msgRandom?: string;
   clientSeq?: string;
   localSent?: boolean;
+  /** 同一条已确认的 WeQ 发送消息有了更完整的副本。 */
+  sentFromWeq?: true;
+  /** 当前正文来自 QQ 代理实时推送。 */
+  livePush?: true;
   recall?: RecallInfo;
   /** True only when this row was indexed using a server NT conversation sequence. */
   ntSeqVerified?: boolean;

@@ -7,6 +7,17 @@
  */
 
 export type { Platform } from './types';
+import { candidateQqRoots as darwinQqRoots } from './darwin/paths';
+import { candidateQqRoots as linuxQqRoots } from './linux/paths';
+import { candidateTencentFilesRoots } from './win32/paths';
+
+/** QQ 数据位置与 native 无关，文件配置初始化之前也能解析。 */
+export function candidateQqDataRoots(override?: string | null): string[] {
+  if (process.platform === 'win32') return candidateTencentFilesRoots(undefined, override);
+  if (process.platform === 'darwin') return darwinQqRoots(undefined, override);
+  return linuxQqRoots(undefined, override);
+}
+
 export { weqAppDataRoot } from './app_data_root';
 // QQ 元数据（版本 / 启动器实例数）纯函数，跨平台共用同一份实现。
 export { readQqVersion, readLauncherCount } from './qq_meta';

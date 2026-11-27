@@ -7,15 +7,15 @@ import {
   RotateCw,
   RefreshCw,
   Square,
-  Trash2,
 } from 'lucide-react';
 import { useContext, useEffect, useRef, type ReactNode } from 'react';
 import type { ContactMetricsLaneKey } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
-import { removeBackgroundTask, type BackgroundTaskEntry } from '../../hooks/useBackgroundTasks';
+import type { BackgroundTaskEntry } from '../../hooks/useBackgroundTasks';
 import type { BackgroundTaskScope } from '../../../../shared/background_task';
 import { backgroundTaskDisplay } from '../../../../shared/background_task';
+import { backgroundResult } from '../../../../shared/task_archive';
 import { IS_WEB } from '../../lib/target.shared';
 import { useDialog } from '../Dialog.shared';
 import type { TaskLogLine } from '../TaskLogConsole';
@@ -26,6 +26,7 @@ import { backgroundTaskNavigation } from './backgroundTaskNavigation';
 import { TaskActivityLog } from './TaskActivityLog';
 import { TaskQuickActions, type TaskQuickAction } from './TaskQuickActions';
 import { TaskProgressDetails } from './TaskProgressDetails';
+import { useOutgoingTaskProgress } from '../../lib/transferActivity';
 import { DatabaseMaintenanceProgress } from '../DatabaseMaintenanceProgress';
 import { usePageDataCache } from '../PageSnapshots.shared';
 import '../../styles/export.css';
@@ -47,7 +48,9 @@ export function BackgroundTaskActionIcon({ id }: { id: string }) {
               ? Download
               : id === 'install'
                 ? RotateCw
-                : FolderOpen;
+                : id === 'open-message'
+                  ? ExternalLink
+                  : FolderOpen;
   return <Icon size={14} aria-hidden />;
 }
 
@@ -57,12 +60,16 @@ export function BackgroundTaskDetails({
   refresh,
   onOpenClone,
   cloneLog,
+  managementActions,
+  archived,
 }: {
   entry: BackgroundTaskEntry;
   scope: BackgroundTaskScope | null;
   refresh: () => Promise<unknown>;
   onOpenClone?: (id: string) => void;
   cloneLog?: ReactNode;
+  managementActions: TaskQuickAction[];
+  archived: boolean;
 }) {
   return (
     <TaskDetails
@@ -72,6 +79,8 @@ export function BackgroundTaskDetails({
       refresh={refresh}
       onOpenClone={onOpenClone}
       cloneLog={cloneLog}
+      managementActions={managementActions}
+      archived={archived}
     />
   );
 }
@@ -82,14 +91,30 @@ function TaskDetails({
   refresh,
   onOpenClone,
   cloneLog,
+  managementActions,
+  archived,
 }: {
   entry: BackgroundTaskEntry;
   scope: BackgroundTaskScope | null;
   refresh: () => Promise<unknown>;
   onOpenClone?: (id: string) => void;
   cloneLog?: ReactNode;
+  managementActions: TaskQuickAction[];
+  archived: boolean;
 }) {
-  const { task } = entry;
+  const saved = entry.source === 'saved' && Boolean(entry.savedId && scope?.configId);
+  const archivedDetails = trpc.taskArchive.detail.useQuery(
+    {
+      expectedAccountUin: scope?.uin ?? '',
+      expectedAccountConfigId: scope?.configId ?? '',
+      id: entry.savedId ?? 'background:host:_',
+      result: backgroundResult(entry.task),
+    },
+    { enabled: saved, staleTime: Infinity },
+  );
+  const archiveError = saved ? archivedDetails.error : null;
+  const task = archivedDetails.data ? { ...archivedDetails.data, ...entry.task } : entry.task;
+  const outgoing = useOutgoingTaskProgress(task);
   const openCalendarTask = useContext(CalendarTaskNavigationContext);
   const canManageTask = !IS_WEB || task.kind !== 'update';
   const cache = usePageDataCache();
@@ -161,6 +186,13 @@ function TaskDetails({
     await refresh();
   };
   const taskActions: TaskQuickAction[] = (canManageTask ? task.actions : [])
+    .filter(
+      (action) =>
+        !archived ||
+        ['open', 'reveal', 'view-report', 'view-clone', 'download', 'open-message'].includes(
+          action.id,
+        ),
+    )
     .filter((action) => action.id !== 'view-clone' || Boolean(onOpenClone))
     .map((action) => ({
       id: action.id,
@@ -170,6 +202,12 @@ function TaskDetails({
         if (action.id === 'view-clone' && task.clonePersonaId) {
           return onOpenClone?.(task.clonePersonaId);
         }
+        if (action.id === 'view-report' && task.reportId) {
+          window.dispatchEvent(
+            new CustomEvent('weq:open-saved-analysis', { detail: task.reportId }),
+          );
+          return;
+        }
         return act(() =>
           entry.source === 'window'
             ? localBackgroundTasks.act(task.id, action.id)
@@ -177,7 +215,14 @@ function TaskDetails({
         );
       },
     }));
-  if (navigation) {
+  if (
+    navigation &&
+    !taskActions.some(
+      (action) =>
+        action.id === navigation.id ||
+        (action.id === 'open' && navigation.id === 'open-forward-target'),
+    )
+  ) {
     if (task.status === 'running') taskActions.push(navigation);
     else taskActions.unshift(navigation);
   }
@@ -189,14 +234,22 @@ function TaskDetails({
       run: () => openCalendarTask(task.id),
     });
   }
-  if (canManageTask && task.status !== 'running') {
-    taskActions.push({
-      id: 'remove',
-      label: '移除任务',
-      icon: <Trash2 size={14} />,
-      run: () => act(() => removeBackgroundTask(entry, scope)),
+  if (entry.source === 'saved' && task.clonePersonaId && onOpenClone)
+    taskActions.unshift({
+      id: 'view-clone',
+      label: '查看克隆体',
+      icon: <ExternalLink size={14} />,
+      run: () => onOpenClone(task.clonePersonaId!),
     });
-  }
+  if (entry.source === 'saved' && task.kind === 'analysis' && task.reportId)
+    taskActions.unshift({
+      id: 'view-report',
+      label: '查看报告',
+      icon: <ExternalLink size={14} />,
+      run: () =>
+        window.dispatchEvent(new CustomEvent('weq:open-saved-analysis', { detail: task.reportId })),
+    });
+  taskActions.push(...managementActions);
   const actions = (
     <TaskQuickActions variant="detail" actions={taskActions}>
       {task.download ? (
@@ -232,10 +285,16 @@ function TaskDetails({
           name={task.name}
           display={backgroundTaskDisplay(task)}
           status={task.status}
-          statusLabel={task.statusLabel}
-          progress={task.progress}
-          showProgress={task.kind !== 'calendar'}
-          note={task.kind === 'contacts' && task.subtasks?.length ? undefined : task.note}
+          statusLabel={outgoing?.label ?? task.statusLabel}
+          progress={outgoing?.percent ?? task.progress}
+          showProgress={
+            task.kind !== 'calendar' && (task.kind !== 'send-media' || task.status === 'running')
+          }
+          note={
+            task.kind === 'contacts' && task.subtasks?.length
+              ? undefined
+              : (outgoing?.counts ?? task.note)
+          }
           startedAt={task.startedAt}
           finishedAt={task.finishedAt}
           actions={actions}
@@ -257,8 +316,8 @@ function TaskDetails({
           onShowFailures={(lane, label) => void showContactFailures(lane, label)}
         />
       ) : null}
-      {hostDetails.error && entry.source === 'host' ? (
-        <p role="alert">详情读取失败：{hostDetails.error.message}</p>
+      {(hostDetails.error && entry.source === 'host') || archiveError ? (
+        <p role="alert">详情读取失败：{(archiveError ?? hostDetails.error)?.message}</p>
       ) : null}
       {task.kind === 'contacts' ? (
         taskLogs.error ? (
@@ -280,7 +339,9 @@ function TaskDetails({
       (task.kind !== 'contacts' || !task.subtasks?.length) ? (
         <TaskActivityLog
           lines={logs}
-          loading={entry.source === 'host' && taskLogs.isLoading}
+          loading={
+            (entry.source === 'host' && taskLogs.isLoading) || (saved && archivedDetails.isLoading)
+          }
           error={taskLogs.error?.message}
         />
       ) : null}

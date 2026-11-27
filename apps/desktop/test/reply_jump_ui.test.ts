@@ -170,9 +170,14 @@ it('引用视频仍只跳转原消息，不同时打开灯箱或播放视频', (
   expect(f.scroll.scrollTop).toBe(120);
 });
 
+function openLoadedImage(image: HTMLImageElement) {
+  act(() => image.dispatchEvent(new Event('load')));
+  act(() => image.click());
+}
+
 it.each([0, 42])('引用图片可独立预览，不依赖跳转序号 %i，也不预览正文图片', (seq) => {
   const f = mount({ seq, bodyImage: true });
-  act(() => f.host.querySelector<HTMLElement>('.qq-reply-preview-media img')!.click());
+  openLoadedImage(f.host.querySelector<HTMLImageElement>('.qq-reply-preview-media img')!);
   expect(f.jump).not.toHaveBeenCalled();
   expect(gallery).toHaveBeenCalledOnce();
   const options = gallery.mock.calls[0]?.[0];
@@ -197,9 +202,12 @@ it('省流量引用图片可点击加载，携带原消息时间与主动加载�
   useDataSaver.setState({ enabled: true });
   vi.stubGlobal('IntersectionObserver', undefined);
   const fetchThumbnail = vi.fn(async (_url: string) => new Response(new Blob(['fixture'])));
+  fetchThumbnail.mockResolvedValueOnce(
+    new Response(null, { status: 409, headers: { 'X-WeQ-Media-State': 'deferred' } }),
+  );
   vi.stubGlobal('fetch', fetchThumbnail);
   const f = mount();
-  failQuotedImage(f.host);
+  await act(async () => {});
   const load = f.host.querySelector<HTMLButtonElement>('button[aria-label="加载图片"]')!;
   expect(load).not.toBeNull();
   expect(load.disabled).toBe(false);
@@ -213,7 +221,7 @@ it('省流量引用图片可点击加载，携带原消息时间与主动加载�
   expect(url.searchParams.get('name')).toBe('synthetic.png');
   expect(f.jump).not.toHaveBeenCalled();
   expect(gallery).not.toHaveBeenCalled();
-  act(() => image.click());
+  openLoadedImage(image);
   expect(gallery).toHaveBeenCalledOnce();
   expect(f.jump).not.toHaveBeenCalled();
 });
@@ -221,7 +229,7 @@ it('省流量引用图片可点击加载，携带原消息时间与主动加载�
 it('引用图片失败后可重试，不触发跳转', () => {
   const f = mount();
   failQuotedImage(f.host);
-  const retry = f.host.querySelector<HTMLButtonElement>('.qq-media-retry')!;
+  const retry = f.host.querySelector<HTMLButtonElement>('button[aria-label="重试加载图片"]')!;
   expect(retry).not.toBeNull();
   act(() => retry.click());
   expect(f.host.querySelector('.qq-reply-preview-media img')).not.toBeNull();
@@ -256,7 +264,7 @@ it.each([
   expect(body.querySelectorAll('img')).toHaveLength(
     previewElements.filter((type) => type === 'pic').length,
   );
-  act(() => body.querySelector<HTMLElement>('.qq-reply-preview-media img')!.click());
+  openLoadedImage(body.querySelector<HTMLImageElement>('.qq-reply-preview-media img')!);
   expect(f.jump).not.toHaveBeenCalled();
   expect(gallery).toHaveBeenCalledOnce();
   act(() => body.querySelector<HTMLElement>(':scope > span:not(.qq-reply-preview-media)')!.click());
@@ -290,7 +298,7 @@ it('无有效引用序号时不伪造跳转，也不退出贴底', () => {
 
 it('普通正文图片打开连续预览，不触发引用跳转', () => {
   const f = mount({ quoted: false });
-  act(() => f.host.querySelector<HTMLElement>('.qq-media-image')!.click());
+  openLoadedImage(f.host.querySelector<HTMLImageElement>('.qq-media-image')!);
   expect(gallery).toHaveBeenCalledOnce();
   expect(gallery.mock.calls[0]?.[0]).toMatchObject({ initialKey: 'quote:0' });
   expect(f.jump).not.toHaveBeenCalled();

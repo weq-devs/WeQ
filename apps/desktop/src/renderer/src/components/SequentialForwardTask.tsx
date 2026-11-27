@@ -1,5 +1,3 @@
-import { Square } from 'lucide-react';
-import { TaskProgressBar } from './tasks/TaskProgressBar';
 import type { Message } from '../im-template/template/types';
 import type { MfTarget } from './mergeForward/model';
 import {
@@ -12,40 +10,69 @@ import {
   type ForwardOptions,
 } from '../lib/sequentialForward';
 import { useToast } from './Toast.shared';
+import { notificationSource } from '../lib/notificationNavigation.shared';
 import {
-  taskNotificationSource,
-  notificationSource,
-  openNotificationSource,
-} from '../lib/notificationNavigation.shared';
-import { localBackgroundTasks, rememberWindowTask } from '../state/backgroundTasks';
+  localBackgroundTasks,
+  rememberWindowTask,
+  recordForwardTask,
+} from '../state/backgroundTasks';
 import { singleChatFile } from '../lib/chatFileForward';
+import { expectedOutgoingKeys } from '../lib/outgoingAcknowledgment';
 import type { BackgroundTaskScope } from '../../../shared/background_task';
-import '../styles/sequential-forward.css';
+import {
+  sequentialReplyTargets,
+  type ForwardChatKind,
+  type ForwardReceipt,
+} from '../lib/sequentialForwardReply';
+import {
+  canContinueForward,
+  deleteForwardPlan,
+  ForwardNotSubmitted,
+  forwardResumeAction,
+  runNewForwardPlan,
+  writeForwardPlan,
+  type SequentialForwardPlan,
+} from '../lib/forwardContinuation';
+
+export type SequentialForwardSend = (
+  message: Message,
+  target: MfTarget,
+  signal: AbortSignal,
+  quotedReceipt?: ForwardReceipt,
+) => Promise<ForwardReceipt | undefined> | Promise<void>;
 
 /** 各目标独立并行，目标内等待逐条回执；生命周期独立于已关闭的配置弹窗。 */
 export function startSequentialForward({
   messages,
   targets,
   options,
+  sourceKind,
+  includeExcerpt = false,
   onSend,
   onOpenTarget,
   scope,
+  resume,
 }: {
   messages: readonly Message[];
   targets: readonly MfTarget[];
   options: ForwardOptions;
-  onSend: (message: Message, target: MfTarget, signal: AbortSignal) => Promise<void>;
+  sourceKind?: ForwardChatKind;
+  includeExcerpt?: boolean;
+  onSend: SequentialForwardSend;
   onOpenTarget: (target: MfTarget) => void;
   scope: BackgroundTaskScope;
+  resume?: { id: string; plan: SequentialForwardPlan };
 }): { controller: AbortController; done: Promise<void> } {
   validateForwardOptions(options);
-  if (messages.some((message) => forwardMessageBlockReason(message)))
-    throw new Error('请先确认跳过不可等价重发的消息');
+  if (!resume && messages.some((message) => forwardMessageBlockReason(message)))
+    throw new Error('所选消息已变化，请重新选择并转发');
   if (!messages.length || !targets.length) throw new Error('没有可发送的消息或目标');
   const controller = new AbortController();
   const toast = useToast.getState();
   const wait = estimateForwardDuration(messages.map(forwardMessageContent), options, 1);
   const configuredWaitMs = (wait.minMs + wait.maxMs) / 2;
+  const replyTargets = sequentialReplyTargets(messages, sourceKind);
+  const quotedIds = new Set(replyTargets.values());
   const run = async (target: MfTarget) => {
     const local = new AbortController();
     const abort = () => local.abort();
@@ -55,8 +82,10 @@ export function startSequentialForward({
     let failed = 0;
     let sendSpentMs = 0;
     let lastError = '';
+    let notSubmitted = false;
     const failures: string[] = [];
     const receipts = new Map<number, string>();
+    const sentForReplies = new Map<string, ForwardReceipt>();
     const receiptDetails = () => [
       ...[...receipts].map(([index, state]) => `第 ${index + 1} 条：${state}`),
       ...(receipts.size < messages.length
@@ -64,18 +93,99 @@ export function startSequentialForward({
         : []),
     ];
     let label = '正在转发';
-    let finished = false;
     const startedAt = Date.now();
-    const taskId = localBackgroundTasks.start({
-      kind: 'forward',
-      name: target.name,
-      scope,
-      display: { action: '逐条转发消息', subject: target.name },
+    const taskId =
+      resume?.id ??
+      localBackgroundTasks.start({
+        kind: 'forward',
+        name: target.name,
+        scope,
+        display: { action: '逐条转发消息', subject: target.name },
+        forwardTargets: [target],
+      });
+    let plan = resume?.plan;
+    if (
+      !plan &&
+      navigator.locks &&
+      scope.configId &&
+      messages.every((message) => !message.composerDraft?.locals?.length)
+    ) {
+      try {
+        const candidate: SequentialForwardPlan = {
+          version: 1,
+          kind: 'sequential',
+          scope,
+          target: { ...target, avatarUrl: null },
+          messages: messages.map(
+            ({
+              body,
+              id,
+              msgId,
+              msgSeq,
+              clientSeq,
+              source,
+              sourceFormat,
+              conversationId,
+              senderId,
+              senderUid,
+              sendTime,
+              qqElements,
+              forwardSnapshot,
+              optimistic,
+              composerDraft,
+              createdAt,
+            }) => ({
+              body,
+              id,
+              msgId,
+              msgSeq,
+              clientSeq,
+              source,
+              sourceFormat,
+              conversationId,
+              senderId,
+              senderUid,
+              sendTime,
+              qqElements,
+              forwardSnapshot,
+              optimistic,
+              composerDraft,
+              createdAt,
+            }),
+          ),
+          entries: messages.map(() => ({ state: 'pending' })),
+          options,
+          sourceKind,
+          includeExcerpt,
+        };
+        writeForwardPlan(taskId, candidate);
+        plan = candidate;
+      } catch {
+        // 发起窗口仍可执行原操作。若未能保存计划，重启只显示回执。
+      }
+    }
+    let firstSeq = localBackgroundTasks.snapshot().find((task) => task.id === taskId)
+      ?.forwardTargets?.[0]?.seq;
+    const rows = messages.flatMap((message, index) => {
+      const entry = plan?.entries[index];
+      if (!entry || entry.state === 'pending') return [{ message, index }];
+      if (entry.state === 'sent') {
+        sent++;
+        receipts.set(index, '已发送');
+        if (entry.receipt) sentForReplies.set(message.id, entry.receipt);
+      } else {
+        failed++;
+        receipts.set(index, '结果待核对，继续时已跳过');
+      }
+      return [];
     });
-    const taskSource = taskNotificationSource(taskId, 'background:window');
-    const conversationSource = notificationSource(
-      { kind: 'local', open: () => onOpenTarget(target) },
-      `打开对话：${target.name}`,
+    localBackgroundTasks.resume(taskId);
+    const taskSource = notificationSource(
+      { kind: 'task', id: `background:window:${taskId}` },
+      '查看任务',
+      scope.configId
+        ? { expectedAccountUin: scope.uin, expectedAccountConfigId: scope.configId }
+        : null,
     );
     const openAction = { id: 'open', label: '打开对话', run: () => onOpenTarget(target) };
     localBackgroundTasks.setActions(taskId, [
@@ -84,140 +194,108 @@ export function startSequentialForward({
         label: '停止向此会话发送',
         run: () => {
           local.abort();
-          localBackgroundTasks.update(taskId, { statusLabel: '停止收尾中' });
+          label = '停止收尾中';
+          localBackgroundTasks.update(taskId, { statusLabel: label });
         },
       },
       openAction,
     ]);
-    const progress = () => {
+    const update = (finished = false) => {
       const elapsed = Math.max(0, Date.now() - startedAt);
       const completed = sent + failed;
-      const expected = finished
-        ? elapsed
-        : configuredWaitMs + (completed ? (sendSpentMs / completed) * messages.length : 0);
-      return (
-        <span className="weq-forward-banner" data-forward-target={target.id}>
-          <span className="weq-forward-banner-label">
-            {label} · {target.name}
-          </span>
-          <span className="weq-forward-banner-progress">
-            <TaskProgressBar
-              value={
-                finished ? 100 : expected ? Math.min((elapsed / expected) * 100, 99) : undefined
-              }
-              label="逐条转发时间进度"
-            />
-            <span className="weq-forward-time">
-              <span>
-                已进行{' '}
-                <span className="weq-number weq-number-inherit">
-                  {formatForwardDuration(
-                    (finished ? Math.ceil(elapsed / 1000) : Math.floor(elapsed / 1000)) * 1000,
-                  )}
-                </span>
-              </span>
-              {' / '}
-              <span>
-                预计用时{' '}
-                {expected || finished ? (
-                  <span className="weq-number weq-number-inherit">
-                    {formatForwardDuration(Math.ceil(expected / 1000) * 1000)}
-                  </span>
-                ) : (
-                  '待估'
-                )}
-              </span>
-            </span>
-            <span className="weq-forward-count">
-              已处理 <span className="weq-number weq-number-inherit">{completed}</span> /{' '}
-              {<span className="weq-number weq-number-inherit">{messages.length}</span>} 条 · 成功{' '}
-              <span className="weq-number weq-number-inherit">{sent}</span> · 失败{' '}
-              <span className="weq-number weq-number-inherit">{failed}</span>
-            </span>
-            {!finished ? (
-              <button
-                type="button"
-                title="停止向此会话发送"
-                aria-label="停止向此会话发送"
-                onClick={() => local.abort()}
-              >
-                <Square size={14} />
-              </button>
-            ) : null}
-          </span>
-        </span>
-      );
-    };
-    const id = toast.push({
-      event: 'progress',
-      taskId: `background:window:${taskId}`,
-      title: progress(),
-      ttl: 0,
-      dismissible: false,
-      source: conversationSource,
-      action: {
-        label: conversationSource.label,
-        source: conversationSource,
-        icon: 'conversation',
-        run: () => {
-          void openNotificationSource(conversationSource);
-        },
-      },
-    });
-    const update = () => {
-      toast.update(id, { title: progress() });
+      const expected =
+        configuredWaitMs + (completed ? (sendSpentMs / completed) * messages.length : 0);
+      const time = formatForwardDuration(Math.floor(elapsed / 1000) * 1000);
+      const estimate = expected ? formatForwardDuration(Math.ceil(expected / 1000) * 1000) : '待估';
+      const counts = `已处理 ${completed} / ${messages.length} 条 · 成功 ${sent} · 失败 ${failed}`;
       localBackgroundTasks.update(taskId, {
-        progress: ((sent + failed) / messages.length) * 100,
-        note: `${label} · 已处理 ${sent + failed} / ${messages.length} · 成功 ${sent} · 失败 ${failed}`,
+        progress: expected > 0 ? (elapsed / (elapsed + expected)) * 100 : undefined,
+        statusLabel: label,
+        note: `${counts} · 已进行 ${time}${finished ? '' : ` / 预计用时 ${estimate}`}`,
         details: receiptDetails(),
       });
+      return counts;
     };
     update();
     rememberWindowTask(taskId);
-    const clock = setInterval(update, 1000);
+    const clock = setInterval(() => update(), 1000);
     let stopped: string | null = null;
     try {
-      await forwardSequentially(messages, options, {
-        signal: local.signal,
-        shouldRetry: (message) => !singleChatFile(message),
-        text: (message) => forwardMessageContent(message).text,
-        nonText: (message) => forwardMessageContent(message).nonText,
-        time: (message) => forwardMessageContent(message).timestampMs,
-        send: async (message) => {
-          const start = Date.now();
-          try {
-            await onSend(message, target, local.signal);
-          } catch (error) {
-            lastError = error instanceof Error ? error.message : String(error);
-            throw error;
-          } finally {
-            sendSpentMs += Math.max(0, Date.now() - start);
-          }
-        },
-        progress: (index, attempt, state) => {
-          receipts.set(
-            index,
-            state === 'sent'
-              ? '已发送'
-              : state === 'failed'
-                ? '发送失败或结果未确认'
-                : '已开始发送，结果待核对',
-          );
-          if (state === 'sent') sent++;
-          if (state === 'failed') {
-            failed++;
-            if (failures.length < 5) failures.push(`第 ${index + 1} 条：${lastError}`);
-          }
-          label =
-            state === 'sending'
-              ? `正在发送${attempt > 1 ? ` · 第 ${attempt} 次尝试` : ''}`
-              : state === 'sent'
-                ? '等待继续'
-                : '发送失败';
-          update();
-          rememberWindowTask(taskId);
-        },
-      });
+      const execute = () =>
+        forwardSequentially(rows, options, {
+          signal: local.signal,
+          shouldRetry: ({ message }) => !singleChatFile(message),
+          retryAfter: (error) => !plan || error instanceof ForwardNotSubmitted,
+          text: ({ message }) => forwardMessageContent(message).text,
+          nonText: ({ message }) => forwardMessageContent(message).nonText,
+          time: ({ message }) => forwardMessageContent(message).timestampMs,
+          send: async ({ message, index }) => {
+            const start = Date.now();
+            notSubmitted = false;
+            try {
+              const quotedId = replyTargets.get(message.id);
+              const receipt = await onSend(
+                message,
+                target,
+                local.signal,
+                quotedId ? sentForReplies.get(quotedId) : undefined,
+              );
+              if (receipt && quotedIds.has(message.id)) sentForReplies.set(message.id, receipt);
+              if (plan && receipt) plan.entries[index]!.receipt = receipt;
+              if (message === messages[0]) {
+                firstSeq = expectedOutgoingKeys({ ...receipt, peerType: target.kind }).seq;
+                localBackgroundTasks.update(taskId, {
+                  forwardTargets: [{ ...target, seq: firstSeq }],
+                });
+              }
+            } catch (error) {
+              notSubmitted = error instanceof ForwardNotSubmitted;
+              lastError = error instanceof Error ? error.message : String(error);
+              throw error;
+            } finally {
+              sendSpentMs += Math.max(0, Date.now() - start);
+            }
+          },
+          progress: (rowIndex, attempt, state) => {
+            const index = rows[rowIndex]!.index;
+            if (plan) {
+              const entry = plan.entries[index]!;
+              entry.state =
+                state === 'sending'
+                  ? 'submitting'
+                  : state === 'sent'
+                    ? 'sent'
+                    : notSubmitted
+                      ? 'pending'
+                      : 'unconfirmed';
+              writeForwardPlan(taskId, plan);
+            }
+            receipts.set(
+              index,
+              state === 'sent'
+                ? '已发送'
+                : state === 'failed'
+                  ? notSubmitted
+                    ? '未提交，可继续'
+                    : '发送结果待核对'
+                  : '已开始发送，结果待核对',
+            );
+            if (state === 'sent') sent++;
+            if (state === 'failed') {
+              failed++;
+              if (failures.length < 5) failures.push(`第 ${index + 1} 条：${lastError}`);
+            }
+            label =
+              state === 'sending'
+                ? `正在发送${attempt > 1 ? ` · 第 ${attempt} 次尝试` : ''}`
+                : state === 'sent'
+                  ? '等待继续'
+                  : '发送失败';
+            update();
+            rememberWindowTask(taskId);
+          },
+        });
+      await (plan && !resume ? runNewForwardPlan(taskId, execute) : execute());
       local.signal.throwIfAborted();
     } catch (error) {
       stopped = local.signal.aborted
@@ -229,30 +307,60 @@ export function startSequentialForward({
       clearInterval(clock);
       controller.signal.removeEventListener('abort', abort);
     }
-    finished = true;
-    label = stopped ? '转发已停止' : '转发完成';
-    update();
+    const cancelled = local.signal.aborted;
+    const partial = failed > 0 && sent > 0;
+    label = cancelled
+      ? '转发已停止'
+      : partial
+        ? '部分完成'
+        : stopped || failed
+          ? '转发失败'
+          : '转发完成';
+    const counts = update(true);
+    const canContinue = canContinueForward(plan);
+    const unknown = plan?.entries.some(
+      ({ state }) => state === 'submitting' || state === 'unconfirmed',
+    );
     localBackgroundTasks.finish(
       taskId,
-      local.signal.aborted ? 'cancelled' : stopped || failed ? 'failed' : 'completed',
+      canContinue
+        ? 'paused'
+        : local.signal.aborted
+          ? 'cancelled'
+          : stopped || failed
+            ? 'failed'
+            : 'completed',
       {
+        statusLabel: canContinue ? '等待继续转发' : label,
+        needsConfirmation: unknown,
+        forwardTargets: [{ ...target, seq: firstSeq }],
         details: [stopped, ...receiptDetails(), ...failures].filter((line): line is string =>
           Boolean(line),
         ),
       },
     );
-    localBackgroundTasks.setActions(taskId, [openAction]);
+    localBackgroundTasks.setActions(
+      taskId,
+      canContinue ? [forwardResumeAction(taskId, scope), openAction] : [openAction],
+    );
     rememberWindowTask(taskId);
-    toast.update(id, {
-      event: failed ? 'taskFailure' : stopped ? 'success' : 'taskComplete',
-      source: failed ? taskSource : conversationSource,
-      tone: stopped || failed ? 'warning' : 'success',
-      durationKind: failed || (stopped && !local.signal.aborted) ? 'failure' : 'success',
-      title: progress(),
-      detail: [stopped, ...failures].filter(Boolean).join('\n') || undefined,
-      ttl: 0,
-      dismissible: true,
-    });
+    if (!canContinue) {
+      deleteForwardPlan(taskId);
+      void recordForwardTask(taskId);
+    }
+    const problem = failed > 0 || Boolean(stopped && !cancelled);
+    if (problem || partial)
+      toast.push({
+        taskId: `background:window:${taskId}`,
+        event: 'taskFailure',
+        source: taskSource,
+        tone: stopped || failed ? 'warning' : 'success',
+        durationKind: problem ? 'failure' : 'success',
+        title: `${label}：${target.name}`,
+        summary: counts,
+        detail: [stopped, ...failures].filter(Boolean).join('\n') || undefined,
+        ...(problem ? { ttl: 0 } : {}),
+      });
   };
   const done = Promise.all(targets.map(run)).then(() => undefined);
   return { controller, done };

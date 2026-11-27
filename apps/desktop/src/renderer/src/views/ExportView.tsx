@@ -1,4 +1,5 @@
 import { FormSelect } from '../components/FormSelect';
+import { exportTaskResult } from '../../../shared/export_task_result';
 import { TASK_PANEL_FEATURES, type TaskPanelTab } from '@weq/service/feature-catalog';
 import { NumericText } from '../components/NumericText';
 import { useDbRepairWindow } from '../state/dbRepairWindow';
@@ -402,6 +403,7 @@ function ExportToolBody({
   onAuthorizationChange,
   taskLayout = 'inline',
   onTaskExpand,
+  onOpenArchivedTasks,
   taskTabRequest,
   onTaskTabRequestApplied,
   taskToolbarAction,
@@ -411,6 +413,7 @@ function ExportToolBody({
   surface?: 'export' | 'tasks';
   taskLayout?: TaskLayout;
   onTaskExpand?: () => void;
+  onOpenArchivedTasks?: () => void;
   taskTabRequest?: TaskPanelTab;
   onTaskTabRequestApplied?: () => void;
   taskToolbarAction?: ReactNode;
@@ -508,12 +511,16 @@ function ExportToolBody({
   const [taskTab, setTaskTab] = usePageState<TaskPanelTab>(
     'export:task-tab',
     'tasks',
-    z.enum(['tasks', 'schedules']),
+    z.enum(['tasks', 'schedules', 'archived']),
   );
   const pagedTasks = taskLayout === 'page';
   const [openedScheduleId, setOpenedScheduleId] = useState<string | null>(null);
-  const taskFocusId = useWorkspaceMenu((state) => (pagedTasks ? state.taskFocusId : null));
-  const requestedTaskTab = taskTabRequest ?? (taskFocusId ? 'tasks' : undefined);
+  const taskFocusId = useWorkspaceMenu((state) => state.taskFocusId);
+  const focusedTaskArchived = useWorkspaceMenu((state) =>
+    Boolean(taskFocusId && state.taskItems.find((item) => item.id === taskFocusId)?.archived),
+  );
+  const requestedTaskTab =
+    taskTabRequest ?? (taskFocusId ? (focusedTaskArchived ? 'archived' : 'tasks') : undefined);
   const visibleTaskTab = taskLayout === 'compact' ? 'tasks' : (requestedTaskTab ?? taskTab);
   useEffect(() => {
     if (!active || surface !== 'tasks' || !requestedTaskTab || taskLayout === 'compact') return;
@@ -530,6 +537,7 @@ function ExportToolBody({
     onTaskTabRequestApplied,
   ]);
   const taskSelection = useState<string | null>();
+  const archivedTaskSelection = useState<string | null>();
   const [selectedSchedule, setSelectedSchedule] = usePageState<string | null>(
     'export:schedule',
     null,
@@ -1016,6 +1024,7 @@ function ExportToolBody({
       name: t.name,
       display: t.display,
       createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
       format: t.format,
       formats: (t as { formats?: string[] }).formats,
       status: t.status,
@@ -1109,27 +1118,6 @@ function ExportToolBody({
       dialog.error('续作失败', error instanceof Error ? error.message : String(error));
     }
   };
-  const onDelete = async (t: UiTask): Promise<void> => {
-    if (t.status === 'completed' && t.save?.status !== 'saved') {
-      const confirmed = await dialog.confirm(
-        '删除尚未保存的结果',
-        `「${t.name}」尚未保存到目标位置，删除会移除任务及其导出缓存。`,
-        { danger: 'solid', okLabel: '删除', cancelLabel: '保留', tone: 'warning' },
-      );
-      if (!confirmed) return;
-    }
-    if (!mounted.current || !isCurrent()) return;
-    try {
-      const deleted = await client.account.deleteExportTask.mutate({ taskId: t.id });
-      if (deleted && saveBinding)
-        void utils.account.getExportOutputReceipt.invalidate({ ...saveBinding, taskId: t.id });
-      if (!deleted) dialog.info('暂时无法删除', '任务仍在执行或保存，请等待当前步骤收尾。');
-      refetchTasks();
-    } catch (error) {
-      dialog.error('删除失败', error instanceof Error ? error.message : String(error));
-    }
-  };
-
   /** 完成结果与新任务共用全局保存方式。 */
   async function saveTask(
     t: UiTask,
@@ -1201,6 +1189,14 @@ function ExportToolBody({
       document.body.append(anchor);
       anchor.click();
       anchor.remove();
+      await client.taskArchive.change
+        .mutate({
+          ...saveBinding,
+          action: 'deliver',
+          tasks: [exportTaskResult(t)],
+        })
+        .then(() => utils.taskArchive.summaries.invalidate(saveBinding))
+        .catch(() => undefined);
     } catch (error) {
       if (isCurrent())
         dialog.error('下载失败', error instanceof Error ? error.message : String(error));
@@ -1824,7 +1820,6 @@ function ExportToolBody({
           kind: t.kind ?? 'c2c',
           total: t.total ?? 0,
         })),
-        chatlab: result.options.chatlab,
         schedule: result.schedule,
         options: {
           profile: result.options.profile,
@@ -2717,17 +2712,18 @@ function ExportToolBody({
                 label="任务视图"
                 value={visibleTaskTab}
                 onChange={(tab) => {
-                  if (pagedTasks) useWorkspaceMenu.setState({ taskFocusId: null });
+                  useWorkspaceMenu.setState({ taskFocusId: null });
                   setTaskTab(tab);
                 }}
                 options={[
                   { value: 'tasks', label: TASK_PANEL_FEATURES.tasks.label },
                   { value: 'schedules', label: TASK_PANEL_FEATURES.schedules.label },
+                  { value: 'archived', label: TASK_PANEL_FEATURES.archived.label },
                 ]}
               />
             </div>
           ) : null}
-          <RetainedTabs snapshotKey="export-tasks" activeKey={visibleTaskTab}>
+          <RetainedTabs snapshotKey="export-tasks" activeKey={visibleTaskTab} animateSwitch>
             {visibleTaskTab === 'schedules' ? (
               pagedTasks ? (
                 activeSchedule ? (
@@ -2752,11 +2748,11 @@ function ExportToolBody({
             ) : (
               <CurrentTaskList
                 cleanupBinding={saveBinding}
+                archived={visibleTaskTab === 'archived'}
                 exportActions={{
                   pause: onPause,
                   resume: onResume,
                   cancel: onCancel,
-                  remove: onDelete,
                   save: onDownload,
                   openSaved: onOpenSaved,
                   report: onReport,
@@ -2764,6 +2760,7 @@ function ExportToolBody({
                 }}
                 layout={taskLayout}
                 toolbarAction={taskToolbarAction}
+                onOpenArchivedTasks={onOpenArchivedTasks}
                 onOpenDetail={() => {
                   setTaskTab('tasks');
                   onTaskExpand?.();
@@ -2773,8 +2770,8 @@ function ExportToolBody({
                 loadingExports={tasks.isLoading}
                 onOpenClone={onOpenClone}
                 autoSelectId={autoSelectTaskId}
-                selection={taskSelection}
-                renderExport={(task) => (
+                selection={visibleTaskTab === 'archived' ? archivedTaskSelection : taskSelection}
+                renderExport={(task, managementActions, archived) => (
                   <TaskList
                     onDatabaseRecovery={async (task, decision, skipRemaining) => {
                       const request = task.databaseRecovery;
@@ -2838,7 +2835,8 @@ function ExportToolBody({
                     onDownload={(t) => void onDownload(t)}
                     onOpenSaved={onOpenSaved}
                     onBrowserDownload={IS_WEB ? (t) => void downloadInBrowser(t) : undefined}
-                    onDelete={onDelete}
+                    managementActions={managementActions}
+                    archived={archived}
                     onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
                   />
                 )}

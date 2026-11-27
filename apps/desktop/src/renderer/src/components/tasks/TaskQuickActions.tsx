@@ -14,6 +14,7 @@ export interface TaskQuickAction {
   icon: ReactNode;
   disabled?: boolean;
   secondary?: boolean;
+  showLabel?: boolean;
   danger?: DangerLevel;
   run: () => unknown;
 }
@@ -74,7 +75,7 @@ export function TaskQuickActions({
         <button
           key={action.id}
           type="button"
-          className={`weq-set-btn ${detail && !children && index === 0 && !action.danger ? 'weq-set-btn-primary' : 'weq-set-btn-soft'}`}
+          className={`weq-set-btn ${detail && !children && index === 0 && !action.danger ? 'weq-set-btn-primary' : 'weq-set-btn-soft'}${!detail && action.showLabel ? ' weq-task-quick-labeled' : ''}`}
           data-danger={action.danger}
           title={action.tooltip ?? action.label}
           aria-label={action.label}
@@ -82,7 +83,11 @@ export function TaskQuickActions({
           onClick={() => void act(action)}
         >
           {action.icon}
-          {detail ? <ToolbarLabel>{action.label}</ToolbarLabel> : null}
+          {detail ? (
+            <ToolbarLabel>{action.label}</ToolbarLabel>
+          ) : action.showLabel ? (
+            <span>{action.label}</span>
+          ) : null}
         </button>
       ))}
       {more.length ? (

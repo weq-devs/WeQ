@@ -18,6 +18,13 @@ type Request = Pick<Space, 'selfUin' | 'hostUin'> & {
 type Page = { items: { id: string }[]; next: number | null };
 type ReadScope = { active?: boolean; refresh?: number };
 
+function moreItems<P extends Page>(pages: P[] | undefined): P['items'] {
+  const distinct = new Map<string, P['items'][number]>();
+  for (const page of pages ?? [])
+    for (const item of page.items) if (!distinct.has(item.id)) distinct.set(item.id, item);
+  return [...distinct.values()] as P['items'];
+}
+
 function useSpaceRequest(
   { selfUin, hostUin }: Pick<Space, 'selfUin' | 'hostUin'>,
   scope?: ReadScope,
@@ -90,14 +97,7 @@ export function useMorePages<P extends Page>(
     void refetch({ cancelRefetch: false });
   }, [enabled, queryClient, queryKey, refresh, refetch]);
   const pages = query.data?.pages;
-  const items = useMemo(() => {
-    const distinct = new Map<string, P['items'][number]>();
-    for (const page of pages ?? []) {
-      for (const item of page.items as P['items'])
-        if (!distinct.has(item.id)) distinct.set(item.id, item);
-    }
-    return [...distinct.values()] as P['items'];
-  }, [pages]);
+  const items = useMemo(() => moreItems(pages), [pages]);
   const failure = error ?? query.error;
   return {
     first: pages?.[0],
@@ -114,6 +114,10 @@ export function useMorePages<P extends Page>(
         ? () => void query.fetchNextPage({ cancelRefetch: false })
         : undefined,
     onRetry: () => void (error ? retryConfig() : refetch()),
+    async reload() {
+      const { data } = await refetch({ throwOnError: true });
+      return moreItems(data?.pages);
+    },
   };
 }
 

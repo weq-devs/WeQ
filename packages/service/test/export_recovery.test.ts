@@ -87,6 +87,33 @@ function fixture(total = 3000, deps: MediaDeps = {}) {
   };
 }
 
+it('同一导出任务保存不同结构的 WeQ 与 ChatLab 文件', async () => {
+  const f = fixture(2);
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '混合格式',
+    format: 'json',
+    formats: ['json', 'chatlab.json', 'chatlab.jsonl'],
+    total: 2,
+  });
+  await wait(() => f.manager.getTask(id)?.save?.status === 'saved');
+  const task = f.manager.getTask(id)!;
+  const { archive } = await readArchiveFile(join(task.bundleDir!, '混合格式.json'), 'json');
+  expect(archive.records.filter((record) => record.kind === 'message')).toHaveLength(2);
+  const chatlab = JSON.parse(readFileSync(join(task.bundleDir!, '混合格式.chatlab.json'), 'utf8'));
+  expect(chatlab.chatlab.generator).toBe('WeQ');
+  expect(chatlab.messages).toHaveLength(2);
+  const lines = readFileSync(join(task.bundleDir!, '混合格式.chatlab.jsonl'), 'utf8')
+    .trim()
+    .split('\n');
+  expect(JSON.parse(lines[0]!).chatlab.generator).toBe('WeQ');
+  expect(
+    lines.map((line) => JSON.parse(line)).filter((line) => line._type === 'message'),
+  ).toHaveLength(2);
+  expect(f.manager.formalArchivePath(id)).toBe(task.filePath);
+});
+
 it.each([false, true])(
   '聊天导出按选择生成报告并在重启后保持：%s',
   async (includeIntegrityReport) => {

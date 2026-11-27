@@ -65,7 +65,7 @@ import { RecognitionSettingsSection } from './settings/RecognitionSettingsSectio
 import { EnhancementPacksSection } from './settings/EnhancementPacksSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { OneBotSection } from './settings/OneBotSection';
-import { RemoteSection } from './settings/RemoteSection';
+import { BrowserAccessSection, RemoteSection } from './settings/RemoteSection';
 import { BackupSection } from './settings/BackupSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
@@ -116,7 +116,7 @@ import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
 import LogPerformanceSettings from './settings/LogPerformanceSettings';
 import { useAppLock } from '../state/lock';
 import {
-  SETTINGS_GROUPS,
+  SETTINGS_NAV_GROUPS,
   SETTINGS_PAGE_LABELS,
   resolveSettingsTarget,
   settingsScopeFor,
@@ -142,7 +142,10 @@ import { SettingsPageIcon } from './settings/pageIcons';
 
 const SETTINGS_PAGE_RENDERERS: Record<
   SettingsPageId,
-  (onOpenMaintenance: (tool: MaintenanceTool) => void) => ReactNode
+  (
+    onOpenMaintenance: (tool: MaintenanceTool) => void,
+    target?: SettingsSearchTarget | null,
+  ) => ReactNode
 > = {
   startup: () => <StartupSection />,
   appearance: () => <AppearanceSection page="appearance" />,
@@ -210,6 +213,7 @@ const SETTINGS_PAGE_RENDERERS: Record<
     </div>
   ),
   accounts: () => <GlobalSettingsSection section="accounts" />,
+  'browser-access': () => <BrowserAccessSection />,
   remote: () => <RemoteSection />,
   mcp: () => <McpServerSection />,
   onebot: () => <OneBotSection />,
@@ -228,7 +232,11 @@ const SETTINGS_PAGE_RENDERERS: Record<
       <DataSaverSettings />
     </div>
   ),
-  'qq-storage': () => <ResourceManagementSection />,
+  'qq-storage': (_, target) => (
+    <ResourceManagementSection
+      favoriteRevision={target?.settingId === 'favorite-emoji' ? target.revision : undefined}
+    />
+  ),
   'weq-storage': () => (
     <>
       <div className="weq-set">
@@ -246,7 +254,7 @@ const SETTINGS_PAGE_RENDERERS: Record<
   feedback: () => <HelpSection page="feedback" />,
 };
 
-const DEFAULT_SETTINGS_PAGE = SETTINGS_GROUPS[0]!.sections[0]!;
+const DEFAULT_SETTINGS_PAGE: SettingsPageId = 'account';
 const ACCOUNT_ONLY_PAGE_DETAILS: Partial<Record<SettingsPageId, string>> = {
   credentials: '打开 QQ 账号后，可以查看和管理该账号的数据库密钥与会话密钥。',
   'qq-storage': '打开本机的 QQ 账号后，可以查看缓存占用、浏览和清理资源。',
@@ -280,6 +288,7 @@ export function SettingsDialog(props: Parameters<typeof SettingsContent>[0]): Re
 function SettingsContent({
   open,
   beforeLogin = false,
+  nativeWindow = false,
   onClose,
   initialSection,
   searchTarget,
@@ -292,6 +301,7 @@ function SettingsContent({
 }: {
   open: boolean;
   beforeLogin?: boolean;
+  nativeWindow?: boolean;
   onClose: () => void;
   /**
    * 打开时先落到哪一屏。每次 `open` 从 false 变 true 都会重新应用 ——
@@ -453,8 +463,6 @@ function SettingsContent({
     }
   }, [nav, open, activePage, mobileDetailOpen, singleColumn]);
 
-  if (!open || closing) return null;
-
   const requestClose = () => {
     if (hasPendingSettingsSaves())
       void flushSettingsSaves().then(() => {
@@ -462,6 +470,17 @@ function SettingsContent({
       });
     else guard.requestClose();
   };
+  const nativeCloseRef = useRef(requestClose);
+  nativeCloseRef.current = requestClose;
+  useEffect(() => {
+    if (!nativeWindow || !open) return;
+    const ipc = window.electron?.ipcRenderer;
+    const off = ipc?.on('bootstrap-settings:request-close', () => nativeCloseRef.current());
+    ipc?.send('bootstrap-settings:close-ready');
+    return off;
+  }, [nativeWindow, open]);
+
+  if (!open || closing) return null;
 
   return (
     <DraftCloseContext.Provider value={guard.drafts}>
@@ -480,39 +499,30 @@ function SettingsContent({
           onMouseDown={(e) => e.stopPropagation()}
         >
           <header className="weq-mobile-settings-header">
-            <button
-              type="button"
-              aria-label={mobileDetailOpen ? '返回设置' : beforeLogin ? '关闭设置' : '返回'}
-              title={mobileDetailOpen ? '返回设置' : beforeLogin ? '关闭设置' : '返回'}
-              onClick={() =>
-                mobileDetailOpen
-                  ? requestNavigation(() => setMobileDetailOpen(false))
-                  : beforeLogin
-                    ? requestClose()
-                    : mobileBack() || requestNavigation(onClose)
-              }
-            >
-              <ArrowLeft size={22} />
-            </button>
+            {(!nativeWindow || mobileDetailOpen) && (
+              <button
+                type="button"
+                aria-label={mobileDetailOpen ? '返回设置' : beforeLogin ? '关闭设置' : '返回'}
+                title={mobileDetailOpen ? '返回设置' : beforeLogin ? '关闭设置' : '返回'}
+                onClick={() =>
+                  mobileDetailOpen
+                    ? requestNavigation(() => setMobileDetailOpen(false))
+                    : beforeLogin
+                      ? requestClose()
+                      : mobileBack() || requestNavigation(onClose)
+                }
+              >
+                <ArrowLeft size={22} />
+              </button>
+            )}
             <strong>设置</strong>
           </header>
           <nav ref={setNav} className="weq-settings-nav" aria-label="设置页面">
             <div className="weq-settings-nav-heading">
               <h2 className="weq-settings-nav-title">设置</h2>
-              {beforeLogin && !singleColumn && (
-                <button
-                  type="button"
-                  className="weq-set-iconbtn weq-bootstrap-settings-close"
-                  aria-label="关闭设置"
-                  title="关闭设置"
-                  onClick={requestClose}
-                >
-                  <X size={18} aria-hidden />
-                </button>
-              )}
             </div>
             <div className="weq-settings-nav-groups">
-              {SETTINGS_GROUPS.map(({ id, label, sections }) => {
+              {SETTINGS_NAV_GROUPS.map(({ id, label, sections }) => {
                 const pages = remote
                   ? sections.filter((page) => remoteSettingAvailable(page))
                   : sections;
@@ -634,7 +644,10 @@ function SettingsContent({
                               }
                             />
                           ) : (
-                            SETTINGS_PAGE_RENDERERS[activePage](onOpenMaintenance)
+                            SETTINGS_PAGE_RENDERERS[activePage](
+                              onOpenMaintenance,
+                              linkedTarget ?? searchTarget,
+                            )
                           )}
                         </SettingsNavigateContext.Provider>
                       </SettingsScopeContext.Provider>
@@ -718,7 +731,11 @@ function DiagnosticsSettingsSection({
   const beforeLogin = useContext(BeforeLoginSettingsContext);
   return (
     <div className="weq-set">
-      <SectionHeader title="QQ 高级工具" page="diagnostics" pageReset={!remote} />
+      <SectionHeader
+        title={SETTINGS_PAGE_LABELS.diagnostics}
+        page="diagnostics"
+        pageReset={!remote}
+      />
       <Card
         title="QQNT 抓包"
         icon={<Radio size={15} />}

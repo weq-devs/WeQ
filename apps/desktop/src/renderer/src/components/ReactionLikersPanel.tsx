@@ -21,6 +21,7 @@ import { cn } from '../lib/utils';
 import { QqAvatar } from './QqAvatar';
 import { ProfileAvatar } from './ProfileAvatar';
 import { displayGroupMemberName } from '../im-template/template/user';
+import { useSurfaceRemovalFade } from '../hooks/useSurfaceRemovalFade';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
@@ -69,6 +70,7 @@ export function ReactionLikersPanel({
   onClose: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  useSurfaceRemovalFade(panelRef);
   const layer = useOverlayLayer(true);
   useSurfaceOutside(panelRef, onClose, true, { anchor: anchorElement });
   useSurfaceEscape(panelRef, onClose, true, false);

@@ -1,5 +1,5 @@
 /**
- * 在线语音转写驱动（主进程）—— 「导出 → 语音转写 → 在线转写」的后端。
+ * 在线语音转写驱动（主进程），供聊天和即时导出共用。
  *
  * 原理（已验证）：`pttTrans.Trans{C2C,Group}PttReq` 是裸 SSO 命令，同步响应只回
  * 一个 ack；真正的转写文本随后由 `trpc.msg.olpush.OlPushService.MsgPush`
@@ -11,8 +11,7 @@
  *   2. transcribe —— 借同机 QQ 的凭据 `sendPacket` 发请求（并发可配），同时从
  *      抓包会话里捞 MsgPush 帧，按 `item.msgId == 请求 msgId` 归集文本。
  *
- * 抓包会话是长生命周期的：UI 点「开启在线转录」时 arm（先于导出），导出结束 / 关闭
- * 时 disarm。漏包 / 过期 / 超时的语音由导出阶段回退本地模型。
+ * 即时导出可提前准备会话。聊天按需临时使用同账号会话，单独准备的会在操作结束后释放。
  */
 
 import {
@@ -57,10 +56,39 @@ interface ArmedSession {
 
 export class OnlineVoiceTranscriber {
   private armed: ArmedSession | null = null;
+  private exportArmed = false;
+  private tail: Promise<unknown> = Promise.resolve();
+
+  private run<T>(operation: () => Promise<T>): Promise<T> {
+    const task = this.tail.then(operation);
+    this.tail = task.catch(() => undefined);
+    return task;
+  }
+
+  async transcribeOne(
+    uin: string,
+    request: OnlineTranscribeRequest,
+    checkAccount: () => void,
+  ): Promise<string | undefined> {
+    return this.run(async () => {
+      checkAccount();
+      const borrowed = this.armed?.uin === uin && isAccountCaptureCurrent(this.armed.handle);
+      if (this.isArmed() && !borrowed) throw new Error('另一个语音转写会话仍在运行，请稍后重试。');
+      try {
+        if (!borrowed) await this.armSession(uin, checkAccount);
+        checkAccount();
+        const result = await this.transcribeBatch([request], 1);
+        checkAccount();
+        return result.texts[request.fileName];
+      } finally {
+        if (!borrowed) await this.disarmSession();
+      }
+    });
+  }
 
   /** 当前是否已 arm（供 UI 状态查询）。 */
   isArmed(): boolean {
-    return this.armed !== null;
+    return Boolean(this.exportArmed && this.armed && isAccountCaptureCurrent(this.armed.handle));
   }
 
   armedUin(): string | null {
@@ -71,7 +99,19 @@ export class OnlineVoiceTranscriber {
    * arm 抓包会话：探测后端（Windows 缺 Npcap 会抛引导文案）→ 登记 SSO 物料拿
    * d2key → 起抓包并排空存量帧。同一个账号重复 arm 会先 disarm 旧的。
    */
-  async arm(uin: string): Promise<{ pid: number; elevated: boolean; hasD2Key: boolean }> {
+  arm(uin: string, checkAccount?: () => void) {
+    return this.run(async () => {
+      const session = await this.armSession(uin, checkAccount);
+      this.exportArmed = true;
+      return session;
+    });
+  }
+
+  private async armSession(
+    uin: string,
+    checkAccount?: () => void,
+  ): Promise<{ pid: number; elevated: boolean; hasD2Key: boolean }> {
+    checkAccount?.();
     if (this.armed && this.armed.uin === uin && isAccountCaptureCurrent(this.armed.handle)) {
       return {
         pid: this.armed.handle.pid,
@@ -79,7 +119,7 @@ export class OnlineVoiceTranscriber {
         hasD2Key: this.armed.handle.hasD2Key,
       };
     }
-    await this.disarm();
+    await this.disarmSession();
     const handle = await startAccountCapture(uin);
     if (!handle.hasD2Key) {
       // 没有 d2key 就解不开 push 的密文 —— 直接停掉并报错，别让导出空等。
@@ -94,6 +134,12 @@ export class OnlineVoiceTranscriber {
     } catch {
       cursor = 0;
     }
+    try {
+      checkAccount?.();
+    } catch (error) {
+      await stopAccountCapture(handle.pid, handle.sessionId);
+      throw error;
+    }
     this.armed = { uin, handle, cursor };
     logger.info('online transcribe armed', {
       event: 'online-transcribe-armed',
@@ -105,9 +151,16 @@ export class OnlineVoiceTranscriber {
   }
 
   /** 停抓包会话并清空状态（幂等）。 */
-  async disarm(): Promise<void> {
+  disarm(uin?: string): Promise<void> {
+    return this.run(async () => {
+      if (!uin || this.armed?.uin === uin) await this.disarmSession();
+    });
+  }
+
+  private async disarmSession(): Promise<void> {
     const armed = this.armed;
     this.armed = null;
+    this.exportArmed = false;
     if (!armed) return;
     try {
       await stopAccountCapture(armed.handle.pid, armed.handle.sessionId);
@@ -126,13 +179,22 @@ export class OnlineVoiceTranscriber {
    * 拿到文本的进 `texts`，ack 非 0 / 超时没等到 push 的进 `missing`（交本地模型）。
    * 未 arm 时抛错 —— 导出阶段会整体回退本地。
    */
-  transcribe: OnlineTranscribeFn = async (
+  transcribeFor(uin: string): OnlineTranscribeFn {
+    return (requests, concurrency, onLog) =>
+      this.run(() => {
+        if (!this.isArmed() || this.armedUin() !== uin)
+          throw new Error('当前账号的 QQ 在线转写未就绪。');
+        return this.transcribeBatch(requests, concurrency, onLog);
+      });
+  }
+
+  private async transcribeBatch(
     reqs: OnlineTranscribeRequest[],
     concurrency: number,
     onLog?: StageLog,
-  ): Promise<OnlineTranscribeOutcome> => {
+  ): Promise<OnlineTranscribeOutcome> {
     const armed = this.armed;
-    if (!armed) {
+    if (!armed || !isAccountCaptureCurrent(armed.handle)) {
       throw new Error('在线转写未开启（抓包会话未 arm）');
     }
     const sender = requirePlatform().native.ntHelper;
@@ -218,7 +280,7 @@ export class OnlineVoiceTranscriber {
       onLog?.(`在线转写超时未收到结果：${req.fileName}`, 'warn');
     }
     return { texts, missing: [...missing] };
-  };
+  }
 }
 
 /** 全局单例（一次只服务一个打开账号；arm/disarm 由 IPC 控制）。 */

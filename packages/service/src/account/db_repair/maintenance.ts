@@ -232,6 +232,7 @@ export class DatabaseMaintenance {
     targets: DbRepairTarget[],
     kind: 'scan' | 'checkup',
     requestedNames?: string[],
+    interruptedKinds?: Record<string, 'scan' | 'checkup'>,
   ): Promise<DatabaseMaintenanceSnapshot> {
     let session = this.sessions.get(keyFor(scope));
     if (session?.ending || session?.snapshot.state === 'ending')
@@ -296,9 +297,10 @@ export class DatabaseMaintenance {
     if (!selected.length) throw new Error('请选择要体检的数据库。');
     const previousOperation = current.snapshot.operation;
     const resumeKinds =
-      previousOperation?.status === 'cancelled' && previousOperation.kind === kind
+      interruptedKinds ??
+      (previousOperation?.status === 'cancelled' && previousOperation.kind === kind
         ? previousOperation.databaseScanKinds
-        : undefined;
+        : undefined);
     const otherKind = kind === 'scan' ? 'checkup' : 'scan';
     const otherTargets = selected.filter(({ dbName }) => resumeKinds?.[dbName] === otherKind);
     const firstBatch = selected.filter(({ dbName }) => resumeKinds?.[dbName] !== otherKind);

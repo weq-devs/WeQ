@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { TaskQuickAction } from './TaskQuickActions';
 import '../../styles/long-tasks.css';
 
 export type LongTaskStatus =
@@ -18,11 +19,14 @@ export interface LongTaskItem {
   status: LongTaskStatus;
   statusLabel?: string;
   progress?: number;
+  outgoingTransfer?: import('../../../../shared/background_task').BackgroundTask['outgoingTransfer'];
+  transfer?: boolean;
   note?: string;
   metrics?: string;
   icon: ReactNode;
   detail: ReactNode;
-  quickActions?: ReactNode;
+  quickActions?: TaskQuickAction[];
+  resultAction?: Pick<TaskQuickAction, 'label' | 'run'>;
 }
 
 export const LABELS: Record<LongTaskStatus, string> = {

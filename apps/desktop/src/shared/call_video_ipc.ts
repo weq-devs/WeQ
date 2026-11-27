@@ -16,6 +16,8 @@
 
 /** 渲染层 → 主进程：一帧 I420。 */
 export const CALL_VIDEO_FRAME_CHANNEL = 'call:video-frame';
+export const CALL_VIDEO_ENCODED_CHANNEL = 'call:video-encoded';
+export const CALL_VIDEO_ENCODED_MAX_BYTES = 200_000;
 export const GROUP_VIDEO_PUSH_CHANNEL = 'group-call:video-push';
 export const GROUP_VIDEO_SUBSCRIBE_CHANNEL = 'group-call:video-subscribe';
 export const GROUP_VIDEO_PORT_CHANNEL = 'group-call:video-port';
@@ -45,6 +47,11 @@ export interface GroupVideoDelivery {
 export interface CallVideoBridge {
   /** 推一帧 I420（不等待主进程，失败静默）。 */
   pushFrame(frame: CallVideoFrame): void;
+  pushEncodedFrame(frame: {
+    data: Uint8Array<ArrayBuffer>;
+    keyframe: boolean;
+    captureId: string;
+  }): Promise<boolean>;
   pushGroupFrame(frame: GroupVideoFrame): Promise<void>;
   subscribeGroup(id: string, onFrame: (frame: GroupVideoDelivery) => void): () => void;
 }

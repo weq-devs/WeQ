@@ -5,6 +5,8 @@ import { messageMediaSize } from './chatMediaSize';
 export const TIMELINE_PREWARM_BUDGET = DEFAULT_CHAT_MESSAGE_PREWARM_MIB * 1024 * 1024;
 const ROW_BYTES = 512 * 1024;
 const ROWS_PER_BATCH = 4;
+const NEARBY_ROWS_PER_BATCH = 2;
+const MAX_NEARBY_ROWS = 48;
 const BYTES_PER_BATCH = 2 * 1024 * 1024;
 
 export function estimateTimelinePrewarmBytes(message: Message, pixelRatio: number): number {
@@ -32,6 +34,7 @@ export function advanceTimelinePrewarm({
   velocity,
   current,
   budget = TIMELINE_PREWARM_BUDGET,
+  aheadPixels,
 }: {
   keys: readonly string[];
   index: ReadonlyMap<string, number>;
@@ -45,6 +48,8 @@ export function advanceTimelinePrewarm({
   velocity: number;
   current: readonly string[];
   budget?: number;
+  /** 近端批次只往滚动方向补齐，距离从正常缓冲的边缘起算。 */
+  aheadPixels?: number;
 }): string[] | undefined {
   const top = geometry[visibleStart]?.start;
   const bottom = geometry[visibleEnd]?.end;
@@ -61,12 +66,30 @@ export function advanceTimelinePrewarm({
   const desired = new Set<string>();
   let before = nearStart - 1;
   let after = nearEnd + 1;
+  let first = 0;
+  let last = keys.length - 1;
+  const nearby = aheadPixels !== undefined;
+  if (nearby) {
+    if (direction === -1) {
+      const edge = geometry[nearStart]?.start;
+      if (edge === undefined) return;
+      last = before;
+      first = Math.max(0, nearStart - MAX_NEARBY_ROWS);
+      while (first <= last && geometry[first]!.end <= edge - aheadPixels) first++;
+      after = keys.length;
+    } else {
+      const edge = geometry[nearEnd]?.end;
+      if (edge === undefined) return;
+      first = after;
+      last = Math.min(last, geometry.length - 1, nearEnd + MAX_NEARBY_ROWS);
+      while (last >= first && geometry[last]!.start >= edge + aheadPixels) last--;
+      before = -1;
+    }
+  }
   let remaining = budget;
-  while (before >= 0 || after < keys.length) {
+  while (before >= first || after <= last) {
     const position =
-      after >= keys.length || (before >= 0 && priority(before) <= priority(after))
-        ? before--
-        : after++;
+      after > last || (before >= first && priority(before) <= priority(after)) ? before-- : after++;
     const bytes = bytesAt(position);
     if (bytes > budget) continue;
     if (bytes > remaining) break;
@@ -84,17 +107,23 @@ export function advanceTimelinePrewarm({
     retainedBytes += bytesAt(position);
     if (!desired.has(key)) obsolete.push({ key, distance: priority(position) });
   }
-  obsolete.sort((left, right) => right.distance - left.distance);
+  const rowsPerBatch = nearby ? NEARBY_ROWS_PER_BATCH : ROWS_PER_BATCH;
+  const next = nearby ? [...desired].find((key) => !retained.has(key)) : undefined;
+  const retainLimit = next === undefined ? budget : budget - bytesAt(index.get(next)!);
   let changedRows = 0;
-  for (const { key } of obsolete) {
-    if (changedRows >= ROWS_PER_BATCH && retainedBytes <= budget) break;
-    retained.delete(key);
-    retainedBytes -= bytesAt(index.get(key)!);
-    changedRows++;
+  if (!nearby || retainedBytes > retainLimit) {
+    obsolete.sort((left, right) => right.distance - left.distance);
+    for (const { key } of obsolete) {
+      if (nearby && retainedBytes <= retainLimit) break;
+      if (changedRows >= rowsPerBatch && retainedBytes <= budget) break;
+      retained.delete(key);
+      retainedBytes -= bytesAt(index.get(key)!);
+      changedRows++;
+    }
   }
   let addedBytes = 0;
   for (const key of desired) {
-    if (changedRows >= ROWS_PER_BATCH) break;
+    if (changedRows >= rowsPerBatch) break;
     if (retained.has(key)) continue;
     const bytes = bytesAt(index.get(key)!);
     if (retainedBytes + bytes > budget || (addedBytes && addedBytes + bytes > BYTES_PER_BATCH))
