@@ -153,6 +153,7 @@ import { stageAccountFile } from '../lib/accountFilePicker';
 import { WEB_NOTICE_OPEN } from '../lib/browserNotifications';
 import type { WebNotice } from '../../../main/web/notices';
 import type { ChatMsgWire as IncomingMessageWire } from '../../../main/ipc/serde';
+import { proxyNoticeIdentity } from '../../../shared/message_notifications';
 import { createReplyPreviewIndex } from '../lib/replyPreview';
 import { messageElement, revealTimelineMessage, timelineViewport } from '../lib/timelineViewport';
 import {
@@ -1383,8 +1384,12 @@ function MainWorkspace(): ReactElement {
     scope: string;
     selection: NonNullable<typeof selectionRef.current>;
     id: string;
-    expires: number;
+    resolve(retry: boolean): void;
   } | null>(null);
+  const cancelProxyJump = useCallback(() => {
+    pendingProxyJump.current?.resolve(false);
+    pendingProxyJump.current = null;
+  }, []);
   const latestMessageWindowRef = useRef(anchoredToLatest);
   latestMessageWindowRef.current = anchoredToLatest;
   const recentContactsForPush = useRef(recentContactsByUid);
@@ -6649,7 +6654,10 @@ function MainWorkspace(): ReactElement {
     const id = msgId.startsWith('optimistic-')
       ? (templateMessages.find((message) => message.outgoingId === msgId)?.id ?? msgId)
       : msgId;
-    return revealTimelineMessage(scroll, id, flash);
+    if (!revealTimelineMessage(scroll, id, flash)) return false;
+    cachedScrollRef.current = null;
+    pendingScrollRestoreRef.current = null;
+    return true;
   });
 
   // Rebuild the loaded window centred on `targetSeq` straight from the DB,
@@ -6681,8 +6689,8 @@ function MainWorkspace(): ReactElement {
       } = {},
     ): Promise<boolean> =>
       runMessageLocate(async (isCurrent) => {
-        pendingProxyJump.current = null;
-        const pushToast = sourceToastPush(
+        cancelProxyJump();
+        const pushLocateToast = sourceToastPush(
           notificationSource({ kind: 'conversation', conversationKind: kind, conv }),
         );
         const scope = messageScopeRef.current,
@@ -6715,38 +6723,78 @@ function MainWorkspace(): ReactElement {
           kind,
           conv,
         };
+        const readWindow = async (): Promise<[ChatMsgWire[], ChatMsgWire[]]> =>
+          targetSeq
+            ? Promise.all([
+                // listBefore 不含边界，加 1 才能把目标算进这一页。
+                client.account.listBefore.query({
+                  ...query,
+                  beforeSeq: String(BigInt(targetSeq) + 1n),
+                  limit: PAGE_SIZE,
+                }),
+                client.account.listAfter.query({ ...query, afterSeq: targetSeq, limit: PAGE_SIZE }),
+              ])
+            : [await client.account.listLatest.query({ ...query, limit: PAGE_SIZE }), []];
+        // 先登记身份，落库事件可能在定点查询返回之前到达。
+        const available = proxyTarget ? Promise.withResolvers<boolean>() : undefined;
+        const wait =
+          proxyTarget && available
+            ? { scope, selection, id: proxyTarget, resolve: available.resolve }
+            : null;
+        if (wait) pendingProxyJump.current = wait;
         let before: ChatMsgWire[];
-        let after: ChatMsgWire[] = [];
+        let after: ChatMsgWire[];
+        let timeout: ReturnType<typeof setTimeout> | undefined;
         try {
-          if (targetSeq) {
-            [before, after] = await Promise.all([
-              // listBefore 不含边界，加 1 才能把目标算进这一页。
-              client.account.listBefore.query({
-                ...query,
-                beforeSeq: String(BigInt(targetSeq) + 1n),
-                limit: PAGE_SIZE,
-              }),
-              client.account.listAfter.query({ ...query, afterSeq: targetSeq, limit: PAGE_SIZE }),
-            ]);
-          } else {
-            // 刚发出的卡片可能还未落库，先读最新页，再从时间线中定位回显。
-            before = await client.account.listLatest.query({ ...query, limit: PAGE_SIZE });
+          [before, after] = await readWindow();
+          if (!current()) return false;
+          if (
+            proxyTarget &&
+            available &&
+            !before.some((row) => proxyNoticeIdentity(row) === proxyTarget)
+          ) {
+            if (revealLoadedProxyTarget()) return true;
+            timeout = setTimeout(() => available.resolve(true), 30_000);
+            if (!(await available.promise) || !current()) return false;
+            if (revealLoadedProxyTarget()) return true;
+            [before, after] = await readWindow();
           }
         } catch (err) {
           if (!current()) return false;
           console.error('[centerWindowOnSeq] fetch failed', err);
           pushToast({
+            system: false,
             tone: 'info',
             durationKind: 'failure',
-            title: mode === 'firstUnread' ? '未读消息加载失败' : '未找到该消息',
+            title: mode === 'firstUnread' ? '未读消息加载失败' : '目标消息加载失败',
             detail:
               mode === 'firstUnread'
                 ? err instanceof Error
                   ? err.message
                   : String(err)
-                : '该消息可能已被撤回或删除。',
+                : '暂时无法读取这段聊天记录，可重试定位。',
+            action: {
+              label: '重试定位',
+              icon: 'conversation',
+              run: () => {
+                if (
+                  scope === messageScopeRef.current &&
+                  selectionRef.current === selection &&
+                  messagesTabActiveRef.current
+                )
+                  void centerWindowOnSeq(conv, kind, targetSeq, exactRecord, messageId, {
+                    mode,
+                    importantMessage,
+                    onMissing,
+                    readingPosition,
+                  });
+              },
+            },
           });
           return false;
+        } finally {
+          clearTimeout(timeout);
+          if (pendingProxyJump.current === wait) pendingProxyJump.current = null;
         }
         if (!current()) return false;
 
@@ -6768,22 +6816,10 @@ function MainWorkspace(): ReactElement {
           if (targetSeq) return findUnreadMessage(merged, targetSeq, importantMessage);
         };
         let target = findTarget();
-        if (!target && proxyTarget) {
-          if (revealLoadedProxyTarget()) return true;
-          // 等现有消息订阅交付，不把同序号的其他消息当目标，也不补发请求。
-          pendingProxyJump.current = {
-            scope,
-            selection,
-            id: proxyTarget,
-            expires: Date.now() + 30_000,
-          };
-          return false;
-        }
-
         const autoContext = () =>
           preferenceValue('autoFetchMissingMessages') || preferenceValue('autoFetchMissingContext');
         let contextFetchFailed = false;
-        if (!target && targetSeq && autoContext()) {
+        if (!target && targetSeq && !proxyTarget && autoContext()) {
           try {
             const rows = await fetchMissingContext(
               targetSeq,
@@ -6806,7 +6842,7 @@ function MainWorkspace(): ReactElement {
           } catch (error) {
             if (!current()) return false;
             contextFetchFailed = true;
-            pushToast({
+            pushLocateToast({
               tone: 'warning',
               title: '自动拉取上下文失败',
               detail: error instanceof Error ? error.message : String(error),
@@ -6815,7 +6851,7 @@ function MainWorkspace(): ReactElement {
         }
         if (!current()) return false;
         if (!target && mode === 'firstUnread') {
-          pushToast({
+          pushLocateToast({
             tone: 'info',
             durationKind: 'failure',
             title: '未找到可定位的未读消息',
@@ -6856,18 +6892,20 @@ function MainWorkspace(): ReactElement {
         if (!current()) return false;
         if (!targetSeq && exactId) {
           const positioned = scrollToMsgId(target ? timelineRowKey(target) : exactId);
-          if (!positioned) pushToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
+          if (!positioned) pushLocateToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
           return positioned;
         }
         const anchor = target ?? (targetSeq ? nearestBySeq(merged, targetSeq) : undefined);
         if (!target && targetSeq) {
           if (!contextFetchFailed) onMissing?.();
           setMissingJumpSeq(targetSeq);
-          pushToast({
+          pushLocateToast({
             tone: 'info',
             durationKind: 'success',
             title: '未找到该条消息',
-            detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
+            detail: anchor
+              ? '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。'
+              : '该消息可能已被撤回、删除或未同步，当前也没有可定位的附近消息。',
           });
         }
         if (anchor) {
@@ -6881,7 +6919,7 @@ function MainWorkspace(): ReactElement {
           }
           const positioned = scrollToMsgId(timelineRowKey(anchor), Boolean(target));
           if (target && !positioned && (exactId || importantMessage || mode === 'firstUnread')) {
-            pushToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
+            pushLocateToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
             return false;
           }
         }
@@ -6908,7 +6946,7 @@ function MainWorkspace(): ReactElement {
       if (!sel) {
         return false;
       }
-      pendingProxyJump.current = null;
+      cancelProxyJump();
       closeForwardWindows();
       cancelMessageLocate();
       setMissingJumpSeq(null);
@@ -7014,7 +7052,15 @@ function MainWorkspace(): ReactElement {
 
       return centerWindowOnSeq(sel.id, kind, targetSeq, undefined, jumpTarget.msgId, jumpTarget);
     },
-    [centerWindowOnSeq, scrollToMsgId, pushToast, cancelMessageLocate, selectionRef, loadedRef],
+    [
+      centerWindowOnSeq,
+      scrollToMsgId,
+      pushToast,
+      cancelMessageLocate,
+      cancelProxyJump,
+      selectionRef,
+      loadedRef,
+    ],
   );
 
   const searchQuery = shell.query.trim();
@@ -7091,7 +7137,7 @@ function MainWorkspace(): ReactElement {
       setSearchDismissed(true);
       if (!conv) return;
       pendingSearchJumpRef.current = null;
-      pendingProxyJump.current = null;
+      cancelProxyJump();
       cancelMessageLocate();
       closeForwardWindows();
       if (!searchTarget?.retainChatRecords) setChatRecordsTarget(null);
@@ -7650,24 +7696,14 @@ function MainWorkspace(): ReactElement {
     void centerWindowOnSeq(jump.conv, jump.kind, jump.seq, jump.record, jump.messageId);
   }, [messagesTabActive, selectedUid, isGroup, pendingSearchJumpRef, centerWindowOnSeq]);
 
+  useLayoutEffect(
+    () => cancelProxyJump,
+    [messageScope, selectedUid, messagesTabActive, cancelProxyJump],
+  );
   useEffect(() => {
     const jump = pendingProxyJump.current;
-    if (!jump) return;
-    if (
-      jump.scope !== messageScope ||
-      jump.selection !== selectionRef.current ||
-      !messagesTabActive ||
-      jump.expires < Date.now()
-    ) {
-      pendingProxyJump.current = null;
-      return;
-    }
-    const exact = findTimelineMessageById(loaded, jump.id);
-    if (!exact || !scrollToMsgId(timelineRowKey(exact))) return;
-    pendingProxyJump.current = null;
-    jump.selection.explicitWindow = true;
-    setMissingJumpSeq(null);
-  }, [loaded, messageScope, messagesTabActive, scrollToMsgId, selectionRef, setMissingJumpSeq]);
+    if (jump && findTimelineMessageById(loaded, jump.id)) jump.resolve(true);
+  }, [loaded]);
 
   function updateConversationPreference(
     conversationId: string,
@@ -9843,6 +9879,21 @@ function MainWorkspace(): ReactElement {
     preferences: conversationPrefs,
     groupAssistantIds,
     resolveGroupSenderName: resolveNoticeGroupSenderName,
+    onMessageBatch: (messages) => {
+      const jump = pendingProxyJump.current;
+      if (!jump || jump.scope !== messageScope || jump.selection !== selectionRef.current) return;
+      const { selection, id } = jump;
+      if (
+        messages.some(
+          (row) =>
+            !row.live &&
+            row.conv === selection.id &&
+            row.kind === (selection.kind === 'group' ? 'group' : 'c2c') &&
+            proxyNoticeIdentity(row) === id,
+        )
+      )
+        jump.resolve(true);
+    },
     badgeCount: messageBadgeCount,
     foregroundConversation:
       messagesTabActive && !settingsOpen && !dressUpOpen ? selectedUid : undefined,

@@ -2,6 +2,7 @@ import type { ConversationReadingPosition } from './conversationReadingPosition'
 
 export const TIMELINE_MESSAGE_SELECTOR =
   '.message-line[data-message-id], .weq-system-message-row[data-message-id]';
+export const TIMELINE_MESSAGE_LOCATED = 'weq:timeline-message-located';
 
 export interface TimelineGeometry {
   id: string;
@@ -46,13 +47,17 @@ export function messageElement(scroll: HTMLElement, id: string): HTMLElement | u
 /** 虚拟化只改变 DOM，不把已加载但未挂载的消息当成不存在。 */
 export function revealTimelineMessage(scroll: HTMLElement, id: string, flash = false): boolean {
   const viewport = timelineViewport(scroll);
-  if (viewport) return viewport.scrollTo(id, { align: 'center', flash });
-  const line = messageElement(scroll, id);
-  if (!line) return false;
-  line.scrollIntoView({ block: 'center' });
-  if (flash) {
-    line.classList.add('weq-reply-target-flash');
-    setTimeout(() => line.classList.remove('weq-reply-target-flash'), 1600);
+  if (viewport) {
+    if (!viewport.scrollTo(id, { align: 'center', flash })) return false;
+  } else {
+    const line = messageElement(scroll, id);
+    if (!line) return false;
+    line.scrollIntoView({ block: 'center' });
+    if (flash) {
+      line.classList.add('weq-reply-target-flash');
+      setTimeout(() => line.classList.remove('weq-reply-target-flash'), 1600);
+    }
   }
+  scroll.dispatchEvent(new Event(TIMELINE_MESSAGE_LOCATED, { bubbles: true }));
   return true;
 }
