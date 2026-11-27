@@ -43,6 +43,7 @@ const faces = [
 ];
 export const trpc = {
   account: {
+    messageRecordDetails: { useQuery: () => ({ data: undefined }) },
     mediaResource: {
       messageLocations: {
         useQuery: () => ({

@@ -374,11 +374,11 @@ export const SequentialForwardDialog = lazyPanel<
   () => import('./SequentialForwardDialog').then((m) => ({ default: m.SequentialForwardDialog })),
   surfaceLoading('逐条转发'),
 );
-export const MsgElementEditor = lazyPanel<
-  ComponentProps<typeof import('./MsgElementEditor').MsgElementEditor>
+export const MessageDetails = lazyPanel<
+  ComponentProps<typeof import('./MessageDetails').MessageDetails>
 >(
-  () => import('./MsgElementEditor').then((m) => ({ default: m.MsgElementEditor })),
-  surfaceLoading('编辑消息'),
+  () => import('./MessageDetails').then((m) => ({ default: m.MessageDetails })),
+  surfaceLoading('消息详情', { presentation: 'floating', width: 720 }),
 );
 export const SearchResultsPanel = lazyPanel<
   ComponentProps<typeof import('./search/SearchResultsPanel').SearchResultsPanel>

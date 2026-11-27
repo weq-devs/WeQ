@@ -9,14 +9,12 @@ export function OfficialConversationPane({
   user,
   anchorId,
   onBack,
-  onEditMessage,
 }: {
   conversationId: string;
   title: string;
   user: User;
   anchorId?: string;
   onBack: () => void;
-  onEditMessage?: (id: string) => void;
 }) {
   const directory = useContext(ConversationDirectoryContext);
   const service = conversationId.startsWith('service:');
@@ -64,7 +62,6 @@ export function OfficialConversationPane({
       user={user}
       anchorId={anchorId}
       onBack={onBack}
-      onEditMessage={onEditMessage}
       sourceDetails={[
         { label: '类型', value: service ? '服务号' : '公众号' },
         { label: service ? 'AppID' : 'UID', value: id },

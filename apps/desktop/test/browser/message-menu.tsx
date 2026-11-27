@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Star, ListTodo, BrainCircuit, SmilePlus, FolderSearch } from 'lucide-react';
+import { MessageDetails } from '../../src/renderer/src/components/MessageDetails';
 import { MessageMenuButton } from '../../src/renderer/src/components/MessageMenuButton';
 import { MessageMediaRevealAction } from '../../src/renderer/src/components/MessageMediaRevealAction';
 import { ToastHost } from '../../src/renderer/src/components/Toast';
@@ -8,6 +9,7 @@ import { useToast } from '../../src/renderer/src/components/Toast.shared';
 import {
   MessageContextMenu,
   type MessageContextMenuState,
+  type MessageDetailsSelection,
 } from '../../src/renderer/src/im-template/template/messageContextMenu';
 import { HoverTooltip } from '../../src/renderer/src/components/HoverTooltip';
 import { OverlayScrollbar } from '../../src/renderer/src/components/OverlayScrollbar';
@@ -61,6 +63,7 @@ function Fixture() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<MessageContextMenuState | null>(null);
   const [more, setMore] = useState(false);
+  const [details, setDetails] = useState<MessageDetailsSelection>();
   const [mode, setMode] = useState('full');
   const run = (name: string) => () => {
     window.menuActions.push(name);
@@ -141,8 +144,10 @@ function Fixture() {
           onRecall={run('撤回')}
           onAddToComposition={run('添加到素材库')}
           onExport={run('导出')}
-          onViewDecoration={run('查看装扮')}
-          onEditRaw={run('修改本地记录')}
+          onViewDetails={(selection) => {
+            run('查看详情')();
+            setDetails(selection);
+          }}
           onDelete={run('本地删除')}
           onSaveMedia={run('保存')}
           onReact={() => {
@@ -186,8 +191,7 @@ function Fixture() {
                 onRecall: undefined,
                 onAddToComposition: undefined,
                 onExport: undefined,
-                onViewDecoration: undefined,
-                onEditRaw: undefined,
+                onViewDetails: undefined,
                 onDelete: undefined,
                 onSaveMedia: undefined,
                 onReact: undefined,
@@ -200,6 +204,9 @@ function Fixture() {
             : {})}
         />
       )}
+      {details ? (
+        <MessageDetails selection={details} onClose={() => setDetails(undefined)} />
+      ) : null}
       {more && (
         <ReactionPicker
           originElement={document.getElementById('origin')}

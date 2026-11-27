@@ -293,6 +293,7 @@ import {
   groupExtToWire,
   onlineStatusToWire,
   elementsToEditable,
+  messageElementsToWire,
   elementsFromEditable,
   guildDirectSessionToWire,
   guildDirectMsgToWire,
@@ -634,6 +635,15 @@ async function readSidebarSearch<T>(
     throw new Error('账号或数据源已切换，请重新搜索');
   return result;
 }
+
+const messageRecordInput = exportAccountBindingInput
+  .required()
+  .extend({
+    kind: z.enum(['group', 'c2c', 'official', 'service']),
+    conv: z.string().min(1).max(128),
+    msgId: z.string().regex(/^-?\d{1,20}$/),
+  })
+  .refine((value) => value.kind !== 'service' || /^\d{1,20}$/.test(value.conv));
 
 const messagePageInput = convInput.merge(exportAccountBindingInput).extend({
   readWindow: messageReadWindowInput.optional(),
@@ -5769,6 +5779,120 @@ export const accountRouter = router({
         );
       }
       return withMessageBubbles(records.map(forwardRecordToWire), requireServices().dressInstall);
+    }),
+
+  messageRecordDetails: procedure
+    .input(
+      messageRecordInput.and(
+        z.object({
+          cache: z
+            .object({
+              format: z.enum(['native', 'protocol']).optional(),
+              retained: z.boolean(),
+              seq: z
+                .string()
+                .regex(/^-?\d{1,20}$/)
+                .optional(),
+            })
+            .optional(),
+        }),
+      ),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      function checkScope() {
+        if (
+          requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+          services
+        )
+          throw new Error('账号或数据源已切换');
+      }
+      if (input.cache) {
+        const { format, retained, seq } = input.cache;
+        const cached = await services.gapHistory.findByMsgId(input.msgId, {
+          recalledOnly: retained,
+        });
+        checkScope();
+        if (
+          !cached ||
+          cached.kind !== input.kind ||
+          cached.conv !== input.conv ||
+          (format && cached.sourceFormat !== format) ||
+          (seq && cached.msgSeq !== seq) ||
+          Boolean(cached.recall?.retained) !== retained
+        )
+          return null;
+        return {
+          kind: 'cache' as const,
+          snapshot: { ...cached, elements: messageElementsToWire(cached.elements) },
+          elements: messageElementsToWire(cached.elements),
+          cache: [],
+          revision: null,
+        };
+      }
+      const result = await services.msgs.messageRecordDetails(input);
+      checkScope();
+      if (!result) return null;
+      const { columns, elements, cache, revision, ...record } = result;
+      return {
+        kind: 'local' as const,
+        ...record,
+        columns: Object.fromEntries(
+          Object.entries(columns).map(([field, value]) => [
+            field,
+            value instanceof Uint8Array
+              ? {
+                  encoding: 'hex' as const,
+                  data: Buffer.from(value).toString('hex'),
+                  bytes: value.length,
+                }
+              : typeof value === 'bigint'
+                ? value.toString()
+                : value,
+          ]),
+        ),
+        elements: elementsToEditable(elements),
+        cache: cache.map(forwardRecordToWire),
+        revision,
+      };
+    }),
+
+  editMessageRecord: procedure
+    .input(
+      messageRecordInput.and(
+        z.object({
+          revision: z.string().regex(/^[a-f0-9]{64}$/),
+          elements: z.array(z.any()),
+        }),
+      ),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const elements = await services.msgs.editMessageRecord(
+        input,
+        input.revision,
+        elementsFromEditable(input.elements),
+        () => {
+          if (
+            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+            services
+          )
+            throw new Error('账号或数据源已切换');
+          assertCurrentAccountWritable(input);
+        },
+      );
+      if (!elements) throw new Error('消息正文已变化或记录已移除，请重新打开详情。');
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
+      return messageElementsToWire(elements);
     }),
 
   /** Get un-filtered raw elements for one message (for editing). */

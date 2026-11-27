@@ -41,7 +41,6 @@ export function ReadonlyConversationPane({
   anchorRevision,
   onBack,
   sourceDetails = [],
-  onEditMessage,
 }: {
   target: ReadonlyTarget;
   conversation: DirectConversation;
@@ -52,7 +51,6 @@ export function ReadonlyConversationPane({
   anchorRevision?: string;
   onBack: () => void;
   sourceDetails?: Array<{ label: string; value: string }>;
-  onEditMessage?: (id: string) => void;
 }) {
   const cache = usePageDataCache();
   const binding = accountBinding() ?? { expectedAccountUin: user.identityValue };
@@ -274,7 +272,15 @@ export function ReadonlyConversationPane({
         jumpRequest={jump}
         onOpenSourceProfile={() => setProfile(true)}
         onSearchChatRecords={() => setSearch(true)}
-        onEditRaw={onEditMessage ? (message) => onEditMessage(message.id) : undefined}
+        onMessageRecordEdited={
+          target.kind === 'guild'
+            ? undefined
+            : (id, elements) => {
+                setRows((current) =>
+                  current.map((row) => (row.msgId === id ? { ...row, elements } : row)),
+                );
+              }
+        }
         timelineNotice={
           error ? (
             <button

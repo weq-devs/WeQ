@@ -59,7 +59,6 @@ import type {
   GroupNotifyWire,
   GroupDetailWire,
   GroupEssenceWire,
-  RawElementWire,
   OptimisticForward,
   OptimisticArk,
   OptimisticMessage,
@@ -386,7 +385,6 @@ import {
   ChatRecordsModal,
   MailWorkspace,
   SequentialForwardDialog,
-  MsgElementEditor,
   SearchResultsPanel,
   ChatHome,
   CallWindow,
@@ -2098,10 +2096,6 @@ function MainWorkspace(): ReactElement {
     setConversationIdentity(null);
   }
 
-  const [editorState, setEditorState] = useState<{
-    msgId: string;
-    elements: RawElementWire;
-  } | null>(null);
   const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
   // 合并转发：从聊天多选进入时带着一份草稿 + 会话成员候选；
   // 全局合成使用独立工作窗口，本地多选的合并转发仍复用原编辑器。
@@ -2237,36 +2231,9 @@ function MainWorkspace(): ReactElement {
   const [hiddenDeletedIds, setHiddenDeletedIds] = useState<Set<string>>(new Set());
   const deletionRevision = useRef(0);
 
-  const handleEditRaw = useCallback(async (message: Message) => {
-    if (message.source === 'roaming') return;
-    try {
-      const result = await client.account.getRawElements.query({ msgId: message.id });
-      if (result) {
-        setEditorState({ msgId: message.id, elements: result.elements });
-      }
-    } catch (e) {
-      console.error('[MainView] Failed to fetch raw elements:', e);
-    }
-  }, []);
-
-  const handleSaveRaw = useCallback(
-    async (elements: RawElementWire) => {
-      if (!editorState) return;
-      try {
-        const success = await client.account.updateElements.mutate({
-          msgId: editorState.msgId,
-          elements,
-        });
-        if (success) {
-          void refreshWindow();
-        }
-      } catch (e) {
-        console.error('[MainView] Failed to update elements:', e);
-        throw e;
-      }
-    },
-    [editorState, refreshWindow],
-  );
+  const handleMessageRecordEdited = useCallback(() => {
+    void refreshWindow();
+  }, [refreshWindow]);
 
   /** kind + conversation key (peer uid / group code) used by the msg endpoints. */
   const convFetchKey = useCallback((c: Conversation): { kind: 'c2c' | 'group'; conv: string } => {
@@ -11616,16 +11583,6 @@ function MainWorkspace(): ReactElement {
                           if (mobileLayout) setMobileConversationList(true);
                           else setArkFeedState(null);
                         }}
-                        onEditMessage={async (msgId: string) => {
-                          try {
-                            const result = await client.account.getRawElements.query({ msgId });
-                            if (result) {
-                              setEditorState({ msgId, elements: result.elements });
-                            }
-                          } catch (e) {
-                            console.error('[MainView] Failed to fetch raw elements:', e);
-                          }
-                        }}
                       />
                     ) : shell.view === 'home' ? (
                       <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
@@ -11912,7 +11869,7 @@ function MainWorkspace(): ReactElement {
                             onSentSpeechDraft={clearSentSpeechDraft}
                             onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                             onBackConversation={shell.backConversation}
-                            onEditRaw={handleEditRaw}
+                            onMessageRecordEdited={handleMessageRecordEdited}
                             onDeleteMessage={handleDeleteMessage}
                             onDismissUnsentMessage={dismissUnsentOutgoing}
                             onOpenGroupAlbums={handleOpenGroupAlbums}
@@ -11995,15 +11952,6 @@ function MainWorkspace(): ReactElement {
               </WorkspaceContent>
             }
           />
-
-          {editorState ? (
-            <MsgElementEditor
-              msgId={editorState.msgId}
-              elements={editorState.elements}
-              onClose={() => setEditorState(null)}
-              onSave={handleSaveRaw}
-            />
-          ) : null}
 
           {settingsOpen ? (
             <SettingsDialog

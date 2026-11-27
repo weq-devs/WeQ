@@ -989,6 +989,10 @@ export function elementsFromEditable<T>(v: T): T {
   return v;
 }
 
+export function messageElementsToWire(elements: ReturnType<typeof toRenderElements>) {
+  return elements.map(({ type, data }) => ({ type, data: sanitize({ ...data }) }));
+}
+
 export function replyMediaToWire(patch: { msgId: string; elements: unknown[] }): {
   msgId: string;
   elements: unknown[];

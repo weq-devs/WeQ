@@ -117,11 +117,22 @@ describe('聊天内容复制交互', () => {
   it.each([
     ['未知 ARK', { type: 'ark', data: { arkData: ark } }, JSON.parse(ark)],
     ['聊天记录', forward, forward],
-  ] as const)('右键复制 %s 的卡片 JSON，不经过摘要', async (_title, element, expected) => {
+  ] as const)('从消息详情复制 %s 的卡片 JSON，不经过摘要', async (_title, element, expected) => {
     const write = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
     const f = mount(false, [element]);
     try {
-      await copyMenu(f.host.querySelector('.message-bubble')!, '复制 JSON');
+      await copyMenu(f.host.querySelector('.message-bubble')!, '查看详情');
+      await act(async () => vi.dynamicImportSettled());
+      const window = document.querySelector('.weq-message-detail')!;
+      expect(window).not.toBeNull();
+      const structureTab = [...window.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+        (button) => button.textContent === '结构化数据',
+      );
+      await act(async () => structureTab!.click());
+      const copy = [...window.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent?.trim() === '复制卡片 JSON',
+      );
+      await act(async () => copy!.click());
       expect(write).toHaveBeenCalledTimes(1);
       expect(JSON.parse(write.mock.calls[0]![0])).toEqual(expected);
       expect(copied).not.toHaveBeenCalled();

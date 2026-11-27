@@ -1,4 +1,3 @@
-import type { client } from '../../trpc/client';
 import type { FileSyncReceipt } from '../../lib/fileSendReconcile';
 import type { ConversationReadingPosition } from '../../lib/conversationReadingPosition';
 import type { MfCardPreview } from '../../components/mergeForward/model';
@@ -297,11 +296,6 @@ export type RenderElementWire = {
   type?: string;
   data?: Record<string, unknown>;
 };
-
-/** `account.getRawElements` 返回的原始 element 数组，喂给 MsgElementEditor。 */
-export type RawElementWire = NonNullable<
-  Awaited<ReturnType<typeof client.account.getRawElements.query>>
->['elements'];
 
 /**
  * 一条「乐观渲染」的合并转发消息 —— 只活在前端 state 里。

@@ -842,8 +842,10 @@ function QqMessageContentBody({
   conversation,
   forwardSource,
   forwardRecord,
+  preserveOrder,
 }: {
   elements: RenderElement[];
+  preserveOrder?: boolean;
   sendTimeMs: number;
   msgId: string;
   msgSeq?: string;
@@ -882,7 +884,8 @@ function QqMessageContentBody({
   const groupCode = useContext(ConvContext);
   const textMarkdownOn = useContext(TextMarkdownContext);
   const { enabled: linkPreviewOn } = useContext(LinkPreviewContext);
-  const groupImages = Boolean(useChatMediaOpen());
+  const openGallery = useChatMediaOpen();
+  const groupImages = !preserveOrder && Boolean(openGallery);
   /**
    * 通话气泡查录音要用的会话身份。`conversation` 没传时（转发窗口 / 导出预览）
    * 退回 `ConvContext`（那里只有群号），再拿不到就干脆不查 —— 宁可没有播放按钮，

@@ -94,7 +94,7 @@ export function ChatMainContent({
   onDraftClear,
   onSentSpeechDraft,
   onBackConversation,
-  onEditRaw,
+  onMessageRecordEdited,
   onDeleteMessage,
   onDismissUnsentMessage,
   onStartOutgoingMessage,
@@ -193,7 +193,7 @@ export function ChatMainContent({
   | 'onDraftChange'
   | 'onDraftClear'
   | 'onSentSpeechDraft'
-  | 'onEditRaw'
+  | 'onMessageRecordEdited'
   | 'onDeleteMessage'
   | 'onDismissUnsentMessage'
   | 'onStartOutgoingMessage'
@@ -406,7 +406,7 @@ export function ChatMainContent({
       onDraftClear={onDraftClear}
       onSentSpeechDraft={onSentSpeechDraft}
       onBack={onBackConversation}
-      onEditRaw={onEditRaw}
+      onMessageRecordEdited={onMessageRecordEdited}
       onDeleteMessage={onDeleteMessage}
       onDismissUnsentMessage={onDismissUnsentMessage}
       onStartOutgoingMessage={onStartOutgoingMessage}
