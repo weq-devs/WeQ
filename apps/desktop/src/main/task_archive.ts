@@ -3,7 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import type { BackgroundTask } from '../shared/background_task';
 import {
+  backgroundResult,
   isTaskArchived,
   type TaskArchive,
   type TaskArchiveChange,
@@ -174,14 +176,127 @@ export class TaskArchiveStore {
 
 const stores = new Map<string, TaskArchiveStore>();
 
-export function taskArchiveStore(root: string, configId: string): TaskArchiveStore {
-  const path = join(root, 'config', 'accounts', configId, 'task-archive.json');
+export function taskArchiveStore(root: string, configId?: string): TaskArchiveStore {
+  const path = join(
+    root,
+    'config',
+    ...(configId ? ['accounts', configId] : []),
+    'task-archive.json',
+  );
   let store = stores.get(path);
   if (!store) {
     store = new TaskArchiveStore(path);
     stores.set(path, store);
   }
   return store;
+}
+
+/** 应用级回执由各数据源共用，账号业务回执仍写入原数据源。 */
+export class TaskArchiveView {
+  private readonly account: TaskArchiveStore;
+  private readonly host: TaskArchiveStore;
+
+  constructor(root: string, configId: string) {
+    this.account = taskArchiveStore(root, configId);
+    this.host = taskArchiveStore(root);
+  }
+
+  storeFor(id: string) {
+    return id.startsWith('background:host:') && this.host.get(id) ? this.host : this.account;
+  }
+
+  get(id: string) {
+    return this.storeFor(id).get(id);
+  }
+
+  snapshot() {
+    return { ...this.account.snapshot(), ...this.host.snapshot() };
+  }
+
+  summaries() {
+    const account = this.account.summaries();
+    const host = this.host.summaries();
+    return { ...this.version(account, host), entries: { ...account.entries, ...host.entries } };
+  }
+
+  private version(account = this.account.version(), host = this.host.version()) {
+    return {
+      generation: `${account.generation}:${host.generation}`,
+      revision: account.revision + host.revision,
+    };
+  }
+
+  subscribe(listener: (change: TaskArchiveChange) => void, initial = false) {
+    const version = initial ? this.version() : undefined;
+    const account = this.account.subscribe((change) =>
+      listener({ ...this.version(change), patch: change.patch }),
+    );
+    const host = this.host.subscribe((change) =>
+      listener({ ...this.version(undefined, change), patch: change.patch }),
+    );
+    if (version) listener(version);
+    return () => {
+      account();
+      host();
+    };
+  }
+
+  update(patch: TaskArchivePatch) {
+    const account: TaskArchivePatch = {};
+    const host: TaskArchivePatch = {};
+    for (const [id, entry] of Object.entries(patch)) {
+      (this.storeFor(id) === this.host ? host : account)[id] = entry;
+    }
+    const accountChange = this.account.update(account);
+    const hostChange = this.host.update(host);
+    if (accountChange && !hostChange)
+      return { ...this.version(accountChange), patch: accountChange.patch };
+    if (hostChange && !accountChange)
+      return { ...this.version(undefined, hostChange), patch: hostChange.patch };
+    // 混合归档分别写入两个库，订阅逐次更新，其他调用方按最新版本刷新。
+    return undefined;
+  }
+}
+
+export function storedTaskSnapshot(task: BackgroundTask | undefined): BackgroundTask | undefined {
+  return (
+    task && {
+      ...task,
+      actions: [],
+      // 下载票据和临时窗口标识没有跨重启用途。
+      download: undefined,
+      ownerId: undefined,
+      logs: task.logs?.slice(-200),
+      details: task.details?.slice(0, 2000),
+    }
+  );
+}
+
+export function archiveCompletedBackgroundTask(root: string, task: BackgroundTask) {
+  if (
+    task.status !== 'completed' ||
+    task.needsConfirmation ||
+    task.subtasks?.some((part) => part.failed) ||
+    (task.scope && !task.scope.configId)
+  )
+    return;
+  const id = `background:host:${task.id}`;
+  const result = backgroundResult(task);
+  try {
+    const store = taskArchiveStore(root, task.scope?.configId);
+    const previous = store.get(id);
+    if (store.busy.has(id) || previous?.result === result) return;
+    store.update({
+      [id]: {
+        result,
+        seen: true,
+        archivedAt: task.finishedAt ?? Date.now(),
+        snapshot: storedTaskSnapshot({ ...task, foreground: false }),
+      },
+    });
+  } catch (error) {
+    console.warn('[任务] 自动归档失败', error);
+  }
 }
 
 /** 已打开产物，保留其业务记录；归档写入失败时仍可在当前任务查看。 */

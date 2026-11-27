@@ -7,7 +7,7 @@ import {
 import { getAppContext } from './context/app_context';
 import { dataSaverSession, updateTransferPolicy } from '@weq/service/transfer-policy';
 import { transferActivity, type TransferActivity } from '@weq/service/managed-download';
-import { backgroundTasks } from './background_tasks';
+import { archiveCompletedTask, backgroundTasks } from './background_tasks';
 import { onSettingsChanged } from '@weq/service/settings-changes';
 import { unfinishedDataSaverTasks } from '../shared/data_saver_tasks';
 import { forgetTaskOnPage, holdTaskOnPage } from './task_page';
@@ -32,7 +32,7 @@ const originalRequest = z.object({
 
 export function retryOriginalDownload(id: string, scope: BackgroundTaskScope, raw: unknown) {
   const parsed = originalRequest.parse(raw);
-  const { account, services } = getAppContext();
+  const { account, services, platform } = getAppContext();
   const record = services?.accountConfig.getRecord();
   if (!services || record?.uin !== scope.uin || record.configId !== scope.configId)
     throw new Error('请回到原账号和数据源继续。');
@@ -41,6 +41,8 @@ export function retryOriginalDownload(id: string, scope: BackgroundTaskScope, ra
   backgroundTasks.resume(id);
   backgroundTasks.setActions(id, []);
   const save = recordAccountTask(id, scope, parsed);
+  const completed = () =>
+    backgroundTasks.snapshot().some((task) => task.id === id && task.status === 'completed');
   const work = networkScope.run(
     { restricted: false, ...networkScope.getStore(), override: true, intent: 'interactive' },
     () =>
@@ -54,13 +56,16 @@ export function retryOriginalDownload(id: string, scope: BackgroundTaskScope, ra
   );
   void work
     .then((path) => {
+      if (completed()) return;
       if (getAppContext().account !== account) throw new Error('账号或数据源已切换。');
       if (!path) throw new Error('未取到原图，请检查 QQ 在线状态后重试。');
       backgroundTasks.resume(id);
       backgroundTasks.finish(id, 'completed', { note: '原图已缓存' });
       backgroundTasks.setActions(id, []);
+      archiveCompletedTask(platform?.appDataRoot?.(), id);
     })
     .catch((error) => {
+      if (completed()) return;
       backgroundTasks.resume(id);
       backgroundTasks.finish(id, 'failed', {
         note: error instanceof Error ? error.message : String(error),
@@ -234,6 +239,8 @@ export function startTransferPolicy() {
               ]
             : [],
         );
+        if (state.done && resume && scope && originalRequest.safeParse(resume.request).success)
+          archiveCompletedTask(getAppContext().platform?.appDataRoot?.(), id);
         try {
           receipts.get(state.id)?.();
         } catch (error) {

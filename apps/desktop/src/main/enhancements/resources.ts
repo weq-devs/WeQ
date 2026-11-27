@@ -718,7 +718,7 @@ export function createEnhancementResources(
   packs.observePreparations((id, name) => {
     void trackEnhancementPreparation(packs, id, name).catch(() => {});
   });
-  restoreEnhancementTasks(packs, join(root, 'enhancements'));
+  restoreEnhancementTasks(packs, join(root, 'enhancements'), root);
   const updates = new EnhancementUpdateController(packs, userConfig, target, {
     legacyModels,
     inspected,

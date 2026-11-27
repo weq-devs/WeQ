@@ -24,7 +24,7 @@ import {
   birthRangeText,
 } from '../../shared/contactBirth';
 import { groupMemberToWire } from '../ipc/serde';
-import { backgroundTasks, taskError } from '../background_tasks';
+import { archiveCompletedTask, backgroundTasks, taskError } from '../background_tasks';
 import { recordAccountTask } from '../account_task_receipts';
 import { albumAccessState } from '../account_resource_exports';
 import { getAppContext, type AccountServices } from './app_context';
@@ -317,6 +317,7 @@ export function startGroupMemberOrderTask(
       statusLabel: '读取成员名单',
     });
   const request = { groupCode, sort };
+  const archiveRoot = getAppContext().platform?.appDataRoot?.();
   const save = recordAccountTask(taskId, scope, request);
   const retry = {
     id: 'retry',
@@ -414,6 +415,7 @@ export function startGroupMemberOrderTask(
         details: [...errors],
       });
       if (failed) backgroundTasks.setActions(taskId, [retry]);
+      else archiveCompletedTask(archiveRoot, taskId);
     } catch (error) {
       backgroundTasks.finish(taskId, 'failed', { note: taskError(error) });
       backgroundTasks.setActions(taskId, [retry]);

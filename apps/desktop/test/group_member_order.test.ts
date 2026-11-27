@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { GroupMember } from '@weq/db';
 import type { AccountServices } from '../src/main/context/app_context';
 import {
@@ -7,8 +10,18 @@ import {
 } from '../src/main/context/group_member_order';
 import { backgroundTasks } from '../src/main/background_tasks';
 import { watchTaskPage } from '../src/main/task_page';
+import { taskArchiveStore } from '../src/main/task_archive';
+import { backgroundResult, isTaskArchived } from '../src/shared/task_archive';
 
+const fixture = vi.hoisted(() => ({ root: '' }));
 vi.mock('../src/main/account_task_receipts', () => ({ recordAccountTask: () => () => {} }));
+vi.mock(import('../src/main/context/app_context'), async (original) => ({
+  ...(await original()),
+  getAppContext: () =>
+    ({ platform: { appDataRoot: () => fixture.root } }) as ReturnType<
+      typeof import('../src/main/context/app_context').getAppContext
+    >,
+}));
 
 const member = (uid: string, card: string, memberLevel: number, adminFlag = 0): GroupMember => ({
   groupCode: 12345n,
@@ -125,6 +138,7 @@ it.each([false, true])('补取排序资料结束前离开才显示任务（中�
       pageId = id;
     },
   });
+  fixture.root = mkdtempSync(join(tmpdir(), 'weq-member-sort-archive-'));
   const id = startGroupMemberOrderTask(
     source,
     { uin: '10001', configId: 'synthetic' },
@@ -141,9 +155,12 @@ it.each([false, true])('补取排序资料结束前离开才显示任务（中�
     await vi.waitFor(() => expect(task()?.status).toBe('completed'));
     page.unsubscribe();
     expect(task()?.foreground).toBe(!leavesEarly);
+    const entry = taskArchiveStore(fixture.root, 'synthetic').get(`background:host:${id}`);
+    expect(isTaskArchived(entry, backgroundResult(task()!))).toBe(true);
   } finally {
     gate.resolve([]);
     page.unsubscribe();
     backgroundTasks.remove(id);
+    rmSync(fixture.root, { recursive: true, force: true });
   }
 });

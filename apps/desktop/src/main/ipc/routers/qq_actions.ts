@@ -578,7 +578,10 @@ export function createQQActionsRouter(
     };
     const complete = () => {
       backgroundTasks.resume(taskId);
-      backgroundTasks.finish(taskId, 'completed', { note: '视频已发布到群相册并读回确认' });
+      backgroundTasks.finish(taskId, 'completed', {
+        note: '视频已发布到群相册并读回确认',
+        needsConfirmation: false,
+      });
       backgroundTasks.setActions(taskId, []);
       try {
         save(receipt);

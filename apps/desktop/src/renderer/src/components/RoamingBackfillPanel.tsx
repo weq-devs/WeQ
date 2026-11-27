@@ -768,7 +768,7 @@ export function RoamingBackfillPanel({
                     run: () => cancel.mutate({ id: job.id }),
                   });
                 }
-                if (!taskId && binding && archive.ready && roamingArchivePolicy(job.status))
+                if (!taskId && binding && archive.ready && roamingArchivePolicy(job).manual)
                   actions.push({
                     id: 'archive',
                     label: '归档',

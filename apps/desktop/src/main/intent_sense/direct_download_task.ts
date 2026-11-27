@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { JsonStore } from '@weq/service/json-store';
 import { z } from 'zod/v3';
-import { backgroundTasks, taskError } from '../background_tasks';
+import { archiveCompletedTask, backgroundTasks, taskError } from '../background_tasks';
 import {
   getActiveIntentSenseLocalEngine,
   getAppContext,
@@ -75,6 +75,7 @@ export function restoreDirectIntentDownload() {
       ? [continueAction(task.id, request, interrupted ? 'continue' : 'retry')]
       : [],
   );
+  archiveCompletedTask(getAppContext().platform?.appDataRoot?.(), saved.id);
 }
 
 export function forgetDirectIntentDownload(id: string) {
@@ -121,6 +122,7 @@ export async function startDirectIntentDownload(input: DownloadInput, existingId
     notify({ filesDone: 0, filesTotal: 5, received: 0, total: 0, currentFile: null, done: false });
     await engine.download({ ...input, onProgress: notify });
     backgroundTasks.finish(id, 'completed', { note: '模型已下载' });
+    archiveCompletedTask(getAppContext().platform?.appDataRoot?.(), id);
     return { ok: true, alreadyRunning: false };
   } catch (error) {
     backgroundTasks.finish(id, 'failed', { note: taskError(error) });

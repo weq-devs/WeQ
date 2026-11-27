@@ -82,12 +82,22 @@ export function flashArchivePolicy(
   };
 }
 
-export function roamingArchivePolicy(status: RoamingJobStatus) {
-  return status !== 'running' && status !== 'pausing';
+export function roamingArchivePolicy(job: {
+  status: RoamingJobStatus;
+  targets: readonly unknown[];
+  observed: number;
+}) {
+  return {
+    manual: job.status !== 'running' && job.status !== 'pausing',
+    auto: job.status === 'completed' && job.targets.length === 1 && job.observed > 0,
+  };
 }
 
 export function backgroundArchivePolicy(
-  task: Pick<BackgroundTask, 'status' | 'kind' | 'reportId' | 'subtasks' | 'needsConfirmation'>,
+  task: Pick<
+    BackgroundTask,
+    'status' | 'kind' | 'reportId' | 'groupAlbum' | 'subtasks' | 'needsConfirmation'
+  >,
 ) {
   return {
     manual: task.status !== 'running',
@@ -96,6 +106,9 @@ export function backgroundArchivePolicy(
       task.status === 'completed' &&
       (task.kind === 'forward' ||
         task.kind === 'qzone-share' ||
+        task.kind === 'favorite-import' ||
+        task.kind === 'calendar' ||
+        (task.kind === 'album-upload' && Boolean(task.groupAlbum)) ||
         (task.kind === 'analysis' && Boolean(task.reportId))) &&
       !task.subtasks?.some((part) => part.failed),
   };

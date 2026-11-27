@@ -13,7 +13,7 @@ import {
   getAppContext,
   type AccountServices,
 } from './context/app_context';
-import { backgroundTasks } from './background_tasks';
+import { archiveCompletedTask, backgroundTasks } from './background_tasks';
 import { downloadTaskReceipt, downloadTaskSnapshot } from './download_task_receipt';
 import { collectAlbumMedia } from './account_resource_exports';
 import { favoriteImportPlan, pendingFavoriteImports } from './favorite_import_resume';
@@ -430,7 +430,10 @@ export function restoreRecordedTasks(
           if (!(await albumVideoPublished(current(), scope, video, current)))
             throw new Error('暂未在该相册读到原视频，可稍后继续核对。');
           backgroundTasks.resume(saved.id);
-          backgroundTasks.finish(saved.id, 'completed', { note: '视频已发布到群相册并读回确认' });
+          backgroundTasks.finish(saved.id, 'completed', {
+            note: '视频已发布到群相册并读回确认',
+            needsConfirmation: false,
+          });
           backgroundTasks.setActions(saved.id, []);
           recordAccountTask(saved.id, scope, video)();
         },
@@ -466,6 +469,8 @@ export function restoreRecordedTasks(
       },
       actions,
     );
+    if (status === 'completed' && (originalReady || (saved.kind === 'contacts' && request)))
+      archiveCompletedTask(getAppContext().platform?.appDataRoot?.(), saved.id);
   }
 }
 
