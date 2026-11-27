@@ -173,7 +173,7 @@ function Fixture() {
       <PageSnapshots scope="mail-audit-fixture">
         <div className="weq-web-shell" style={{ height: '100dvh', width: '100%' }}>
           <div style={{ height: '100%' }}>
-            <MailPage api={api} selfEmail="self@example.invalid" onOpenSettings={() => {}} />
+            <MailPage api={api} selfEmail="self@example.invalid" onToggleSettings={() => {}} />
           </div>
         </div>
       </PageSnapshots>

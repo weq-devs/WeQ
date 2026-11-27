@@ -562,7 +562,8 @@ export function QzoneView({
   const [compose, setCompose] = useState(false);
   const [publication, setPublication] = useState<QzonePublication | null>(null);
   const toast = useToast((state) => state.push);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsAnchor, setSettingsAnchor] = useState<HTMLButtonElement | null>(null);
+  const closeSettings = () => setSettingsAnchor(null);
   const navigationBacks = useRef<Array<() => void>>([]);
   useEffect(
     () => () => {
@@ -700,7 +701,12 @@ export function QzoneView({
               type="button"
               title="空间设置"
               aria-label="空间设置"
-              onClick={() => setSettingsOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={Boolean(settingsAnchor)}
+              onClick={(event) => {
+                const trigger = event.currentTarget;
+                setSettingsAnchor((current) => (current ? null : trigger));
+              }}
             >
               <Settings size={17} />
             </button>
@@ -1005,10 +1011,12 @@ export function QzoneView({
         <QzonePublicNavigationContext.Provider value={() => setTab('public')}>
           {workspace}
         </QzonePublicNavigationContext.Provider>
-        {settingsOpen && active ? (
+        {settingsAnchor && active ? (
           <Modal
-            presentation="panel"
-            onClose={() => setSettingsOpen(false)}
+            presentation="popover"
+            anchor={settingsAnchor}
+            fitAnchorHeight
+            onClose={closeSettings}
             width={480}
             labelledBy="weq-qzone-settings-title"
           >
@@ -1018,7 +1026,7 @@ export function QzoneView({
                 type="button"
                 aria-label="关闭空间设置"
                 title="关闭空间设置"
-                onClick={() => setSettingsOpen(false)}
+                onClick={closeSettings}
               >
                 <X size={18} />
               </button>

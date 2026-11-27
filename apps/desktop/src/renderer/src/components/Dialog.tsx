@@ -47,6 +47,7 @@ export function Modal({
   title,
   anchor,
   anchorPlacement,
+  fitAnchorHeight = false,
   centered = false,
   resizeEdges = false,
   dismissOnOutside = true,
@@ -68,6 +69,8 @@ export function Modal({
   title?: string;
   anchor?: HTMLElement | null;
   anchorPlacement?: 'above' | 'below' | 'side';
+  /** 入口旁空间不足时缩短面板，让内容滚动并留出入口。 */
+  fitAnchorHeight?: boolean;
   /** 居中打开浮窗或弹出层，不沿用最近的触发点。 */
   centered?: boolean;
   /** 允许从浮窗的四条边和四个角拖动调整大小。 */
@@ -94,6 +97,7 @@ export function Modal({
     presentation === 'popover' && !centered,
     anchor,
     anchorPlacement,
+    fitAnchorHeight,
   );
   useSurfaceEscape(
     ref,
@@ -176,7 +180,11 @@ export function Modal({
         role="dialog"
         aria-modal={presentation === 'modal' ? true : undefined}
         {...(labelledBy ? { 'aria-labelledby': labelledBy } : {})}
-        style={width ? { width } : undefined}
+        style={{
+          width,
+          maxHeight:
+            fitAnchorHeight && placement.position ? 'var(--weq-popover-max-height)' : undefined,
+        }}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <OverlayLayerContext.Provider value={scope}>

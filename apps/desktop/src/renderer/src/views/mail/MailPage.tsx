@@ -111,13 +111,15 @@ export function MailPage({
   selfEmail,
   active = true,
   searchTarget,
-  onOpenSettings,
+  settingsOpen = false,
+  onToggleSettings,
 }: {
   api: MailApi;
   selfEmail: string;
   active?: boolean;
   searchTarget?: MailOpenTarget | null;
-  onOpenSettings?: () => void;
+  settingsOpen?: boolean;
+  onToggleSettings?: (trigger: HTMLButtonElement) => void;
 }) {
   const notificationToast = useToastApi();
   const save = useExportSavePolicy();
@@ -690,8 +692,15 @@ export function MailPage({
           >
             <Download size={17} />
           </button>
-          {onOpenSettings ? (
-            <button type="button" title="邮箱设置" aria-label="邮箱设置" onClick={onOpenSettings}>
+          {onToggleSettings ? (
+            <button
+              type="button"
+              title="邮箱设置"
+              aria-label="邮箱设置"
+              aria-haspopup="dialog"
+              aria-expanded={settingsOpen}
+              onClick={(event) => onToggleSettings(event.currentTarget)}
+            >
               <Settings size={17} />
             </button>
           ) : null}

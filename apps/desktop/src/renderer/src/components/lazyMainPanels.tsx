@@ -1,7 +1,8 @@
-import { lazy, Suspense, useEffect, useState, type ComponentProps } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, type ComponentProps } from 'react';
 import { createPortal } from 'react-dom';
 import { Images, X } from 'lucide-react';
 import { lazyPanel } from '../lib/lazyPanel';
+import type { OverlayAnchor } from '../lib/overlayAnchor.shared';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { Modal } from './Dialog';
 import { DeferredSurfaceLoading } from './DeferredSurfaceLoading';
@@ -124,9 +125,28 @@ export const GroupFileDialog = lazyPanel<
   () => import('./GroupFileDialog').then((m) => ({ default: m.GroupFileDialog })),
   surfaceLoading('群文件', { presentation: 'sidecar' }),
 );
-function ProfileLoading({ onClose }: { onClose: () => void }) {
+function ProfileLoading({
+  onClose,
+  anchor,
+  point,
+}: {
+  onClose: () => void;
+  anchor?: HTMLElement | OverlayAnchor | null;
+  point?: { x: number; y: number };
+}) {
+  const x = point?.x;
+  const y = point?.y;
+  const pointAnchor = useMemo(
+    () => (x === undefined || y === undefined ? null : { element: null, rect: new DOMRect(x, y) }),
+    [x, y],
+  );
   return (
-    <OverlayLayer presentation="panel" onClose={onClose}>
+    <OverlayLayer
+      presentation="popover"
+      anchor={pointAnchor ?? anchor}
+      anchorPlacement={point ? 'side' : undefined}
+      onClose={onClose}
+    >
       <div className="weq-profile-loading" role="status">
         <LoadingIndicator>正在加载名片…</LoadingIndicator>
       </div>
@@ -140,26 +160,27 @@ export const ContactProfileDialog = lazyPanel<
     import('../im-template/template/profilePanes').then((m) => ({
       default: m.ContactProfileDialog,
     })),
-  ({ onClose }) => <ProfileLoading onClose={onClose} />,
+  ({ embedded, onClose }) => (embedded ? <PanelLoading /> : <ProfileLoading onClose={onClose} />),
 );
 export const GroupProfileDialog = lazyPanel<
   ComponentProps<typeof import('./groupProfile/GroupProfileSurface').GroupProfileSurface>
 >(
   () =>
     import('./groupProfile/GroupProfileSurface').then((m) => ({ default: m.GroupProfileSurface })),
-  ({ onClose }) => <ProfileLoading onClose={onClose} />,
+  ({ embedded, anchor, onClose }) =>
+    embedded ? <PanelLoading /> : <ProfileLoading anchor={anchor} onClose={onClose} />,
 );
 export const MemberProfileCard = lazyPanel<
   ComponentProps<typeof import('./MemberProfileCard').MemberProfileCard>
 >(
   () => import('./MemberProfileCard').then((m) => ({ default: m.MemberProfileCard })),
-  ({ onClose }) => <ProfileLoading onClose={onClose} />,
+  ({ anchor, onClose }) => <ProfileLoading point={anchor} onClose={onClose} />,
 );
 export const ConversationIdentityCard = lazyPanel<
   ComponentProps<typeof import('./ConversationIdentityCard').ConversationIdentityCard>
 >(
   () => import('./ConversationIdentityCard').then((m) => ({ default: m.ConversationIdentityCard })),
-  ({ onClose }) => <ProfileLoading onClose={onClose} />,
+  ({ anchor, onClose }) => <ProfileLoading anchor={anchor} onClose={onClose} />,
 );
 export const SpecialConversationPreview = lazyPanel<
   ComponentProps<typeof import('./SpecialConversationPreview').SpecialConversationPreview>
@@ -175,7 +196,7 @@ export const CloneMemberProfileCard = lazyPanel<
     import('../views/agentlab/CloneMemberProfileCard').then((m) => ({
       default: m.CloneMemberProfileCard,
     })),
-  ({ onClose }) => <ProfileLoading onClose={onClose} />,
+  ({ anchor, onClose }) => <ProfileLoading point={anchor} onClose={onClose} />,
 );
 const GroupTodosContent = lazy(() =>
   import('./qq-actions/GroupActions').then((m) => ({ default: m.GroupTodos })),

@@ -35,7 +35,7 @@
   min-height: 64px;
   padding: 12px;
 }
-.weq-centered-panel[tabindex] > .weq-profile-loading {
+.weq-overlay-layer.is-popover[tabindex] > .weq-profile-loading {
   display: grid;
   place-items: center;
   width: min(224px, calc(100vw - 24px));

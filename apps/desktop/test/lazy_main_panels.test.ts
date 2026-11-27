@@ -2,12 +2,18 @@ import { act, createElement as h, type ComponentProps } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Window as HappyWindow } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
-import { CompositionWorkspace, MailWorkspace } from '../src/renderer/src/components/lazyMainPanels';
+import {
+  CompositionWorkspace,
+  MailWorkspace,
+  MemberProfileCard,
+} from '../src/renderer/src/components/lazyMainPanels';
 
 const fixture = vi.hoisted(() => ({
   mailLoaded: vi.fn(),
   compositionLoaded: vi.fn(),
   compositionReady: Promise.resolve(),
+  profileLoaded: vi.fn(),
+  profileReady: Promise.resolve(),
 }));
 vi.mock('../src/renderer/src/views/MailView', () => {
   fixture.mailLoaded();
@@ -17,6 +23,11 @@ vi.mock('../src/renderer/src/components/mergeForward/CompositionWorkspace', asyn
   fixture.compositionLoaded();
   await fixture.compositionReady;
   return { CompositionWorkspace: () => h('input', { 'aria-label': '合成草稿' }) };
+});
+vi.mock('../src/renderer/src/components/MemberProfileCard', async () => {
+  fixture.profileLoaded();
+  await fixture.profileReady;
+  return { MemberProfileCard: () => h('section', { 'aria-label': '合成名片' }) };
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -89,5 +100,47 @@ it('合成正文首次打开才加载，占位跟随所属窗口，关闭及重�
     release();
     act(() => root.unmount());
     popup.close();
+  }
+});
+
+it('名片只有点击坐标时，加载提示仍跟随入口，加载后交给正式名片', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let release = () => {};
+  fixture.profileReady = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const props: ComponentProps<typeof MemberProfileCard> = {
+    member: {
+      id: 'synthetic',
+      username: 'synthetic',
+      displayName: '合成成员',
+      identityLabel: 'QQ',
+      identityValue: '10001',
+      avatarUrl: null,
+    },
+    anchor: { x: 120, y: 80 },
+    onClose: vi.fn(),
+  };
+  try {
+    await act(async () => root.render(h(MemberProfileCard, props)));
+    expect(fixture.profileLoaded).toHaveBeenCalledOnce();
+    const loading = document.querySelector<HTMLElement>('.weq-profile-loading')!.parentElement!;
+    expect(loading.style.getPropertyValue('--weq-popover-left')).toBe('128px');
+    expect(loading.style.getPropertyValue('--weq-popover-top')).toBe('80px');
+    await act(async () =>
+      root.render(h(MemberProfileCard, { ...props, anchor: { x: 240, y: 160 } })),
+    );
+    expect(loading.style.getPropertyValue('--weq-popover-left')).toBe('248px');
+    expect(loading.style.getPropertyValue('--weq-popover-top')).toBe('160px');
+    await act(async () => release());
+    expect(loading.isConnected).toBe(false);
+    expect(host.querySelector('[aria-label="合成名片"]')).not.toBeNull();
+  } finally {
+    release();
+    act(() => root.unmount());
+    host.remove();
   }
 });
