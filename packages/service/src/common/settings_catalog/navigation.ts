@@ -119,6 +119,18 @@ export const SETTINGS_GROUPS: Array<{
     ],
   },
   {
+    id: 'qq',
+    label: 'QQ',
+    sections: [
+      'account',
+      'credentials',
+      'qq-accounts',
+      'qq-storage',
+      'database-management',
+      'diagnostics',
+    ],
+  },
+  {
     id: 'ai',
     label: 'AI',
     sections: [
@@ -134,18 +146,6 @@ export const SETTINGS_GROUPS: Array<{
     id: 'services',
     label: '服务',
     sections: ['remote', 'mcp', 'onebot', 'sse', 'assistant'],
-  },
-  {
-    id: 'qq',
-    label: 'QQ',
-    sections: [
-      'account',
-      'credentials',
-      'qq-accounts',
-      'qq-storage',
-      'database-management',
-      'diagnostics',
-    ],
   },
   {
     id: 'app',
