@@ -27,6 +27,7 @@ const mediaOptions = [
   ['dataSaverLinkPreviews', '自动获取链接预览'],
 ] as const;
 const taskOptions = [
+  ['dataSaverPauseAi', '暂停自动联网 AI', '手动生成和本地处理仍可用。'],
   ['dataSaverPauseBatch', '暂停联网批量任务', '纯本地任务不受影响。'],
   ['dataSaverPauseLarge', '暂停大文件下载', '达到下方阈值时暂停，可在任务中选择本次继续。'],
 ] as const;

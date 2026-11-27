@@ -8601,6 +8601,17 @@ html[data-theme='dark'] .chat-empty-logo {
   object-fit: cover;
   z-index: 0;
 }
+.weq-card-load-image {
+  border: 0;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+.weq-ark-map-img.weq-card-load-image {
+  inset: auto 8px 8px auto;
+  width: auto;
+  height: auto;
+  z-index: 2;
+}
 .weq-ark-map-pin {
   position: relative; /* 抬到静态图 (absolute) 之上 */
   z-index: 1;

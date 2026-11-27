@@ -260,6 +260,7 @@ export function describeSettingsReset(item: SettingsResetItem): ResetPreviewLine
       dataSaverVideoCovers: '自动加载视频封面',
       dataSaverPrefetch: '预加载屏幕外媒体',
       dataSaverLinkPreviews: '自动获取链接预览',
+      dataSaverPauseAi: '暂停自动联网 AI',
       dataSaverPauseBatch: '暂停联网批量任务',
       dataSaverPauseLarge: '暂停大文件下载',
       dataSaverLargeMiB: '大文件暂停阈值',

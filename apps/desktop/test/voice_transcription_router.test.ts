@@ -9,6 +9,8 @@ import { type MsgService, VOICE_MODELS } from '@weq/service';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import { bootstrapRouter } from '../src/main/ipc/routers/bootstrap';
 import { SentVoiceTranscripts } from '../src/main/sent_voice_transcripts';
+import { UNKNOWN_NETWORK } from '@weq/service/data-saver';
+import { updateTransferPolicy } from '@weq/service/transfer-policy';
 
 const state = vi.hoisted(() => ({
   switched: false,
@@ -17,11 +19,13 @@ const state = vi.hoisted(() => ({
   write: vi.fn(async () => true),
   read: vi.fn(),
   find: vi.fn(async () => ({ source: '/synthetic/voice.silk' })),
+  download: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
     accountConfig: { getRecord: () => ({ configId: 'source-a' }) },
     fileSearch: { findFile: state.find },
+    mediaDownload: { download: state.download },
     msgs: { setPttTranscript: state.write, getRawElements: state.read },
   };
   const context = {
@@ -30,7 +34,7 @@ vi.mock('../src/main/context/app_context', () => {
       return state.switched ? { ...services } : services;
     },
     bootstrap: {
-      userConfig: { getLocalModelId: () => VOICE_MODELS[0]!.id },
+      userConfig: { getLocalModelId: () => VOICE_MODELS[0]!.id, cacheDir: () => tmpdir() },
       voiceTranscribe: {
         getModelStatus: () => ({ downloaded: state.downloaded }),
         resolveModelPaths: () => ({
@@ -64,6 +68,33 @@ beforeEach(() => {
   state.infer.mockResolvedValue({ success: true, text: '合成识别结果' });
   state.read.mockReset();
   state.write.mockResolvedValue(true);
+});
+
+it('省流量时自动转写只查本地语音，手动转写仍可补取', async () => {
+  const api = accountRouter.createCaller({});
+  try {
+    updateTransferPolicy('always', UNKNOWN_NETWORK);
+    await expect(api.transcribeVoice({ ...input, automatic: true })).resolves.toMatchObject({
+      success: true,
+    });
+    expect(state.download).not.toHaveBeenCalled();
+    state.find.mockResolvedValueOnce({ source: '' }).mockResolvedValueOnce({ source: '' });
+    state.download.mockImplementation((_token, options) =>
+      options.localOnly ? null : '/synthetic/voice.silk',
+    );
+    await expect(
+      api.transcribeVoice({ ...input, token: 'fixture', automatic: true }),
+    ).resolves.toMatchObject({ deferred: true, success: false });
+    await expect(api.transcribeVoice({ ...input, token: 'fixture' })).resolves.toMatchObject({
+      success: true,
+    });
+    expect(state.download.mock.calls.map(([, options]) => options.localOnly === true)).toEqual([
+      true,
+      false,
+    ]);
+  } finally {
+    updateTransferPolicy('auto', UNKNOWN_NETWORK);
+  }
 });
 
 function makeRecordingWav(sampleRate = 16_000) {

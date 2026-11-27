@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { qzoneTextParts } from '../lib/qzone';
-import { avatarFetchUrl } from '../lib/resourceUrl';
+import { inlineImageUrl } from '../lib/resourceUrl';
+import { useDataSaver } from '../lib/dataSaver';
 
 export function QzoneInlineText({ content }: { content: string }) {
   return qzoneTextParts(content).map((part) =>
@@ -19,7 +20,9 @@ export function QzoneEmoji({
   code: string;
   className?: string;
 }) {
-  const [sourceIndex, setSourceIndex] = useState(0);
+  const limited = useDataSaver((state) => state.enabled && !state.behavior.dataSaverEmoji);
+  const [attempt, setAttempt] = useState({ limited, index: 0 });
+  const sourceIndex = attempt.limited === limited ? attempt.index : 0;
   if (sourceIndex >= 2)
     return (
       <span className="weq-qzn-emoji-unavailable" title={`QQ 表情 ${code}`}>
@@ -30,11 +33,11 @@ export function QzoneEmoji({
   return (
     <img
       className={className}
-      src={avatarFetchUrl(`https://qzonestyle.gtimg.cn/qzone/em/${code}.${extension}`)}
+      src={inlineImageUrl(`https://qzonestyle.gtimg.cn/qzone/em/${code}.${extension}`, 'emoji')}
       alt="[QQ表情]"
       title={`QQ 表情 ${code}`}
       loading="lazy"
-      onError={() => setSourceIndex((current) => (current === sourceIndex ? current + 1 : current))}
+      onError={() => setAttempt({ limited, index: sourceIndex + 1 })}
     />
   );
 }

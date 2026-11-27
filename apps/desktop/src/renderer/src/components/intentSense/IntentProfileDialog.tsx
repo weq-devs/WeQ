@@ -9,7 +9,8 @@
 
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { BrainCircuit, RefreshCw, X } from 'lucide-react';
-import { trpc } from '../../trpc/client';
+import { client, trpc } from '../../trpc/client';
+import { useAutomaticAiRestricted } from '../../lib/dataSaver';
 import { OverlayLayer } from '../OverlayLayer';
 import { useIntentSenseStatus } from './context.shared';
 import { useTabActive } from '../RetainedTabs.shared';
@@ -127,10 +128,14 @@ export function IntentProfileDialog({
 }): ReactElement {
   const active = useTabActive();
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
   const status = useIntentSenseStatus();
+  const restricted = useAutomaticAiRestricted();
+  const paused = restricted && status.data?.profileEngine === 'api';
   const utils = trpc.useUtils();
+  const profileTarget = { peerUid, revision: status.data?.profileRevision };
   const profile = trpc.account.intentSense.getProfile.useQuery(
-    { peerUid, revision: status.data?.profileRevision },
+    paused ? { ...profileTarget, cachedOnly: true } : profileTarget,
     {
       enabled: active && Boolean(peerUid),
       refetchOnWindowFocus: false,
@@ -186,8 +191,19 @@ export function IntentProfileDialog({
             aria-busy={refreshing || profile.isFetching || profile.isLoading}
             onClick={async () => {
               setRefreshing(true);
+              setRefreshError('');
               try {
-                await profile.refetch();
+                const result = await client.account.intentSense.getProfile.query({
+                  ...profileTarget,
+                  manual: true,
+                });
+                utils.account.intentSense.getProfile.setData(profileTarget, result);
+                utils.account.intentSense.getProfile.setData(
+                  { ...profileTarget, cachedOnly: true },
+                  result,
+                );
+              } catch (error) {
+                setRefreshError(error instanceof Error ? error.message : String(error));
               } finally {
                 setRefreshing(false);
               }
@@ -209,17 +225,20 @@ export function IntentProfileDialog({
         </span>
       </header>
       <div className="group-keyword-body" aria-busy={profile.isFetching || refreshing}>
-        {profile.error ? (
+        {profile.error || refreshError ? (
           <p className="weq-int-note" role="alert">
-            {data ? '画像更新失败，保留上次结果' : '画像读取失败'}：{profile.error.message}
+            {data ? '画像更新失败，保留上次结果' : '画像读取失败'}：
+            {refreshError || profile.error?.message}
             。可重新计算。
           </p>
         ) : null}
         {!data && profile.isLoading ? (
           <ProfileSkeleton />
-        ) : !data && profile.error ? null : !data ? (
+        ) : !data && (profile.error || refreshError) ? null : !data ? (
           <p className="weq-int-note" role="status">
-            暂无可分析的对方消息，未生成互动画像。
+            {paused
+              ? '省流量模式已暂停自动生成，仍可手动计算。'
+              : '暂无可分析的对方消息，未生成互动画像。'}
           </p>
         ) : (
           <div className="weq-int-profile">

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ImgHTMLAttributes } from 'react';
 import { collectionImageUrl } from '../lib/resourceUrl';
+import { useDataSaver } from '../lib/dataSaver';
 
 /** 离屏移除 src；列表和正文只解码小图，原图由灯箱单独取得。 */
 export function CollectionImage({
@@ -9,6 +10,7 @@ export function CollectionImage({
 }: Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & { originalSrc: string }) {
   const ref = useRef<HTMLImageElement>(null);
   const [visible, setVisible] = useState(false);
+  useDataSaver((state) => (state.enabled ? state.behavior.dataSaverImageLoading : null));
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   useEffect(() => {
     const image = ref.current;

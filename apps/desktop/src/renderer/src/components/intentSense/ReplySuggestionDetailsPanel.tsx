@@ -7,6 +7,8 @@ import { Modal } from '../Dialog';
 import type { TaskLogLine } from '../TaskLogConsole';
 import { ModelRequestLog } from '../ModelRequestLog';
 import { suggestionLogBlocks } from '../../lib/modelRequestLog';
+import { useClientDataSaver } from '../../lib/dataSaver';
+import { IS_WEB } from '../../lib/target.shared';
 import '../../styles/reply-suggestion-details.css';
 
 const timestamp = preciseTimeFormatter;
@@ -28,6 +30,8 @@ export function ReplySuggestionDetailsPanel({
   onClose: () => void;
 }) {
   const headingId = useId();
+  const restricted = useClientDataSaver();
+  const budgeted = IS_WEB && restricted;
   const [logOpen, setLogOpen] = useState(id === undefined);
   const [roundId, setRoundId] = useState(id);
   const details = trpc.account.intentSense.getSuggestionDetails.useQuery(
@@ -39,7 +43,11 @@ export function ReplySuggestionDetailsPanel({
       retry: false,
       keepPreviousData: true,
       refetchInterval: (data) =>
-        data?.progress?.status === 'running' || (!data && !roundId && generating) ? 500 : false,
+        data?.progress?.status === 'running' || (!data && !roundId && generating)
+          ? budgeted
+            ? 3000
+            : 500
+          : false,
     },
   );
   const value = details.data;

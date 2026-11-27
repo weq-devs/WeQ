@@ -8,6 +8,7 @@ export const dataSaverBehaviorDefaults = {
   dataSaverVideoCovers: true,
   dataSaverPrefetch: false,
   dataSaverLinkPreviews: false,
+  dataSaverPauseAi: true,
   dataSaverPauseBatch: true,
   dataSaverPauseLarge: true,
   dataSaverLargeMiB: 10,
@@ -20,6 +21,7 @@ export type NetworkResource =
   | 'emoji'
   | 'dress'
   | 'link-preview'
+  | 'inline-image'
   | 'image';
 export interface NetworkCost {
   state: 'restricted' | 'unrestricted' | 'unknown';
@@ -207,6 +209,7 @@ export function allowNetwork(
   if (resource === 'emoji') return behavior.dataSaverEmoji;
   if (resource === 'dress') return behavior.dataSaverDress;
   if (resource === 'link-preview') return behavior.dataSaverLinkPreviews;
+  if (resource === 'inline-image') return behavior.dataSaverImageLoading === 'original';
   if (resource === 'image') return behavior.dataSaverImageLoading !== 'none';
   return intent === 'thumbnail' || behavior.dataSaverPrefetch;
 }

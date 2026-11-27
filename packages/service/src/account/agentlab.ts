@@ -16,6 +16,7 @@ import type { AccountSession } from '@weq/account';
 import {
   AgentLabStore,
   AgentRuntime,
+  applyRelationDelta,
   buildPersonaArtifacts,
   distillMemories,
   embedTexts,
@@ -98,8 +99,10 @@ import { NotesStore } from './agentlab_notes';
 import { JsonGroupStore } from './agentlab_group_store';
 import { JsonRelationStore } from './agentlab_relation_store';
 import { getLogger } from '../common/logger';
+import { automaticAiRestricted } from '../common/transfer_policy';
 import {
   CloneConversationRuns,
+  DeferredCloneLearning,
   CloneReplyWindow,
   type CloneConversationTarget,
 } from './agentlab_runs';
@@ -340,6 +343,7 @@ export class AgentLabService extends EventEmitter {
   private readonly buildPromises = new Set<Promise<AgentLabPersona>>();
   private readonly buildsByPersona = new Map<string, Promise<AgentLabPersona>>();
   private readonly conversationRuns = new CloneConversationRuns();
+  private readonly deferredLearning = new DeferredCloneLearning(this.conversationRuns);
   private readonly replyWindow = new CloneReplyWindow(this.conversationRuns);
   private readonly cloneEvents = new EventEmitter().setMaxListeners(50);
 
@@ -531,12 +535,15 @@ export class AgentLabService extends EventEmitter {
       tts: ttsPort,
       ensureSticker: (sticker) => this.ensureStickerAsset(sticker),
       logger: this.logger,
+      deferLearning: (key, id, work) =>
+        this.deferredLearning.defer(key, [{ kind: 'persona', id }], work),
     });
   }
 
   /** 账号切换或退出时取消运行时请求并等待后台派生数据任务。 */
   async close(): Promise<void> {
     this.closed = true;
+    this.deferredLearning.close();
     for (const controller of this.buildControllers.values()) controller.abort();
     await Promise.allSettled([
       ...this.buildPromises,
@@ -643,6 +650,7 @@ export class AgentLabService extends EventEmitter {
 
   async deleteGroup(groupId: string): Promise<void> {
     await this.conversationRuns.stopAndDelete({ kind: 'group', id: groupId }, () => {
+      this.deferredLearning.discard({ kind: 'group', id: groupId });
       this.groups.deleteGroup(groupId);
       this.sessions.deleteOwner(this.groupOwnerId(groupId));
       this.groupSessionMessages.deleteGroup(groupId);
@@ -791,7 +799,8 @@ export class AgentLabService extends EventEmitter {
    * 一段互动后更新「克隆体 → 说话人」的关系态（M4）。fire-and-forget：
    * 每次互动熟悉度 +2（纯机械）；每 5 次互动做一次 LLM 情感打分调 affinity/mood（节流成本）。
    */
-  private updateRelationAfterExchange(
+  private async updateRelationAfterExchange(
+    groupId: string,
     subjectPersonaId: string,
     personaName: string,
     objectId: string,
@@ -799,22 +808,86 @@ export class AgentLabService extends EventEmitter {
     exchange: string,
     endpoint: AgentLabEndpoint,
   ): Promise<void> {
-    return (async () => {
-      try {
-        const prev = this.relations.get(subjectPersonaId, objectId);
-        const nextCount = (prev?.interactionCount ?? 0) + 1;
-        const delta: { familiarity: number; affinity?: number; mood?: number } = { familiarity: 2 };
-        if (nextCount % 5 === 0) {
-          const s = await scoreInteractionSentiment(endpoint, personaName, exchange);
-          delta.affinity = s.affinityDelta;
-          delta.mood = s.moodDelta;
-        }
-        endpoint.signal?.throwIfAborted();
-        this.relations.applyDelta(subjectPersonaId, objectId, objectKind, delta, Date.now());
-      } catch {
-        /* 关系更新失败不影响聊天 */
-      }
-    })();
+    try {
+      endpoint.signal?.throwIfAborted();
+      const relation = this.relations.applyDelta(
+        subjectPersonaId,
+        objectId,
+        objectKind,
+        {
+          familiarity: 2,
+        },
+        Date.now(),
+      );
+      if (relation.interactionCount % 5 !== 0) return;
+      const score = async (target: AgentLabEndpoint) => {
+        const { affinityDelta, moodDelta } = await scoreInteractionSentiment(
+          target,
+          personaName,
+          exchange,
+        );
+        target.signal?.throwIfAborted();
+        const latest = this.relations.get(subjectPersonaId, objectId);
+        if (!latest) return;
+        const next = applyRelationDelta(
+          latest,
+          { affinity: affinityDelta, mood: moodDelta },
+          Date.now(),
+        );
+        this.relations.upsert({
+          ...next,
+          interactionCount: latest.interactionCount,
+          lastInteractAt: latest.lastInteractAt,
+        });
+      };
+      if (
+        this.deferGroupLearning(
+          groupId,
+          subjectPersonaId,
+          objectId,
+          'relation',
+          (persona, signal) =>
+            score(
+              this.resolveWithUsage(persona.models.chat, 'chat', {
+                personaId: subjectPersonaId,
+                scope: 'chat',
+                signal,
+              }),
+            ),
+        )
+      )
+        return;
+      await score(endpoint);
+    } catch {
+      /* 关系更新失败不影响聊天 */
+    }
+  }
+
+  private deferGroupLearning(
+    groupId: string,
+    personaId: string,
+    aboutId: string,
+    kind: 'relation' | 'memory',
+    work: (persona: AgentLabPersona, signal: AbortSignal) => Promise<void>,
+  ) {
+    return this.deferredLearning.defer(
+      JSON.stringify([kind, groupId, personaId, aboutId]),
+      [
+        { kind: 'group', id: groupId },
+        { kind: 'persona', id: personaId },
+        ...(aboutId !== this.selfMemberId() && aboutId !== personaId
+          ? [{ kind: 'persona' as const, id: aboutId }]
+          : []),
+      ],
+      async (signal) => {
+        const persona = this.store.getPersona(personaId)?.persona;
+        if (
+          persona?.models.chat &&
+          this.groups.listMembers(groupId).some((member) => member.memberId === personaId)
+        )
+          await work(persona, signal);
+      },
+    );
   }
 
   /**
@@ -1178,6 +1251,7 @@ export class AgentLabService extends EventEmitter {
             ],
             (backgroundSignal) =>
               this.updateRelationAfterExchange(
+                groupId,
                 member.memberId,
                 persona.name,
                 trigger.senderId,
@@ -1197,6 +1271,7 @@ export class AgentLabService extends EventEmitter {
             ],
             (backgroundSignal) =>
               this.maybeDistillGroupMemory(
+                groupId,
                 member.memberId,
                 persona.name,
                 trigger.senderId,
@@ -1223,6 +1298,7 @@ export class AgentLabService extends EventEmitter {
    * 防串人；配了向量模型就顺带嵌入以便语义召回。fire-and-forget，失败静默。
    */
   private maybeDistillGroupMemory(
+    groupId: string,
     personaId: string,
     personaName: string,
     aboutId: string,
@@ -1235,7 +1311,10 @@ export class AgentLabService extends EventEmitter {
     const n = (this.groupMemoryCounter.get(key) ?? 0) + 1;
     this.groupMemoryCounter.set(key, n);
     if (n % 6 !== 0) return Promise.resolve();
-    return (async () => {
+    const distill = async (
+      chatEndpoint: AgentLabEndpoint,
+      embeddingEndpoint: AgentLabEndpoint | null,
+    ) => {
       try {
         const known = this.memories
           .getAbout(personaId, [aboutId], aboutKind === 'user')
@@ -1245,7 +1324,7 @@ export class AgentLabService extends EventEmitter {
         chatEndpoint.signal?.throwIfAborted();
         if (fresh.length === 0) return;
         let embeddings: Array<number[] | undefined> | undefined;
-        if (embeddingEndpoint) {
+        if (embeddingEndpoint && !automaticAiRestricted()) {
           try {
             embeddings = await embedTexts(embeddingEndpoint, fresh);
           } catch {
@@ -1257,7 +1336,20 @@ export class AgentLabService extends EventEmitter {
       } catch {
         /* 记忆蒸馏失败不影响聊天 */
       }
-    })();
+    };
+    if (
+      this.deferGroupLearning(groupId, personaId, aboutId, 'memory', (persona, signal) => {
+        const ctx = { personaId, scope: 'chat' as const, signal };
+        return distill(
+          this.resolveWithUsage(persona.models.chat, 'chat', ctx),
+          persona.models.embedding
+            ? this.resolveWithUsage(persona.models.embedding, 'embedding', ctx)
+            : null,
+        );
+      })
+    )
+      return Promise.resolve();
+    return distill(chatEndpoint, embeddingEndpoint);
   }
 
   /** 判断一条文本是否和最近消息几乎重复（防复读）。短消息（表情/单字）不查重。 */
@@ -1514,6 +1606,7 @@ export class AgentLabService extends EventEmitter {
 
   async deletePersona(personaId: string): Promise<boolean> {
     return this.conversationRuns.stopAndDelete({ kind: 'persona', id: personaId }, async () => {
+      this.deferredLearning.discard({ kind: 'persona', id: personaId });
       this.buildControllers.get(personaId)?.abort();
       await Promise.allSettled([this.buildsByPersona.get(personaId)]);
       await this.runtime.stopPersona(personaId);

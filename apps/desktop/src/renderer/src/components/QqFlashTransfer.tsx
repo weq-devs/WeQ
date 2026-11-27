@@ -25,7 +25,7 @@ import { FlashTransferViewer } from './FlashTransferViewer';
 import { useToast } from './Toast.shared';
 import { formatBytes } from '../lib/format';
 import { parseFlashTransfer } from './QqFlashTransfer.shared';
-import { ShimmerImage } from './ShimmerImage';
+import { CardPreviewImage } from './CardPreviewImage';
 import { TransferRing } from './TransferRing';
 import { useTransferProgress } from '../lib/transferActivity';
 import { flashFilesetTransferTarget } from '../../../shared/transfer_progress';
@@ -88,8 +88,6 @@ function FlashCardView({
 }): ReactElement {
   const upload = useTransferProgress(id ? flashFilesetTransferTarget(id, 'upload') : undefined);
   const download = useTransferProgress(id ? flashFilesetTransferTarget(id, 'download') : undefined);
-  const [failedCover, setFailedCover] = useState('');
-  const coverSrc = failedCover === cover && fallbackCover ? fallbackCover : cover;
   return (
     <div
       className="weq-flash-card"
@@ -106,13 +104,11 @@ function FlashCardView({
     >
       {cover ? (
         <div className="weq-flash-media-box weq-media-frame">
-          <ShimmerImage
+          <CardPreviewImage
             className="weq-flash-cover"
-            src={coverSrc}
-            alt=""
-            loading="lazy"
+            src={cover}
+            fallbackSrc={fallbackCover}
             mediaLoading
-            onError={coverSrc !== fallbackCover ? () => setFailedCover(cover) : undefined}
           />
         </div>
       ) : null}
@@ -152,8 +148,8 @@ export function QqFlashTransfer({
   const infoObj = (info ?? {}) as Record<string, unknown>;
   const filesetId = resolveFilesetId(infoObj, view.schema);
   const desc = view.descText || buildDesc(infoObj);
-  const cover = view.coverImg ? (cachedAvatarUrl(view.coverImg) ?? view.coverImg) : '';
-  const fallbackCover = view.failedSrc ? (cachedAvatarUrl(view.failedSrc) ?? view.failedSrc) : '';
+  const cover = view.coverImg ?? '';
+  const fallbackCover = view.failedSrc ?? '';
   const tailIcon = view.tailIcon ? (cachedAvatarUrl(view.tailIcon) ?? view.tailIcon) : '';
 
   /** 点击卡片：直接打开文件浏览弹窗。 */

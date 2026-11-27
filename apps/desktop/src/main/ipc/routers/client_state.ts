@@ -171,14 +171,15 @@ function savePreferences(input: PreferencePatch, receiptId?: string, seeded = fa
         : {}),
       ...(seeded ? { desktopPreferencesSeeded: true } : {}),
     });
-  if (input.dataSaverMode !== undefined || input.dataSaverOnMetered !== undefined) {
+  if (Object.keys(input).some((key) => key.startsWith('dataSaver'))) {
     const preferences = config.getSharedPreference('client');
     updateTransferPolicy(
       preferences.dataSaverMode ?? 'auto',
       dataSaverSession.status().host,
       preferences,
     );
-    dataSaverSession.clearTemporary('settings');
+    if (input.dataSaverMode !== undefined || input.dataSaverOnMetered !== undefined)
+      dataSaverSession.clearTemporary('settings');
   }
   return preferenceSnapshot();
 }

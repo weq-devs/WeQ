@@ -1118,7 +1118,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     id: 'data-saver',
     section: 'data-saver',
     label: '启用方式与行为',
-    aliases: ['省流量模式', '低数据模式', '计费网络', '节省流量'],
+    aliases: ['省流量模式', '低数据模式', '计费网络', '节省流量', '暂停自动联网 AI'],
     from: ['resource-loading', 'data-saver'],
   },
   {

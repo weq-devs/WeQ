@@ -159,6 +159,7 @@ const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
 const agentLabPersonaId = z.string().regex(AGENTLAB_PERSONA_ID_PATTERN, '克隆 ID 无效');
 import { sampleHitokoto } from '../../hitokoto';
 import type { TranscribeResult } from '../../transcribe/engine';
+import { transferRestricted } from '@weq/service/transfer-policy';
 import { resolveLocalOcrModel, runLocalOcr, type LocalOcrModel } from '../../ocr/local';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
@@ -8117,18 +8118,22 @@ export const accountRouter = router({
           foreground: batch.foreground === true,
           status: batch.status,
           paused: batch.interrupted === true,
+          ...(batch.pausedByPolicy ? { pausedByPolicy: true } : {}),
           finishedAt: batch.finishedAt,
           canRetry: batch.canRetry === true,
           fileSize: batch.fileSize,
           downloadedBytes: batch.downloadedBytes,
           error: batch.error,
-          files: batch.files.map(({ id, relativePath, status, fileSize, downloadedBytes }) => ({
-            id,
-            relativePath,
-            status,
-            fileSize,
-            downloadedBytes,
-          })),
+          files: batch.files.map(
+            ({ id, relativePath, status, fileSize, downloadedBytes, pausedByPolicy }) => ({
+              id,
+              relativePath,
+              status,
+              fileSize,
+              downloadedBytes,
+              ...(pausedByPolicy ? { pausedByPolicy: true } : {}),
+            }),
+          ),
         }));
     }),
 
@@ -10122,7 +10127,7 @@ export const accountRouter = router({
         expectedAccountConfigId: z.string().optional(),
       }),
     )
-    .mutation(async ({ input }): Promise<TranscribeResult> => {
+    .mutation(async ({ input }): Promise<TranscribeResult & { deferred?: boolean }> => {
       const ctx = getAppContext();
       const boot = ctx.bootstrap;
       const services = ctx.services;
@@ -10160,6 +10165,7 @@ export const accountRouter = router({
         if (ctx.services !== services) throw new Error('账号已切换，已停止语音转写。');
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
       };
+      const localOnly = Boolean(input.automatic && transferRestricted());
       const silk = await resolveVoiceSilk(
         services,
         {
@@ -10171,8 +10177,12 @@ export const accountRouter = router({
             : {}),
         },
         checkSource,
+        localOnly,
       );
-      if (!silk) return { success: false, error: '未找到语音文件' };
+      if (!silk)
+        return localOnly
+          ? { success: false, deferred: true, error: '省流量模式已暂缓自动转写' }
+          : { success: false, error: '未找到语音文件' };
 
       const { decodeSilkToWav16kBuffer } = await import('../../voice');
       const wav = await decodeSilkToWav16kBuffer(silk);

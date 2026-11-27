@@ -54,6 +54,7 @@ const GROUP_RKEY_TYPES = new Set([
 ]);
 
 export interface DownloadOptions {
+  localOnly?: boolean;
   /** Extension for the cached file, e.g. `.jpg` / `.mp4` / `.silk`. */
   ext?: string;
   /** rkey types allowed for this download. Defaults to image types (10/20). */
@@ -269,7 +270,7 @@ export class MediaDownloadService {
       });
       return path;
     }
-    if (!this.allowOnline() || !scopedNetworkAllowed()) return null;
+    if (opts.localOnly || !this.allowOnline() || !scopedNetworkAllowed()) return null;
     return this.consume(
       this.downloading,
       path,

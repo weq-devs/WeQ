@@ -106,6 +106,7 @@ function processor(): AiImageProcessor {
     image: AiImageRef,
     signal?: AbortSignal,
     policy: 'display' | 'metadata' | 'ocr-cache' | 'ocr-original' = 'display',
+    offlineOnly = false,
   ) => {
     check(signal);
     if (image.path) {
@@ -125,7 +126,7 @@ function processor(): AiImageProcessor {
     }
     if (image.market) {
       const { pack, hash } = image.market;
-      const path = await svc.emoji.getMarketFace(pack, hash);
+      const path = await svc.emoji.getMarketFace(pack, hash, offlineOnly);
       check(signal);
       if (!path) throw new Error('现有取图链路未能取回商城表情');
       return { path, online: undefined, key: ocrCacheKey(hash), variant: 'original' as const };
@@ -186,8 +187,9 @@ function processor(): AiImageProcessor {
       orig: String(d.originalUrl ?? ''),
       recv: Number(d.subType) === 1 ? '1' : '0',
     });
+    if (offlineOnly) query.set('localOnly', '1');
     const resolved =
-      policy === 'display'
+      offlineOnly || policy === 'display'
         ? await resolveChatImageFile(query, () => check(signal), signal)
         : await resolveOcrChatImageFile(
             query,
@@ -239,8 +241,8 @@ function processor(): AiImageProcessor {
         Boolean(boot.ocrModels.getModelStatus(settings.modelResources.filter)?.downloaded),
       ]);
     },
-    load: async (image, signal) => {
-      const file = await locate(image, signal);
+    load: async (image, signal, offlineOnly) => {
+      const file = await locate(image, signal, 'display', offlineOnly);
       if (!file.path) throw new Error('未能取回图片');
       if ((await stat(file.path)).size > MAX_BYTES) throw new Error('图片超过 32 MiB');
       const bytes = await readFile(file.path);
@@ -252,8 +254,8 @@ function processor(): AiImageProcessor {
         key: createHash('sha256').update(bytes).digest('hex'),
       };
     },
-    ocr: async (image, signal, refresh) => {
-      let file = await locate(image, signal, 'metadata');
+    ocr: async (image, signal, refresh, offlineOnly) => {
+      let file = await locate(image, signal, 'metadata', offlineOnly);
       const snapshot = taskImages.getStore();
       const { ocr } = snapshot?.settings ?? boot.userConfig.getSettings();
       const localModel = snapshot ? snapshot.localModel : resolveLocalOcrModel();
@@ -269,7 +271,12 @@ function processor(): AiImageProcessor {
           notes: [`复用${hit.source === 'oidb' ? 'QQ 在线' : '本地'} OCR 缓存。`],
         };
       if (!file.path || file.variant === 'thumb')
-        file = await locate(image, signal, ocr.autoDownloadOriginal ? 'ocr-original' : 'ocr-cache');
+        file = await locate(
+          image,
+          signal,
+          ocr.autoDownloadOriginal ? 'ocr-original' : 'ocr-cache',
+          offlineOnly,
+        );
       const filterKey =
         file.variant === 'thumb' && file.path
           ? createHash('sha256')
@@ -285,7 +292,7 @@ function processor(): AiImageProcessor {
       check(signal);
       if (filter.skip) return { text: '', skipped: true, notes: filter.notes };
       const notes = [...filter.notes];
-      if (file.online) {
+      if (file.online && !offlineOnly) {
         try {
           const result = await svc.chatImageOcr.recognize(
             { ...file.online, refresh },

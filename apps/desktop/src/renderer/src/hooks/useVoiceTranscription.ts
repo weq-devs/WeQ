@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { getQueryKey } from '@trpc/react-query';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
+import { useHostDataSaver } from '../lib/dataSaver';
 
 export interface VoiceTranscriptionInput {
   t: number;
@@ -32,7 +33,9 @@ export function queueVoiceTranscription<T>(signal: AbortSignal, run: () => Promi
 /** 气泡、右键菜单与自动识别共用缓存，空识别结果和失败也保留，只有手动操作才重试。 */
 export function useVoiceTranscription(input: VoiceTranscriptionInput, automatic = false) {
   const queryClient = useQueryClient();
+  const restricted = useHostDataSaver();
   const manual = useRef(false);
+  const resumed = useRef<string | undefined>(undefined);
   const accountUin = useViewState((state) => state.openedUin);
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -47,6 +50,8 @@ export function useVoiceTranscription(input: VoiceTranscriptionInput, automatic 
       : null;
   const modelId = settings.data?.voiceTranscribe.modelId ?? '';
   const available = Boolean(binding && modelId && input.name && Number.isFinite(input.t));
+  const shouldResume =
+    available && automatic && Boolean(settings.data?.voiceTranscribe.autoTranscribe);
   const queryKey = [...getQueryKey(trpc.account), 'voiceTranscription', binding, modelId, input];
   const query = useQuery<VoiceTranscriptionState>({
     queryKey,
@@ -76,7 +81,7 @@ export function useVoiceTranscription(input: VoiceTranscriptionInput, automatic 
         };
       });
     },
-    enabled: available && automatic && Boolean(settings.data?.voiceTranscribe.autoTranscribe),
+    enabled: shouldResume,
     staleTime: Infinity,
     cacheTime: 5 * 60_000,
     retry: false,
@@ -85,6 +90,20 @@ export function useVoiceTranscription(input: VoiceTranscriptionInput, automatic 
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
+  const { data, isFetching, refetch } = query;
+  const resumeKey = JSON.stringify([binding, modelId, input]);
+  useEffect(() => {
+    if (restricted) resumed.current = undefined;
+    else if (
+      shouldResume &&
+      data?.result?.deferred &&
+      !isFetching &&
+      resumed.current !== resumeKey
+    ) {
+      resumed.current = resumeKey;
+      void refetch({ cancelRefetch: false });
+    }
+  }, [restricted, shouldResume, data, isFetching, refetch, resumeKey]);
   const setCollapsed = (collapsed: boolean) =>
     queryClient.setQueryData<VoiceTranscriptionState>(queryKey, (current) => ({
       ...current,
@@ -93,7 +112,7 @@ export function useVoiceTranscription(input: VoiceTranscriptionInput, automatic 
   return {
     available,
     busy: query.isFetching,
-    result: query.data?.result,
+    result: query.data?.result?.deferred ? undefined : query.data?.result,
     error: query.error instanceof Error ? query.error.message : null,
     collapsed: query.data?.collapsed ?? false,
     setCollapsed,

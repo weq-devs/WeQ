@@ -61,6 +61,7 @@ import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalU
 import { CollectionContent } from './CollectionContent';
 import { collectionContentText } from './CollectionContent.shared';
 import { CollectionImage } from './CollectionImage';
+import { useDataSaver } from '../lib/dataSaver';
 import { IS_WEB } from '../lib/target.shared';
 import { CollectionExportDialog } from '../views/export/CollectionExportDialog';
 import { EmptyState } from './EmptyState';
@@ -308,26 +309,30 @@ function kindIcon(kind: string, size = 13): ReactElement {
 
 /** A thumbnail that hides itself if the collector CDN 404s / times out. */
 function Thumb({ pic, alt }: { pic: PicWire; alt: string }): ReactElement {
+  const deferred = useDataSaver(
+    (state) => state.enabled && state.behavior.dataSaverImageLoading !== 'original',
+  );
+  const [failedSrc, setFailedSrc] = useState('');
   const src = collectionImageUrl(pic.uri);
+  const failed = failedSrc === src;
   return (
     <button
       type="button"
-      className="weq-col-thumb"
+      className={`weq-col-thumb${failed && !deferred ? ' is-broken' : ''}`}
       onClick={() =>
         openMediaPreview({ items: [{ key: src, kind: 'image', src: src, title: alt }] })
       }
-      title="查看大图"
+      title={failed && deferred ? '加载图片' : '查看大图'}
     >
       <CollectionImage
         originalSrc={pic.uri}
         alt={alt}
         loading="lazy"
-        onError={(e) => {
-          (e.currentTarget.closest('.weq-col-thumb') as HTMLElement | null)?.classList.add(
-            'is-broken',
-          );
-        }}
+        style={failed ? { visibility: 'hidden', position: 'absolute', inset: 0 } : undefined}
+        onError={() => setFailedSrc(src)}
+        onLoad={() => setFailedSrc('')}
       />
+      {failed && deferred ? <span>加载图片</span> : null}
     </button>
   );
 }

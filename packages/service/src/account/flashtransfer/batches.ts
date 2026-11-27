@@ -34,6 +34,7 @@ export function groupFlashDownloads(tasks: FlashDownloadTask[]): FlashDownloadBa
       status,
       interrupted: !active && files.some((file) => file.interrupted),
       pausedByUser: !active && files.some((file) => file.pausedByUser),
+      ...(files.some((file) => file.pausedByPolicy) ? { pausedByPolicy: true } : {}),
       files,
       logs: files
         .flatMap((file, index) =>

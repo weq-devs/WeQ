@@ -120,6 +120,7 @@ export interface AiImagePort {
     direct?: boolean;
     directBudget?: ReturnType<typeof directImageBudget>;
     preferCached?: boolean;
+    offlineOnly?: boolean;
     signal?: AbortSignal;
     forceOcr?: boolean;
     refresh?: boolean;
@@ -188,11 +189,16 @@ export async function visionImageCompletion(
 export interface AiImageProcessorDeps {
   mode(feature: AiImageFeature): AiImageMode;
   vision(input: { feature: AiImageFeature; personaId?: string }): AgentLabEndpoint | null;
-  load(image: AiImageRef, signal?: AbortSignal): Promise<{ dataUrl: string; key: string }>;
+  load(
+    image: AiImageRef,
+    signal?: AbortSignal,
+    offlineOnly?: boolean,
+  ): Promise<{ dataUrl: string; key: string }>;
   ocr(
     image: AiImageRef,
     signal?: AbortSignal,
     refresh?: boolean,
+    offlineOnly?: boolean,
   ): Promise<{ text: string; skipped?: boolean; notes?: string[] }>;
   cached?(key: string): Promise<string | null>;
   cache?(key: string, text: string): Promise<void>;
@@ -296,7 +302,7 @@ export class AiImageProcessor implements AiImagePort {
           if (!endpoint) throw new Error('未配置默认视觉模型');
           visionKey = endpoint.apiKey;
           report('load', '正在读取图片（必要时下载）');
-          const loaded = await this.deps.load(image, input.signal);
+          const loaded = await this.deps.load(image, input.signal, input.offlineOnly);
           input.signal?.throwIfAborted();
           // 通用描述不含用户问题，问题相关答案不得污染内容缓存。
           const question = input.question?.trim();
@@ -307,6 +313,17 @@ export class AiImageProcessor implements AiImagePort {
             ...(question ? [question] : []),
           ]);
           report('cache', '正在检查图片解读缓存');
+          if (input.offlineOnly) {
+            const cached =
+              this.descriptions.get(key) ?? (await this.deps.cached?.(key).catch(() => null));
+            input.signal?.throwIfAborted();
+            if (!cached) throw new Error('省流量模式已暂缓联网识图');
+            outcome.status = 'read';
+            outcome.text = cached;
+            annotations.push(imageOutcomeAnnotation(outcome));
+            complete();
+            continue;
+          }
           const canSendDirect =
             input.direct &&
             input.endpoint &&
@@ -389,7 +406,7 @@ export class AiImageProcessor implements AiImagePort {
       }
       try {
         report('ocr', '正在进行 OCR 文字识别（含取图、缓存检查与筛图）');
-        const result = await this.deps.ocr(image, input.signal, input.refresh);
+        const result = await this.deps.ocr(image, input.signal, input.refresh, input.offlineOnly);
         input.signal?.throwIfAborted();
         outcome.mode = 'ocr';
         outcome.status = result.skipped ? 'skipped' : 'read';
@@ -399,7 +416,8 @@ export class AiImageProcessor implements AiImagePort {
       } catch (error) {
         input.signal?.throwIfAborted();
         if (error instanceof Error && error.name === 'AbortError') throw error;
-        outcome.status = 'failed';
+        if (input.offlineOnly) outcome.mode = 'placeholder';
+        else outcome.status = 'failed';
         outcome.notes.push(errorText(error));
         annotations.push(imageOutcomeAnnotation(outcome));
       }

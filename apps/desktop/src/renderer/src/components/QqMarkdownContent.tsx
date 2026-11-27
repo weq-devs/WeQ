@@ -17,13 +17,14 @@
  * 都换行；`==文字==` 也是 QQ 自己的高亮语法。详见该文件注释。
  */
 
-import { memo, type JSX, type ReactElement } from 'react';
+import { memo, useState, type JSX, type ReactElement } from 'react';
 import { Streamdown } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { shikiCodeHighlighter } from '../views/agentlab/shikiHighlighter';
 import { openLink } from '../lib/linkify';
 import { imageSizeHint, normalizeBotMarkdown } from './qqBotMarkdown';
 import { remarkQqHighlight, remarkQqLineBreaks } from './qqMarkdownPlugins';
+import { useDataSaver } from '../lib/dataSaver';
 
 const REMARK_PLUGINS = [remarkGfm, remarkQqLineBreaks, remarkQqHighlight];
 const PLUGINS = { code: shikiCodeHighlighter };
@@ -44,7 +45,17 @@ const ALLOWED_TAGS = { mark: [] };
  * 而内联 height 的优先级压过样式表里的 height:auto，图就被压扁了。
  */
 function MarkdownImage({ src, alt, ...rest }: JSX.IntrinsicElements['img']): ReactElement | null {
+  const limited = useDataSaver(
+    (state) => state.enabled && state.behavior.dataSaverImageLoading !== 'original',
+  );
+  const [requested, setRequested] = useState<string>();
   if (!src) return null;
+  if (limited && requested !== src && /^(?:https?:)?\/\//i.test(src))
+    return (
+      <button type="button" className="qq-link" onClick={() => setRequested(src)}>
+        {alt && !imageSizeHint(alt) ? `加载图片（${alt}）` : '加载图片'}
+      </button>
+    );
   const hint = imageSizeHint(alt);
   return (
     <img

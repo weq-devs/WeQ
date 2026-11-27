@@ -21,6 +21,8 @@ import {
 import { detectUpstreamSignal, analyzePragmatics } from '../src/account/intent_corpus';
 import { TokenUsageStore } from '../src/account/agentlab_usage';
 import { JsonStore } from '../src/common/json_store';
+import { networkCost, UNKNOWN_NETWORK } from '../src/common/data_saver';
+import { updateClientNetwork, updateTransferPolicy } from '../src/common/transfer_policy';
 import type { AccountSession } from '@weq/account';
 import {
   DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
@@ -80,6 +82,61 @@ function makeLocalPort(analyze: IntentLocalEnginePort['analyze']): IntentLocalEn
 }
 
 describe('IntentSenseService', () => {
+  it('宿主省流量时暂停自动模型调用，保留手动推荐与旧候选', async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({ choices: [{ message: { content: '{"replies":["有空"]}' } }] }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const svc = new IntentSenseService(
+      makeSession([textMsg(1n, 'u_peer', '明天有空吗？', 1000)]),
+      dir,
+      {
+        resolveEndpoint: () => ({
+          baseUrl: 'https://fixture.invalid',
+          apiKey: 'fixture',
+          model: 'chat',
+        }),
+      },
+    );
+    await svc.setConfig({
+      enabled: true,
+      suggestionsEnabled: true,
+      engine: 'api',
+      profileEnabled: true,
+      profileEngine: 'api',
+    });
+    try {
+      updateTransferPolicy('always', UNKNOWN_NETWORK);
+      expect(await svc.ensureAnalysis('c2c', 'u_peer')).toMatchObject({ skipped: 'data-saver' });
+      expect(await svc.analyzeMessage('c2c', 'u_peer', '1')).toBeNull();
+      expect(await svc.getProfile('u_peer')).toBeNull();
+      expect(await svc.getSuggestionRound('c2c', 'u_peer')).toBeNull();
+      expect(fetch).not.toHaveBeenCalled();
+      const manual = await svc.getSuggestionRound('c2c', 'u_peer', { refresh: true });
+      expect(manual?.suggestions[0]?.text).toBe('有空');
+      expect(svc.getSuggestionHistory('c2c', 'u_peer')[0]?.id).toBe(manual?.id);
+      expect(fetch).toHaveBeenCalledOnce();
+
+      updateClientNetwork('mobile-fixture', networkCost(true, true, 'fixture'));
+      updateTransferPolicy('auto', networkCost(false, false, 'fixture'));
+      const next = new IntentSenseService(
+        makeSession([textMsg(2n, 'u_peer', '今天有空吗？', 1001)]),
+        dir,
+        {
+          resolveEndpoint: () => ({
+            baseUrl: 'https://fixture.invalid',
+            apiKey: 'fixture',
+            model: 'chat',
+          }),
+        },
+      );
+      const auto = await next.getSuggestionRound('c2c', 'u_peer');
+      expect(auto?.target.msgId).toBe('2');
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      updateTransferPolicy('auto', networkCost(false, false, 'fixture'));
+    }
+  });
   it('分析转发正文和包内上文，不回读会话也不写入会话缓存', async () => {
     const analyze = vi.fn(
       async () =>

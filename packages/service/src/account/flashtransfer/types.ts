@@ -100,6 +100,7 @@ export interface FlashDownloadTask {
   error?: string;
   interrupted?: boolean;
   pausedByUser?: boolean;
+  pausedByPolicy?: boolean;
   createdAt: number;
   finishedAt?: number;
   logs?: FlashDownloadLogLine[];

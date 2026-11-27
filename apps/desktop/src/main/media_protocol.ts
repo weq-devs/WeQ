@@ -106,6 +106,7 @@ export async function resolveVoiceSilk(
     fwdResId?: string;
   },
   check = () => mediaBinding.getStore()?.(),
+  localOnly = false,
 ): Promise<string | null> {
   check();
   const { source } = await services.fileSearch.findFile(input.t, input.name, 'ptt');
@@ -115,6 +116,7 @@ export async function resolveVoiceSilk(
   const downloaded = await services.mediaDownload.download(input.token, {
     ext: '.silk',
     rkeyTypes: PTT_RKEY_TYPES,
+    ...(localOnly ? { localOnly } : {}),
   });
   check();
   if (downloaded) return downloaded;
@@ -122,6 +124,7 @@ export async function resolveVoiceSilk(
   if (!boot) return null;
   const path = oidbCachePath(join(boot.userConfig.cacheDir('media'), 'ptt'), input.token, '.silk');
   if (existsSync(path)) return path;
+  if (localOnly) return null;
   const found = await findMediaElement(
     input.msgId,
     'ptt',

@@ -732,7 +732,18 @@ export function FlashTransferViewer({
               <section className="weq-ft-batches" aria-label="本分享的下载">
                 {batches.map((batch) => {
                   const running = activeDownload(batch);
-                  const label = batch.paused ? '已暂停' : downloadLabel[batch.status];
+                  const policyPaused =
+                    batch.pausedByPolicy &&
+                    batch.files.every(
+                      (file) =>
+                        file.pausedByPolicy ||
+                        ['done', 'failed', 'cancelled'].includes(file.status),
+                    );
+                  const label = policyPaused
+                    ? '省流量模式已暂停'
+                    : batch.paused
+                      ? '已暂停'
+                      : downloadLabel[batch.status];
                   const value =
                     batch.fileSize > 0 ? (batch.downloadedBytes / batch.fileSize) * 100 : undefined;
                   const disabled = busyBatch !== null;
@@ -755,7 +766,10 @@ export function FlashTransferViewer({
                         <ul>
                           {batch.files.map((file) => (
                             <li key={file.id}>
-                              {file.relativePath} · {downloadLabel[file.status]}
+                              {file.relativePath} ·{' '}
+                              {file.pausedByPolicy
+                                ? '省流量模式已暂停'
+                                : downloadLabel[file.status]}
                               {IS_WEB && file.status === 'done' && batch.files.length > 1 && (
                                 <button
                                   type="button"
@@ -815,14 +829,26 @@ export function FlashTransferViewer({
                         )}
                         {batch.canRetry && (
                           <button
-                            title={batch.paused ? '继续' : '重试未完成文件'}
+                            title={
+                              batch.pausedByPolicy
+                                ? '本次继续'
+                                : batch.paused
+                                  ? '继续'
+                                  : '重试未完成文件'
+                            }
                             type="button"
                             className="weq-set-btn"
                             disabled={disabled}
                             onClick={() => void control(batch, 'retry')}
                           >
                             <RefreshCw size={14} aria-hidden />
-                            <ToolbarLabel>{batch.paused ? '继续' : '重试未完成文件'}</ToolbarLabel>
+                            <ToolbarLabel>
+                              {batch.pausedByPolicy
+                                ? '本次继续'
+                                : batch.paused
+                                  ? '继续'
+                                  : '重试未完成文件'}
+                            </ToolbarLabel>
                           </button>
                         )}
                         {IS_WEB && batch.files.some((file) => file.status === 'done') && (

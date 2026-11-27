@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 import { readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { UserConfigService } from './user_config';
-import { scopedNetworkAllowed } from '../common/network_scope';
+import { networkScope, scopedNetworkAllowed } from '../common/network_scope';
 import { writeFileAtomic } from '../common/atomic_write';
 
 /** Cache subdirectory for organizing different media types. */
@@ -173,7 +173,7 @@ export class MediaCacheService {
       !(subdir === 'dress' && isGroupLuckyCharUrl(url)) &&
       !scopedNetworkAllowed(
         subdir === 'avatar'
-          ? 'avatar'
+          ? (networkScope.getStore()?.resource ?? 'avatar')
           : ['dress', 'qqshow', 'redpack'].includes(subdir)
             ? 'dress'
             : subdir === 'linkpreview'

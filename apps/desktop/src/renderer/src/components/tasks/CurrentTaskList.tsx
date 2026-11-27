@@ -705,25 +705,35 @@ export function CurrentTaskList({
   }
   for (const task of flash.data ?? []) {
     const running = task.status === 'resolving' || task.status === 'downloading';
-    const status = task.interrupted
-      ? 'paused'
-      : task.status === 'done'
-        ? 'completed'
-        : task.status === 'resolving' || task.status === 'downloading'
-          ? 'running'
-          : task.status;
-    const statusLabel = task.interrupted
-      ? task.pausedByUser
-        ? '已暂停'
-        : '已中断'
-      : task.status === 'resolving'
-        ? '获取链接'
-        : undefined;
-    const retryLabel = task.pausedByUser
-      ? '继续剩余文件'
+    const policyPaused =
+      task.pausedByPolicy &&
+      task.files?.every(
+        (file) => file.pausedByPolicy || ['done', 'failed', 'cancelled'].includes(file.status),
+      );
+    const status =
+      task.interrupted || policyPaused
+        ? 'paused'
+        : task.status === 'done'
+          ? 'completed'
+          : task.status === 'resolving' || task.status === 'downloading'
+            ? 'running'
+            : task.status;
+    const statusLabel = policyPaused
+      ? '省流量模式已暂停'
       : task.interrupted
-        ? '重试未完成文件'
-        : '重试下载';
+        ? task.pausedByUser
+          ? '已暂停'
+          : '已中断'
+        : task.status === 'resolving'
+          ? '获取链接'
+          : undefined;
+    const retryLabel = task.pausedByPolicy
+      ? '本次继续'
+      : task.pausedByUser
+        ? '继续剩余文件'
+        : task.interrupted
+          ? '重试未完成文件'
+          : '重试下载';
     const single = (task.files?.length ?? 1) === 1;
     const display = {
       action: '下载闪传文件',
@@ -928,18 +938,20 @@ export function CurrentTaskList({
                   </button>
                 )}
                 <span>
-                  {file.interrupted
-                    ? file.pausedByUser
-                      ? '已暂停'
-                      : '已中断'
-                    : {
-                        pending: '等待中',
-                        resolving: '获取链接',
-                        downloading: '下载中',
-                        done: '已完成',
-                        failed: '失败',
-                        cancelled: '已取消',
-                      }[file.status]}{' '}
+                  {file.pausedByPolicy
+                    ? '省流量模式已暂停'
+                    : file.interrupted
+                      ? file.pausedByUser
+                        ? '已暂停'
+                        : '已中断'
+                      : {
+                          pending: '等待中',
+                          resolving: '获取链接',
+                          downloading: '下载中',
+                          done: '已完成',
+                          failed: '失败',
+                          cancelled: '已取消',
+                        }[file.status]}{' '}
                   ·{' '}
                   <span className="weq-number weq-number-inherit">
                     {formatSize(file.downloadedBytes)}

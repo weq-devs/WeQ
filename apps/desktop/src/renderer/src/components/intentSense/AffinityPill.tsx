@@ -11,6 +11,7 @@ import { useContext, useEffect, useRef, useState } from 'react';
 import { Heart, Sparkles, Star, Zap, Flame } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useIntentSenseStatus } from './context.shared';
+import { useAutomaticAiRestricted } from '../../lib/dataSaver';
 import {
   ContactWorkspaceNavigationContext,
   contactPortraitTarget,
@@ -36,12 +37,16 @@ export function AffinityPill({
   const openWorkspace = useContext(ContactWorkspaceNavigationContext);
   const status = useIntentSenseStatus();
   const statusData = status.data;
+  const restricted = useAutomaticAiRestricted();
   const active = !!statusData?.profileEnabled;
   const profile = trpc.account.intentSense.getProfile.useQuery(
     {
       peerUid,
       revision: statusData?.profileRevision,
-      ...(statusData?.profileMode === 'manual' ? { cachedOnly: true } : {}),
+      ...(statusData?.profileMode === 'manual' ||
+      (restricted && statusData?.profileEngine === 'api')
+        ? { cachedOnly: true }
+        : {}),
     },
     {
       enabled: active,

@@ -10,6 +10,8 @@ import { ConversationStore } from '../src/account/agentlab_conversation';
 import { CloneConversationRuns } from '../src/account/agentlab_runs';
 import { captureGeneratedContent } from '../src/account/generated_content';
 import { makeBackupPersona } from './fixtures/backup_persona';
+import { UNKNOWN_NETWORK } from '../src/common/data_saver';
+import { updateTransferPolicy } from '../src/common/transfer_policy';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -32,6 +34,47 @@ function fixture() {
     }));
   return { root, persona, store, open };
 }
+
+it('省流量期间克隆仍回复，恢复后只用最新上下文提炼一次记忆', async () => {
+  const { open, persona, root } = fixture();
+  new ConversationStore(join(root, 'conversations.json')).append(
+    persona.id,
+    Array.from({ length: 5 }, (_, i) => ({ role: 'user' as const, text: `历史 ${i}`, ts: i + 1 })),
+  );
+  const service = open();
+  const chat = vi.spyOn(AgentRuntime.prototype, 'generatePersonaTurns').mockResolvedValue({
+    renderedTurns: ['回复'],
+    result: {
+      text: '回复',
+      segments: [],
+      actions: [],
+      promptPreview: '',
+      matches: [],
+      usedMemoryIds: [],
+      willingness: 1,
+      replyDelayMs: 0,
+    },
+  });
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+    expect(String(init?.body)).toContain('最新能被记住的信息');
+    return Response.json({ choices: [{ message: { content: '{"memories":["合成记忆"]}' } }] });
+  });
+  try {
+    updateTransferPolicy('always', UNKNOWN_NETWORK);
+    await service.chat({ personaId: persona.id, text: '达到门槛', history: [] });
+    await service.chat({ personaId: persona.id, text: '最新能被记住的信息', history: [] });
+    expect(chat).toHaveBeenCalledTimes(2);
+    expect(fetch).not.toHaveBeenCalled();
+    updateTransferPolicy('never', UNKNOWN_NETWORK);
+    await vi.waitFor(() =>
+      expect(service.getMemories(persona.id).map((memory) => memory.text)).toEqual(['合成记忆']),
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+  } finally {
+    await service.close();
+    updateTransferPolicy('auto', UNKNOWN_NETWORK);
+  }
+});
 
 it('将主桶、所有旧分会话及孤立桶按时间完整合并，重开和追加不裁剪历史', () => {
   const f = fixture();
