@@ -127,14 +127,14 @@ it('名片只有点击坐标时，加载提示仍跟随入口，加载后交给�
   try {
     await act(async () => root.render(h(MemberProfileCard, props)));
     expect(fixture.profileLoaded).toHaveBeenCalledOnce();
-    const loading = document.querySelector<HTMLElement>('.weq-profile-loading')!.parentElement!;
-    expect(loading.style.getPropertyValue('--weq-popover-left')).toBe('128px');
-    expect(loading.style.getPropertyValue('--weq-popover-top')).toBe('80px');
+    const loading = document.querySelector<HTMLElement>('[aria-busy="true"][role="dialog"]')!;
+    expect(loading.style.left).toBe('134px');
+    expect(loading.style.top).toBe('88px');
     await act(async () =>
       root.render(h(MemberProfileCard, { ...props, anchor: { x: 240, y: 160 } })),
     );
-    expect(loading.style.getPropertyValue('--weq-popover-left')).toBe('248px');
-    expect(loading.style.getPropertyValue('--weq-popover-top')).toBe('160px');
+    expect(loading.style.left).toBe('254px');
+    expect(loading.style.top).toBe('168px');
     await act(async () => release());
     expect(loading.isConnected).toBe(false);
     expect(host.querySelector('[aria-label="合成名片"]')).not.toBeNull();

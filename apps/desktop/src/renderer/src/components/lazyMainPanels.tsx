@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ComponentProps } from 'react';
+import { lazy, Suspense, useEffect, useState, type ComponentProps } from 'react';
 import { createPortal } from 'react-dom';
 import { Images, X } from 'lucide-react';
 import { lazyPanel } from '../lib/lazyPanel';
@@ -8,10 +8,16 @@ import { Modal } from './Dialog';
 import { DeferredSurfaceLoading } from './DeferredSurfaceLoading';
 import { surfaceLoading } from './DeferredSurfaceLoading.shared';
 import { LoadingIndicator, PanelLoading } from './LoadingIndicator';
+import { MediaPreviewShell } from './MediaPreviewShell';
+import { MemberProfileCardFrame } from './MemberProfileCardFrame';
+import { MessageHistorySurface } from './MessageHistorySurface';
+import { WorkspacePage } from './WorkspacePages';
+import { GAP_MESSAGES_WIDTH } from './compose/GapMessagesModal.shared';
 import { GroupFeatureSurface, type GroupFeaturePresentation } from './GroupFeatureSurface';
 import { OverlayLayer } from './OverlayLayer';
 import { ChatRecordsHeader } from './search/ChatRecordsHeader';
 import { ConversationRenderBoundary } from './ConversationRenderBoundary';
+import '../styles/composition-workspace.css';
 import '../styles/conversation-settings.css';
 import '../styles/group-left-members.css';
 import '../styles/group-sign.css';
@@ -39,13 +45,24 @@ const CompositionContent = lazy(() =>
 
 function CompositionLoading({ onClose }: { onClose: () => void }) {
   const mobile = useMobileWebLayout();
-  return (
-    <DeferredSurfaceLoading
-      title="合成聊天记录"
-      presentation={mobile ? 'page' : 'floating'}
-      keepMobileNavigation
-      onClose={onClose}
-    />
+  const content = (
+    <section className="weq-composition-workspace is-fallback" aria-label="合成聊天记录">
+      <header className="weq-composition-head">
+        <strong>合成聊天记录</strong>
+        <span className="weq-composition-spacer" />
+        <button type="button" className="icon-button" aria-label="关闭合成窗口" onClick={onClose}>
+          <X size={18} />
+        </button>
+      </header>
+      <PanelLoading />
+    </section>
+  );
+  return mobile ? (
+    <WorkspacePage title="合成聊天记录" onClose={onClose} mobileChrome>
+      {content}
+    </WorkspacePage>
+  ) : (
+    content
   );
 }
 
@@ -128,31 +145,30 @@ export const GroupFileDialog = lazyPanel<
 function ProfileLoading({
   onClose,
   anchor,
-  point,
 }: {
   onClose: () => void;
   anchor?: HTMLElement | OverlayAnchor | null;
-  point?: { x: number; y: number };
 }) {
-  const x = point?.x;
-  const y = point?.y;
-  const pointAnchor = useMemo(
-    () => (x === undefined || y === undefined ? null : { element: null, rect: new DOMRect(x, y) }),
-    [x, y],
-  );
   return (
-    <OverlayLayer
-      presentation="popover"
-      anchor={pointAnchor ?? anchor}
-      anchorPlacement={point ? 'side' : undefined}
-      onClose={onClose}
-    >
+    <OverlayLayer presentation="popover" anchor={anchor} onClose={onClose}>
       <div className="weq-profile-loading" role="status">
         <LoadingIndicator>正在加载名片…</LoadingIndicator>
       </div>
     </OverlayLayer>
   );
 }
+
+function MemberProfileLoading({
+  anchor,
+  onClose,
+}: Pick<ComponentProps<typeof MemberProfileCardFrame>, 'anchor' | 'onClose'>) {
+  return (
+    <MemberProfileCardFrame anchor={anchor} onClose={onClose} loading>
+      <PanelLoading>正在加载名片…</PanelLoading>
+    </MemberProfileCardFrame>
+  );
+}
+
 export const ContactProfileDialog = lazyPanel<
   ComponentProps<typeof import('../im-template/template/profilePanes').ContactProfileDialog>
 >(
@@ -174,7 +190,7 @@ export const MemberProfileCard = lazyPanel<
   ComponentProps<typeof import('./MemberProfileCard').MemberProfileCard>
 >(
   () => import('./MemberProfileCard').then((m) => ({ default: m.MemberProfileCard })),
-  ({ anchor, onClose }) => <ProfileLoading point={anchor} onClose={onClose} />,
+  ({ anchor, onClose }) => <MemberProfileLoading anchor={anchor} onClose={onClose} />,
 );
 export const ConversationIdentityCard = lazyPanel<
   ComponentProps<typeof import('./ConversationIdentityCard').ConversationIdentityCard>
@@ -187,7 +203,7 @@ export const SpecialConversationPreview = lazyPanel<
 >(
   () =>
     import('./SpecialConversationPreview').then((m) => ({ default: m.SpecialConversationPreview })),
-  surfaceLoading('会话预览', { presentation: 'floating', width: 680 }),
+  surfaceLoading('会话预览', { presentation: 'floating', width: GAP_MESSAGES_WIDTH }),
 );
 export const CloneMemberProfileCard = lazyPanel<
   ComponentProps<typeof import('../views/agentlab/CloneMemberProfileCard').CloneMemberProfileCard>
@@ -196,7 +212,7 @@ export const CloneMemberProfileCard = lazyPanel<
     import('../views/agentlab/CloneMemberProfileCard').then((m) => ({
       default: m.CloneMemberProfileCard,
     })),
-  ({ anchor, onClose }) => <ProfileLoading point={anchor} onClose={onClose} />,
+  ({ anchor, onClose }) => <MemberProfileLoading anchor={anchor} onClose={onClose} />,
 );
 const GroupTodosContent = lazy(() =>
   import('./qq-actions/GroupActions').then((m) => ({ default: m.GroupTodos })),
@@ -221,9 +237,23 @@ export function GroupTodos(props: ComponentProps<typeof GroupTodosContent>) {
 }
 export const MediaPreview = lazyPanel<ComponentProps<typeof import('./MediaPreview').MediaPreview>>(
   () => import('./MediaPreview').then((m) => ({ default: m.MediaPreview })),
-  ({ active, onClose }) => (
-    <DeferredSurfaceLoading title="媒体预览" open={active} onClose={onClose} />
-  ),
+  ({ active, items, initialKey, initialIndex, label, ownerDocument, onClose }) => {
+    const item =
+      initialKey === undefined
+        ? items[initialIndex ?? 0]
+        : items.find(({ key }) => key === initialKey);
+    return item ? (
+      <MediaPreviewShell
+        active={active}
+        ownerDocument={ownerDocument}
+        title={item.title || label || (item.kind === 'image' ? '图片预览' : '视频预览')}
+        ariaLabel={label}
+        onClose={onClose}
+      >
+        <PanelLoading />
+      </MediaPreviewShell>
+    ) : null;
+  },
 );
 
 const groupLoadingFrames = {
@@ -335,27 +365,52 @@ export const DeletedMessagesModal = lazyPanel<
   ComponentProps<typeof import('./compose/DeletedMessagesModal').DeletedMessagesModal>
 >(
   () => import('./compose/DeletedMessagesModal').then((m) => ({ default: m.DeletedMessagesModal })),
-  surfaceLoading('已删除消息', { presentation: 'floating', width: 720 }),
+  ({ onClose }) => (
+    <MessageHistorySurface id="weq-deleted-messages" title="已删除消息" onClose={onClose}>
+      <PanelLoading />
+    </MessageHistorySurface>
+  ),
 );
 export const RecalledMessagesModal = lazyPanel<
   ComponentProps<typeof import('./compose/RecalledMessagesModal').RecalledMessagesModal>
 >(
   () =>
     import('./compose/RecalledMessagesModal').then((m) => ({ default: m.RecalledMessagesModal })),
-  surfaceLoading('已撤回消息', { presentation: 'floating', width: 720 }),
+  ({ embedded, onClose }) =>
+    embedded ? (
+      <PanelLoading />
+    ) : (
+      <MessageHistorySurface id="weq-recalled-messages" title="已撤回消息" onClose={onClose}>
+        <PanelLoading />
+      </MessageHistorySurface>
+    ),
 );
 export const GapMessagesModal = lazyPanel<
   ComponentProps<typeof import('./compose/GapMessagesModal').GapMessagesModal>
 >(
   () => import('./compose/GapMessagesModal').then((m) => ({ default: m.GapMessagesModal })),
-  surfaceLoading('聊天记录', { presentation: 'floating', width: 720 }),
+  ({ embedded, preview, title, onClose }) => (
+    <DeferredSurfaceLoading
+      embedded={embedded}
+      title={title ?? (preview ? '预览消息' : '缺失消息')}
+      presentation="floating"
+      width={GAP_MESSAGES_WIDTH}
+      onClose={onClose}
+    />
+  ),
 );
 export const ChatRecordsModal = lazyPanel<
   ComponentProps<typeof import('./search/ChatRecordsModal').ChatRecordsModal>
 >(
   () => import('./search/ChatRecordsModal').then((m) => ({ default: m.ChatRecordsModal })),
   ({ fixed, initialHit, onClose }) => (
-    <Modal presentation="floating" width={960} labelledBy="weq-chatrecords-title" onClose={onClose}>
+    <Modal
+      presentation="floating"
+      centered
+      width={960}
+      labelledBy="weq-chatrecords-title"
+      onClose={onClose}
+    >
       <div className="weq-chatrecords">
         <ChatRecordsHeader
           conversationName={fixed ? initialHit.name : undefined}
@@ -378,7 +433,7 @@ export const MessageDetails = lazyPanel<
   ComponentProps<typeof import('./MessageDetails').MessageDetails>
 >(
   () => import('./MessageDetails').then((m) => ({ default: m.MessageDetails })),
-  surfaceLoading('消息详情', { presentation: 'floating', width: 720 }),
+  surfaceLoading('消息详情', { presentation: 'floating', width: 720, centered: true }),
 );
 export const SearchResultsPanel = lazyPanel<
   ComponentProps<typeof import('./search/SearchResultsPanel').SearchResultsPanel>
@@ -390,12 +445,8 @@ export const ChatHome = lazyPanel<ComponentProps<typeof import('../views/ChatHom
   () => import('../views/ChatHome').then((m) => ({ default: m.ChatHome })),
   'startup',
 );
-export const GroupCallWindow = lazyPanel<
-  ComponentProps<typeof import('./call/GroupCallWindow').GroupCallWindow>
->(
-  () => import('./call/GroupCallWindow').then((m) => ({ default: m.GroupCallWindow })),
-  () => <DeferredSurfaceLoading title="群通话" presentation="panel" />,
-);
+export { GroupCallWindowHost as GroupCallWindow } from './call/GroupCallWindowHost';
+export { CallWindowHost as CallWindow } from './call/CallWindowHost';
 export const GroupCallInvite = lazyPanel<
   ComponentProps<typeof import('./call/GroupCallWindow').GroupCallInvite>
 >(
@@ -403,10 +454,6 @@ export const GroupCallInvite = lazyPanel<
   ({ title, onClose }) => <DeferredSurfaceLoading title={title} onClose={onClose} width={460} />,
 );
 
-export const CallWindow = lazyPanel<ComponentProps<typeof import('./CallWindow').CallWindow>>(
-  () => import('./CallWindow').then((m) => ({ default: m.CallWindow })),
-  () => <DeferredSurfaceLoading title="通话" presentation="panel" />,
-);
 type OfficialConversationProps = ComponentProps<
   typeof import('./OfficialConversationPane').OfficialConversationPane
 >;

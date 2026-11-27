@@ -410,6 +410,7 @@ import { GroupAlbumCardNavigationProvider } from '../components/GroupAlbumCardNa
 import type { GroupBulletinWire } from '../components/GroupAnnouncementsDialog';
 import { useDbRepairWindow } from '../state/dbRepairWindow';
 import { useCaptureWindow } from '../state/captureWindow';
+import { useDatabaseBrowserWindow } from '../state/databaseBrowserWindow';
 import {
   essenceSequences,
   essenceRefreshInterval,
@@ -1884,6 +1885,11 @@ function MainWorkspace(): ReactElement {
     if (messageScopeRef.current !== messageScope) return;
     if (isRemoteClient() && remoteUnsupportedTools.includes(tool)) {
       pushToast({ tone: 'info', title: '此项仅在电脑端支持' });
+      return;
+    }
+    if (tool === 'database') {
+      setMaintenanceTool(null);
+      useDatabaseBrowserWindow.getState().open();
       return;
     }
     if (tool === 'capture') {
