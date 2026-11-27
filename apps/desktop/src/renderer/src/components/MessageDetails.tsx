@@ -1,9 +1,12 @@
-import { useMemo, useState, type ComponentProps } from 'react';
+import { lazy, Suspense, useMemo, useState, type ComponentProps } from 'react';
 import { Braces, Copy, Database, FileJson, ListTree, Pencil, X } from 'lucide-react';
 import { formatDateTime } from '@weq/time';
 import { client, trpc } from '../trpc/client';
-import type { Message, Conversation } from '../im-template/template/types';
-import type { MessageDetailsSelection } from '../im-template/template/messageContextMenu';
+import type { Message, Conversation, User } from '../im-template/template/types';
+import {
+  messageCardElements,
+  type MessageDetailsSelection,
+} from '../im-template/template/messageContextMenu';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
 import { renderDefaultMessageContent } from '../im-template/template/messageRenderers';
 import { messageContentText } from '../lib/messageClipboard';
@@ -30,7 +33,11 @@ import '../styles/message-details.css';
 
 type Target = Parameters<typeof client.account.messageRecordDetails.query>[0];
 type Elements = NonNullable<Message['qqElements']>;
+type RecordResult = Awaited<ReturnType<typeof client.account.messageRecordDetails.query>>;
+type LocalRecordElements = Extract<RecordResult, { kind: 'local' }>['elements'];
 export type MessageRecordEdited = (id: string, elements: Elements) => void;
+
+const LocalMessageEditor = lazy(() => import('./LocalMessageEditor'));
 
 const tabs = [
   { value: 'body', label: '正文' },
@@ -148,6 +155,7 @@ function Metadata({ record, snapshot }: { record: MessageRecordFields; snapshot?
 export function MessageDetails({
   selection,
   conversation,
+  user,
   target,
   snapshot,
   forwardRecord,
@@ -157,6 +165,7 @@ export function MessageDetails({
 }: {
   selection: MessageDetailsSelection;
   conversation?: Conversation;
+  user?: User;
   target?: Target;
   snapshot?: ForwardRecordWire;
   forwardRecord?: ComponentProps<typeof QqMessageContent>['forwardRecord'];
@@ -167,10 +176,15 @@ export function MessageDetails({
   const { message, cardElements } = selection;
   const senderName = message.sender?.displayName || snapshot?.sendNick;
   const [tab, setTab] = useState<Tab>('body');
-  const [section, setSection] = useState<Section>(
+  const [selectedSection, setSection] = useState<Section>(
     selection.cardElements.length ? 'card' : 'elements',
   );
   const [editing, setEditing] = useState(false);
+  const [visualRecord, setVisualRecord] = useState<{
+    elements: LocalRecordElements;
+    revision: string;
+  }>();
+  const [openingEditor, setOpeningEditor] = useState(false);
   const [saving, setSaving] = useState(false);
   const [updated, setUpdated] = useState<Elements>();
   const document = useRenderDocument();
@@ -183,16 +197,29 @@ export function MessageDetails({
   });
   const record = query.data;
   const localRecord = record?.kind === 'local' ? record : undefined;
+  const revision = localRecord?.revision;
   const sourceSnapshot = snapshot ?? (record?.kind === 'cache' ? record.snapshot : undefined);
   const elements = updated ?? message.qqElements ?? [];
+  const displayMessage = useMemo(
+    () =>
+      updated ? { ...message, body: messageContentText(updated), qqElements: updated } : message,
+    [message, updated],
+  );
   const cards = useMemo(() => {
     if (!updated) return cardElements;
-    return cardElements.flatMap((card) => {
-      const index = message.qqElements?.indexOf(card) ?? -1;
-      return updated[index] ? [updated[index]] : [];
+    const selected = cardElements.flatMap((card) => {
+      const id = card.data?.elementId;
+      const match =
+        id && updated.find((item) => item.type === card.type && item.data?.elementId === id);
+      return match ? [match] : [];
     });
-  }, [updated, cardElements, message.qqElements]);
-  const canEdit = Boolean(target && onEdited && localRecord?.revision);
+    return selected.length ? selected : messageCardElements({ message: displayMessage });
+  }, [updated, displayMessage, cardElements]);
+  const section = selectedSection === 'card' && !cards.length ? 'elements' : selectedSection;
+  const canEdit = Boolean(target && onEdited && revision);
+  const canOpenEditor = Boolean(
+    target && !target.cache && onEdited && user && (record === undefined || revision),
+  );
   const formatted = useMemo(() => {
     if (tab !== 'structure') return '';
     switch (section) {
@@ -233,6 +260,41 @@ export function MessageDetails({
     }
   };
 
+  async function openEditor() {
+    setOpeningEditor(true);
+    try {
+      const { data, error } = await query.refetch();
+      if (error) throw error;
+      if (data?.kind !== 'local' || !data.revision) throw new Error(missingRecord);
+      setVisualRecord({ elements: data.elements, revision: data.revision });
+    } catch (reason) {
+      toast.push({
+        tone: 'error',
+        title: '无法编辑本地记录',
+        detail: reason instanceof Error ? reason.message : String(reason),
+      });
+    } finally {
+      setOpeningEditor(false);
+    }
+  }
+
+  async function saveRecord(revision: string, next: unknown[]) {
+    if (!target || !onEdited) throw new Error('当前记录不可编辑。');
+    setSaving(true);
+    try {
+      const result = await client.account.editMessageRecord.mutate({
+        ...target,
+        revision,
+        elements: next,
+      });
+      setUpdated(result);
+      onEdited(message.id, result);
+      await query.refetch();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const failed =
     query.isError && target ? (
       <EmptyState
@@ -252,9 +314,6 @@ export function MessageDetails({
     (failed ?? <EmptyState compact title={missingRecord} />)
   );
   const copyLabel = section === 'card' ? '复制卡片 JSON' : '复制 JSON';
-  const displayMessage = updated
-    ? { ...message, body: messageContentText(updated), qqElements: updated }
-    : message;
 
   return (
     <WindowSurface
@@ -286,9 +345,12 @@ export function MessageDetails({
             label="消息详情"
             options={tabs}
             value={tab}
-            disabled={saving}
+            disabled={saving || openingEditor}
             onChange={(next) => {
-              if (next !== tab) setEditing(false);
+              if (next !== tab) {
+                setEditing(false);
+                setVisualRecord(undefined);
+              }
               setTab(next);
             }}
           />
@@ -307,18 +369,46 @@ export function MessageDetails({
                     </time>
                   ) : null}
                 </div>
-                <button
-                  className="weq-set-btn"
-                  type="button"
-                  onClick={() => void copy(messageContentText(elements, displayMessage.body))}
-                >
-                  <Copy size={15} /> 复制正文
-                </button>
+                <div className="weq-message-detail-toolbar">
+                  {canOpenEditor && !visualRecord ? (
+                    <button
+                      className="weq-set-btn"
+                      type="button"
+                      disabled={openingEditor}
+                      onClick={() => void openEditor()}
+                    >
+                      <Pencil size={15} /> {openingEditor ? '读取记录中…' : '编辑本地记录'}
+                    </button>
+                  ) : null}
+                  <button
+                    className="weq-set-btn"
+                    type="button"
+                    onClick={() => void copy(messageContentText(elements, displayMessage.body))}
+                  >
+                    <Copy size={15} /> 复制正文
+                  </button>
+                </div>
               </div>
-              {elements.some(
-                (element) =>
-                  element.type && !element.type.startsWith('grayTip') && element.type !== 'unknown',
-              ) ? (
+              {visualRecord && user && onEdited ? (
+                <Suspense fallback={<p role="status">正在打开编辑器…</p>}>
+                  <LocalMessageEditor
+                    elements={visualRecord.elements}
+                    conversation={conversation}
+                    user={user}
+                    saving={saving}
+                    onCancel={() => setVisualRecord(undefined)}
+                    onSave={async (next) => {
+                      await saveRecord(visualRecord.revision, next);
+                      setVisualRecord(undefined);
+                    }}
+                  />
+                </Suspense>
+              ) : elements.some(
+                  (element) =>
+                    element.type &&
+                    !element.type.startsWith('grayTip') &&
+                    element.type !== 'unknown',
+                ) ? (
                 <QqMessageContent
                   elements={elements}
                   sendTimeMs={Date.parse(message.createdAt) || 0}
@@ -404,28 +494,13 @@ export function MessageDetails({
                     ) : null}
                   </div>
                 ) : null}
-                {editing && target && localRecord?.revision ? (
+                {editing && target && localRecord && revision ? (
                   <MsgElementEditor
                     embedded
                     msgId={target.msgId}
                     elements={localRecord.elements}
                     onClose={() => setEditing(false)}
-                    onSave={async (next) => {
-                      if (!localRecord.revision) return;
-                      setSaving(true);
-                      try {
-                        const result = await client.account.editMessageRecord.mutate({
-                          ...target,
-                          revision: localRecord.revision,
-                          elements: next,
-                        });
-                        setUpdated(result);
-                        onEdited?.(message.id, result);
-                        await query.refetch();
-                      } finally {
-                        setSaving(false);
-                      }
-                    }}
+                    onSave={(next) => saveRecord(revision, next)}
                   />
                 ) : formatted ? (
                   <>

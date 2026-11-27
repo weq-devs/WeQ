@@ -3,12 +3,15 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
+import { MessageDetails } from '../src/renderer/src/components/MessageDetails';
 import { QqMessageContent } from '../src/renderer/src/components/QqMessageContent';
 import { createTemplateDemoData } from './support/templateDemoData';
 import type { RepeatElement } from '../src/renderer/src/lib/messageRepeat';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const copied = vi.hoisted(() => vi.fn(async (_value: { text: string; html: string }) => true));
+const readRecord = vi.hoisted(() => vi.fn());
+const writeRecord = vi.hoisted(() => vi.fn());
 vi.mock('../src/renderer/src/lib/mentionClipboard', async (original) => ({
   ...(await original<object>()),
   writeMentionClipboard: copied,
@@ -16,12 +19,13 @@ vi.mock('../src/renderer/src/lib/mentionClipboard', async (original) => ({
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
     new Proxy(() => proxy(), {
-      get: (_target, key) =>
-        key === 'useQuery'
-          ? () => ({ data: undefined })
-          : key === 'useMutation'
-            ? () => ({ mutate: vi.fn(), isLoading: false })
-            : proxy(),
+      get: (_target, key) => {
+        if (key === 'messageRecordDetails') return { useQuery: () => ({ refetch: readRecord }) };
+        if (key === 'editMessageRecord') return { mutate: writeRecord };
+        if (key === 'useQuery') return () => ({ data: undefined });
+        if (key === 'useMutation') return () => ({ mutate: vi.fn(), isLoading: false });
+        return proxy();
+      },
     });
   return { trpc: proxy(), client: proxy() };
 });
@@ -30,7 +34,93 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   copied.mockClear();
+  readRecord.mockReset();
+  writeRecord.mockReset();
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
+});
+
+it('从正文编辑本地记录，保留原始元素，保存失败后保留草稿', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const { user } = createTemplateDemoData();
+  const target = {
+    kind: 'c2c' as const,
+    conv: 'u_peer',
+    msgId: '23',
+    expectedAccountUin: user.identityValue,
+    expectedAccountConfigId: 'fixture-source',
+  };
+  const original = { kind: 'text', textContent: '原文', elementId: '42', textReserve: 1 };
+  const opaque = { kind: 'unknown', raw: { elementType: 999, elementId: '43' } };
+  const edited = { ...original, textContent: '新正文' };
+  const result = [{ type: 'text', data: { textContent: '新正文' } }];
+  const onEdited = vi.fn();
+  readRecord.mockResolvedValue({
+    data: { kind: 'local', revision: 'a'.repeat(64), elements: [original, opaque] },
+  });
+  writeRecord.mockRejectedValueOnce(new Error('保存暂时失败')).mockResolvedValueOnce(result);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const button = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>('.weq-message-detail button')].find(
+      (item) => item.textContent?.trim() === label,
+    )!;
+  try {
+    act(() =>
+      root.render(
+        h(MessageDetails, {
+          user,
+          target,
+          onEdited,
+          onClose: vi.fn(),
+          selection: {
+            cardElements: [],
+            message: {
+              id: target.msgId,
+              conversationId: target.conv,
+              senderId: target.conv,
+              body: original.textContent,
+              createdAt: '2026-10-21T01:00:00Z',
+            },
+          },
+        }),
+      ),
+    );
+    expect(readRecord).not.toHaveBeenCalled();
+    await act(async () => button('编辑本地记录').click());
+    await act(async () => vi.dynamicImportSettled());
+    const text = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="文本内容"]')!;
+    expect(text.value).toBe(original.textContent);
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+        text,
+        edited.textContent,
+      );
+      text.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const moveUp = [
+      ...document.querySelectorAll<HTMLButtonElement>('button[aria-label="上移"]'),
+    ].find((item) => !item.disabled);
+    act(() => moveUp!.click());
+    await act(async () => button('保存本地记录').click());
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('保存暂时失败');
+    expect(text.value).toBe(edited.textContent);
+    expect(onEdited).not.toHaveBeenCalled();
+    await act(async () => button('保存本地记录').click());
+    expect(writeRecord).toHaveBeenLastCalledWith({
+      ...target,
+      revision: 'a'.repeat(64),
+      elements: [opaque, edited],
+    });
+    expect(onEdited).toHaveBeenCalledWith(target.msgId, result);
+    expect(document.querySelector('.weq-message-detail-body')?.textContent).toContain(
+      edited.textContent,
+    );
+    expect(button('编辑本地记录')).toBeDefined();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
 });
 
 function mount(pureFace = false, override?: RepeatElement[]) {

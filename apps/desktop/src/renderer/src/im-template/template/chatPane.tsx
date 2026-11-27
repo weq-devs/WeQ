@@ -8610,6 +8610,7 @@ function ChatPaneContent({
           key={messageDetails.selection.message.id}
           selection={messageDetails.selection}
           conversation={conversation ?? undefined}
+          user={user}
           target={messageDetails.target}
           onEdited={onMessageRecordEdited}
           isSender={isSelfIdentity(

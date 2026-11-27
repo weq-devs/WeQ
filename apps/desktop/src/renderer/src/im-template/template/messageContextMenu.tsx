@@ -121,7 +121,12 @@ export type MessageDetailsSelection = {
   cardElements: NonNullable<Message['qqElements']>;
 };
 
-function messageCardElements(state: MessageContextMenuState) {
+export function messageCardElements(
+  state: Pick<
+    MessageContextMenuState,
+    'message' | 'forwardTarget' | 'originElement' | 'mediaTarget'
+  >,
+) {
   const elements = state.message.qqElements ?? [];
   const forwarded = state.forwardTarget && elements[state.forwardTarget.elementIndex];
   if (forwarded) return [forwarded];

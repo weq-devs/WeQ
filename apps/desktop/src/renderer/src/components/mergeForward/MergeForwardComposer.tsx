@@ -99,6 +99,7 @@ import {
   type MfDecoration,
   type MfDraft,
   type MfNode,
+  type MfOpaqueSeg,
   type MfSeg,
   type MfSegKind,
   type MfSender,
@@ -821,25 +822,9 @@ function NodeEditor({
   /** 这条消息的内容还能不能放一份聊天记录（嵌套层数上限）。 */
   recordAllowed?: boolean;
 }): ReactElement {
-  const [addOpen, setAddOpen] = useState(false);
-  const addBtnRef = useRef<HTMLButtonElement | null>(null);
-  const kinds = allowedKinds(segs, recordAllowed);
-  const record = isNestedContent(segs);
-
-  const patch = (id: string, next: MfSeg) => onChange(segs.map((s) => (s.id === id ? next : s)));
-  const remove = (id: string) => onChange(segs.filter((s) => s.id !== id));
-  const move = (from: number, to: number) => {
-    if (to < 0 || to >= segs.length || from === to) return;
-    const next = segs.slice();
-    const [it] = next.splice(from, 1);
-    if (!it) return;
-    next.splice(to, 0, it);
-    onChange(next);
-  };
-
   // 内容是「聊天记录」时，整条消息交给记录编辑器 —— 记录独占一条消息，
   // 所以这里没有「添加段」，也不会有普通分段。
-  if (record) {
+  if (isNestedContent(segs)) {
     return (
       <div className={cn('weq-mf-inline-editor', embedded && 'weq-mf-inline-editor-embedded')}>
         {embedded ? null : (
@@ -905,11 +890,88 @@ function NodeEditor({
         <span className="weq-mf-inline-hint">逐段拼内容；Ctrl/⌘ + 回车保存</span>
       </div>
 
+      <MessageSegmentsEditor
+        segs={segs}
+        kinds={allowedKinds(segs, recordAllowed)}
+        onChange={onChange}
+        onAdd={(kind) =>
+          onChange(
+            kind === 'node'
+              ? [blankNestedRecordSeg({ uin: sender.uin, name: sender.name })]
+              : [...segs, blankSeg(kind)],
+          )
+        }
+        onSave={onSave}
+        self={self}
+        members={members}
+        senderMode={senderMode}
+        depth={depth}
+        tools={
+          embedded ? null : (
+            <>
+              <CompositionButton type="button" className="weq-mf-soft" onClick={onCancel}>
+                取消
+              </CompositionButton>
+              <CompositionButton type="button" className="weq-mf-primary" onClick={onSave}>
+                保存
+              </CompositionButton>
+            </>
+          )
+        }
+      />
+
+      {error ? <div className="weq-mf-error">{error}</div> : null}
+    </div>
+  );
+}
+
+/** 合成聊天记录与本地消息共用的分段表单。 */
+export function MessageSegmentsEditor({
+  segs,
+  kinds,
+  onChange,
+  onAdd = (kind) => onChange([...segs, blankSeg(kind)]),
+  onSave,
+  self,
+  members,
+  senderMode,
+  depth = 0,
+  tools,
+  renderOpaque,
+}: {
+  segs: MfSeg[];
+  kinds: MfSegKind[];
+  onChange: (segs: MfSeg[]) => void;
+  onAdd?: (kind: MfSegKind) => void;
+  onSave: () => void;
+  self: MfPerson;
+  members?: MfPerson[];
+  senderMode: 'conversation' | 'global';
+  depth?: number;
+  tools: ReactNode;
+  renderOpaque?: (seg: MfOpaqueSeg) => ReactElement;
+}): ReactElement {
+  const [addOpen, setAddOpen] = useState(false);
+  const addBtnRef = useRef<HTMLButtonElement | null>(null);
+  const move = (from: number, to: number) => {
+    if (to < 0 || to >= segs.length || from === to) return;
+    const next = segs.slice();
+    const [item] = next.splice(from, 1);
+    if (!item) return;
+    next.splice(to, 0, item);
+    onChange(next);
+  };
+  return (
+    <>
       <div
         className="weq-mf-seg-list"
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
+        onKeyDown={(event) => {
+          if (
+            event.key === 'Enter' &&
+            !event.nativeEvent.isComposing &&
+            (event.ctrlKey || event.metaKey)
+          ) {
+            event.preventDefault();
             onSave();
           }
         }}
@@ -917,24 +979,23 @@ function NodeEditor({
         {segs.length === 0 ? (
           <div className="weq-mf-seg-empty">空消息 —— 点下面「添加段」开始拼</div>
         ) : null}
-
         {segs.map((seg, index) => (
           <SegRow
             key={seg.id}
             seg={seg}
             index={index}
             count={segs.length}
-            onChange={(next) => patch(seg.id, next)}
-            onRemove={() => remove(seg.id)}
+            onChange={(next) => onChange(segs.map((item) => (item.id === seg.id ? next : item)))}
+            onRemove={() => onChange(segs.filter((item) => item.id !== seg.id))}
             onMove={(to) => move(index, to)}
             self={self}
             members={members}
             senderMode={senderMode}
             depth={depth}
+            renderOpaque={renderOpaque}
           />
         ))}
       </div>
-
       <div className="weq-mf-inline-tools">
         <div className="weq-mf-add-wrap">
           {kinds.length > 0 ? (
@@ -943,7 +1004,7 @@ function NodeEditor({
                 ref={addBtnRef}
                 type="button"
                 className="weq-mf-tool"
-                onClick={() => setAddOpen((v) => !v)}
+                onClick={() => setAddOpen((open) => !open)}
                 title="给这条消息添加一段内容"
               >
                 <Plus size={14} /> 添加段
@@ -952,12 +1013,8 @@ function NodeEditor({
                 <AddSegMenu
                   anchor={addBtnRef.current}
                   kinds={kinds}
-                  onPick={(k) => {
-                    onChange(
-                      k === 'node'
-                        ? [blankNestedRecordSeg({ uin: sender.uin, name: sender.name })]
-                        : [...segs, blankSeg(k)],
-                    );
+                  onPick={(kind) => {
+                    onAdd(kind);
                     setAddOpen(false);
                   }}
                   onClose={() => setAddOpen(false)}
@@ -969,20 +1026,9 @@ function NodeEditor({
           )}
         </div>
         <span className="weq-mf-inline-spacer" />
-        {embedded ? null : (
-          <>
-            <CompositionButton type="button" className="weq-mf-soft" onClick={onCancel}>
-              取消
-            </CompositionButton>
-            <CompositionButton type="button" className="weq-mf-primary" onClick={onSave}>
-              保存
-            </CompositionButton>
-          </>
-        )}
+        {tools}
       </div>
-
-      {error ? <div className="weq-mf-error">{error}</div> : null}
-    </div>
+    </>
   );
 }
 
@@ -998,6 +1044,7 @@ function SegRow({
   members,
   senderMode,
   depth,
+  renderOpaque,
 }: {
   seg: MfSeg;
   index: number;
@@ -1009,6 +1056,7 @@ function SegRow({
   members?: MfPerson[];
   senderMode: 'conversation' | 'global';
   depth: number;
+  renderOpaque?: (seg: MfOpaqueSeg) => ReactElement;
 }): ReactElement {
   return (
     <div className="weq-mf-seg">
@@ -1047,14 +1095,18 @@ function SegRow({
           </CompositionButton>
         </div>
       </div>
-      <SegEditor
-        seg={seg}
-        onChange={onChange}
-        self={self}
-        members={members}
-        senderMode={senderMode}
-        depth={depth}
-      />
+      {seg.t === 'opaque' && renderOpaque ? (
+        renderOpaque(seg)
+      ) : (
+        <SegEditor
+          seg={seg}
+          onChange={onChange}
+          self={self}
+          members={members}
+          senderMode={senderMode}
+          depth={depth}
+        />
+      )}
     </div>
   );
 }

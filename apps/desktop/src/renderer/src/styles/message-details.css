@@ -51,6 +51,23 @@
   max-inline-size: 100%;
 }
 
+.weq-message-detail-visual-fields {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.weq-message-detail-visual-editor .weq-mf-inline-tools {
+  flex-wrap: wrap;
+  margin-block-start: 8px;
+}
+
+.weq-message-detail-visual-editor .weq-mf-seg-list {
+  max-height: none;
+  overflow: visible;
+}
+
 .weq-message-detail-table {
   inline-size: 100%;
   border-collapse: collapse;
