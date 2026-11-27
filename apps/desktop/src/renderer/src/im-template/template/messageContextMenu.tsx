@@ -30,6 +30,7 @@ import { NumericText } from '../../components/NumericText';
 import { MessageMenuButton } from '../../components/MessageMenuButton';
 import { MessageMenuContext } from '../../components/MessageMenuButton.shared';
 import { useToastApi } from '../../components/Toast.shared';
+import { MessageSequenceLabel } from '../../components/MessageProvenance';
 import { messageSequence, showsRoamingSource } from '../../components/MessageProvenance.shared';
 import type { Message } from './types';
 import { cn } from './classNames';
@@ -195,6 +196,8 @@ export function MessageContextMenu(props: Props) {
     : null;
   const roaming = Boolean(props.metadataPrecision && showsRoamingSource(message));
   const hasMetadata = Boolean(time || seq || roaming);
+  const timeId = time ? `${metadataId}-time` : undefined;
+  const roamingId = roaming ? `${metadataId}-roaming` : undefined;
   const originElement = state.originElement;
   const { panel: menuRef } = useTabPanelMotion(JSON.stringify([message.id, state.x, state.y]));
   useSurfaceRemovalFade(menuRef, { enabled: tabActive });
@@ -313,7 +316,9 @@ export function MessageContextMenu(props: Props) {
     const all = buttons();
     const current = document.activeElement as HTMLButtonElement;
     const rows = [
-      ...(menuRef.current?.querySelectorAll('.message-reaction-strip, .message-menu-group') ?? []),
+      ...(menuRef.current?.querySelectorAll(
+        '.message-reaction-strip, .message-menu-group, .message-menu-metadata',
+      ) ?? []),
     ].flatMap((group) => {
       const items = [...group.querySelectorAll<HTMLButtonElement>('button')].filter((button) =>
         all.includes(button),
@@ -405,7 +410,7 @@ export function MessageContextMenu(props: Props) {
           data-weq-surface-motion="enter"
           role="menu"
           aria-label="消息操作"
-          aria-describedby={hasMetadata ? metadataId : undefined}
+          aria-describedby={[timeId, roamingId].filter(Boolean).join(' ') || undefined}
           data-hover-delay="0"
           className={cn(
             'message-context-menu',
@@ -591,19 +596,17 @@ export function MessageContextMenu(props: Props) {
             </div>
           </div>
           {hasMetadata ? (
-            <p className="message-menu-metadata" id={metadataId} aria-hidden="true">
+            <p className="message-menu-metadata">
               {time ? (
-                <span>
+                <span id={timeId} aria-hidden="true">
                   <NumericText>{time}</NumericText>（北京时间）
                 </span>
               ) : null}
-              {seq ? (
-                <span>
-                  seq <NumericText>{seq}</NumericText>
-                </span>
-              ) : null}
+              {seq ? <MessageSequenceLabel seq={seq} inMenu /> : null}
               {roaming ? (
-                <span>{message.sourceFormat === 'native' ? 'QQ 原生漫游' : 'WeQ 漫游缓存'}</span>
+                <span id={roamingId} aria-hidden="true">
+                  {message.sourceFormat === 'native' ? 'QQ 原生漫游' : 'WeQ 漫游缓存'}
+                </span>
               ) : null}
             </p>
           ) : null}
