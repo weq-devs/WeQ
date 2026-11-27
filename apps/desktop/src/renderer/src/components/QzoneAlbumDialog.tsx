@@ -63,6 +63,7 @@ import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { QzonePageButton } from '../views/QzonePagination';
+import { hasNewQzoneItems, useQzoneRefreshRequest } from '../views/qzoneRefresh';
 import { QZONE_ALBUM_PAGE_SIZE as PAGE_NUM } from '../../../shared/qzone_album_export';
 
 /** 相册列表 wire（service QzoneAlbum）。 */
@@ -371,6 +372,10 @@ export function QzoneAlbumDialog({
   const { run: runAlbums, cancel: cancelAlbums } = useQzoneRequests();
   /** 选中的相册：null = 相册列表页。 */
   const [selected, setSelected] = useState<QzoneAlbumWire | null>(null);
+  const refreshRequest = useQzoneRefreshRequest(
+    embedded && active && access?.qqOnline === true,
+    selected?.id,
+  );
   const [media, setMedia] = useState<QzoneAlbumPhotoWire[]>([]);
   const [hasMedia, setHasMedia] = useState(false);
   const [mediaCache] = useState(() => new PageDataCache());
@@ -635,14 +640,15 @@ export function QzoneAlbumDialog({
 
   // Re-entering at the latest edge refreshes in place, without resetting selection or media.
   useEffect(() => {
-    if (!albumLoaded.current) {
+    const manual = refreshRequest?.pending ? refreshRequest : null;
+    if (!manual && !albumLoaded.current) {
       lastRefresh.current = refreshKey;
       return;
     }
     if (
       !open ||
       !active ||
-      refreshKey === lastRefresh.current ||
+      (!manual && refreshKey === lastRefresh.current) ||
       !access?.qqOnline ||
       albumPageLock.current ||
       albumsLoading ||
@@ -657,15 +663,20 @@ export function QzoneAlbumDialog({
     setAlbumsError(null);
     void (async () => {
       if (selected) {
-        const page = (await client.account.qzoneAlbumMedia.query({
-          hostUin,
-          topicId: selected.id,
-          pageStart: 0,
-          pageNum: PAGE_NUM,
-        })) as { photos: QzoneAlbumPhotoWire[]; totalInAlbum: number } | null;
+        const page = (await client.account.qzoneAlbumMedia.query(
+          { hostUin, topicId: selected.id, pageStart: 0, pageNum: PAGE_NUM },
+          { signal: manual?.signal },
+        )) as { photos: QzoneAlbumPhotoWire[]; totalInAlbum: number } | null;
         if (!live || run !== runRef.current) return;
         if (!page || !Array.isArray(page.photos)) throw new Error('暂时无法刷新相册，请稍后重试。');
         const fresh = page.photos;
+        const hasNew = hasNewQzoneItems(media, fresh, photoKey);
+        setMediaError(null);
+        if (manual && !hasNew && hasMedia) {
+          manual.resolve(false);
+          return;
+        }
+        setHasMedia(true);
         mediaPages.current.add(0);
         setMedia((previous) => {
           const keys = new Set(fresh.map(photoKey));
@@ -674,23 +685,35 @@ export function QzoneAlbumDialog({
           return merged;
         });
         setMediaTotal(Number(page?.totalInAlbum ?? mediaLenRef.current));
+        manual?.resolve(hasNew);
       } else {
-        const page = await runAlbums((requestId) =>
-          client.account.qzone.albumPage.query({ selfUin, hostUin, requestId, offset: 0 }),
+        const page = await runAlbums(
+          (requestId) =>
+            client.account.qzone.albumPage.query({ selfUin, hostUin, requestId, offset: 0 }),
+          false,
+          manual?.signal,
         );
         if (live && run === runRef.current) {
+          if (manual && page.warning) throw new Error(page.warning);
+          const hasNew = hasNewQzoneItems(albums ?? [], page.albums, (album) => album.id);
+          if (manual && !hasNew && albums) {
+            manual.resolve(false);
+            return;
+          }
           setAlbums(page.albums);
           albumLoaded.current = true;
           setAlbumNext(page.nextOffset);
           setAlbumTotal(page.total);
           setAlbumsError(page.warning);
           albumPages.current = new Set([0]);
+          manual?.resolve(hasNew);
         }
       }
     })()
       .catch((error: unknown) => {
-        if (live && run === runRef.current)
-          setAlbumsError(error instanceof Error ? error.message : String(error));
+        if (!live || run !== runRef.current) return;
+        if (manual) manual.reject(error);
+        else setAlbumsError(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
         if (live) setRefreshing(false);
@@ -703,8 +726,12 @@ export function QzoneAlbumDialog({
     open,
     active,
     refreshKey,
+    refreshRequest,
     access?.qqOnline,
     albumsLoading,
+    albums,
+    hasMedia,
+    media,
     mediaLoading,
     mediaLoadingMore,
     selected,
@@ -795,7 +822,7 @@ export function QzoneAlbumDialog({
       ) : null}
 
       <div className={embedded ? undefined : 'weq-qzone-album-body'}>
-        {refreshing && albums ? (
+        {refreshing && !refreshRequest?.pending && albums ? (
           <p className="weq-qzn-loading" role="status">
             <Loader2 size={16} className="weq-spin" />
             正在刷新…
