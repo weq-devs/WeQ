@@ -6115,6 +6115,7 @@ function MainWorkspace(): ReactElement {
       };
       readUndoRef.current = undo;
       setReadUndo(undo);
+      if (rows.length === 1 && !result.failed) return;
       pushToast({
         tone: result.failed ? 'warning' : 'success',
         title: (
