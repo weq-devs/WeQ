@@ -99,7 +99,8 @@ export const remoteRouter = router({
       remoteRuntime.status(),
     );
     const url = status.network.authUrl;
-    if (!url || new URL(url).protocol !== 'https:') throw new Error('当前没有可用的网络登录链接。');
+    if (!url || new URL(url).protocol !== 'https:')
+      throw new Error('尚未获取到登录链接：电脑暂时无法访问 Tailscale 控制面，请稍后重试。');
     await getHost().openExternal(url);
   }),
   invite: local

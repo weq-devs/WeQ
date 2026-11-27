@@ -14,6 +14,8 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -54,6 +56,7 @@ func run() error {
 	if err := os.MkdirAll(*state, 0700); err != nil {
 		return err
 	}
+	setupControlDial(*control)
 	if *lanState == "" {
 		*lanState = *state
 	}
@@ -72,6 +75,24 @@ func run() error {
 	})
 	lan := event{}
 	encoder := json.NewEncoder(os.Stdout)
+	// 状态事件可能来自主循环和 UserLogf 两个 goroutine；串行化输出、保留最新登录链接并按内容去重。
+	var emitMu sync.Mutex
+	lastAuthURL := ""
+	previous := event{}
+	emit := func(value event) {
+		emitMu.Lock()
+		defer emitMu.Unlock()
+		if value.AuthURL != "" {
+			lastAuthURL = value.AuthURL
+		} else if value.State == "login" {
+			value.AuthURL = lastAuthURL
+		}
+		if value.State == previous.State && value.AuthURL == previous.AuthURL && value.Address == previous.Address && value.Error == previous.Error {
+			return
+		}
+		_ = encoder.Encode(value)
+		previous = value
+	}
 	if *mode == "lan" || *mode == "both" {
 		ready := make(chan event, 1)
 		failed := make(chan error, 1)
@@ -106,7 +127,12 @@ func run() error {
 			}
 		}()
 	}
-	srv := &tsnet.Server{Dir: *state, Hostname: "weq-remote", ControlURL: *control, Logf: func(string, ...any) {}, UserLogf: func(string, ...any) {}}
+	srv := &tsnet.Server{Dir: *state, Hostname: "weq-remote", ControlURL: *control, Logf: func(string, ...any) {}, UserLogf: func(format string, args ...any) {
+		// tsnet 的登录链接只出现在用户日志里；丢弃它会让界面永远停在「已停止」且无法登录。
+		if loginURL := loginURLFromMessage(fmt.Sprintf(format, args...)); loginURL != "" {
+			emit(event{State: "login", AuthURL: loginURL})
+		}
+	}}
 	defer srv.Close()
 	lc, err := srv.LocalClient()
 	if err != nil {
@@ -122,15 +148,22 @@ func run() error {
 			_ = secureServer.Close()
 		}
 	}()
-	previous := event{}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
 		status, err := lc.Status(ctx)
 		next := event{State: "offline"}
-		if err == nil {
+		if err != nil {
+			// 控制面不可达时必须把原因透传，否则界面只会静默显示「已停止」。
+			if ctx.Err() == nil {
+				next.Error = fmt.Sprintf("无法获取 Tailscale 状态：%v", err)
+			}
+		} else {
 			if status.AuthURL != "" {
 				next = event{State: "login", AuthURL: status.AuthURL}
+			} else if status.BackendState == "NeedsLogin" {
+				// 尚未拿到登录链接时也上报 login，让界面显示「等待登录」而不是「已停止」。
+				next = event{State: "login"}
 			}
 			if status.BackendState == "Running" && len(status.TailscaleIPs) > 0 {
 				if server == nil {
@@ -175,17 +208,70 @@ func run() error {
 			address, _ := url.Parse(next.Address)
 			next.Addresses = append(next.Addresses, "https://"+address.Hostname()+":7692")
 		}
-		if next.State != previous.State || next.AuthURL != previous.AuthURL || next.Address != previous.Address {
-			if err := encoder.Encode(next); err != nil {
-				return err
-			}
-			previous = next
-		}
+		emit(next)
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
 		}
+	}
+}
+
+// loginURLFromMessage 从 tsnet 的用户日志里取出登录链接（例如「go to: https://…/a/xxx」）。
+func loginURLFromMessage(message string) string {
+	lowered := strings.ToLower(message)
+	if !strings.Contains(lowered, "login") && !strings.Contains(lowered, "authenticate") {
+		return ""
+	}
+	const marker = "https://"
+	index := strings.Index(message, marker)
+	if index < 0 {
+		return ""
+	}
+	length := strings.IndexAny(message[index:], " \t\r\n\"'")
+	if length < 0 {
+		length = len(message) - index
+	}
+	return message[index : index+length]
+}
+
+// controlPlaneHost 从控制面地址取出主机名；默认控制面在 tailscale.com 域下。
+func controlPlaneHost(control string) string {
+	if control != "" {
+		if parsed, err := url.Parse(control); err == nil && parsed.Hostname() != "" {
+			return parsed.Hostname()
+		}
+	}
+	return "controlplane.tailscale.com"
+}
+
+// setupControlDial 优选控制面的连接路径。启动终端里遗留的代理变量往往只对浏览器
+// 流量有效：代理不可达时 tsnet 的控制面连接会一直失败，界面只会静默显示已停止。
+// 直连可用时用 NO_PROXY 按域绕过代理；直连不可用而代理可用时保留代理变量。
+func setupControlDial(control string) {
+	const probe = "/key?v=148"
+	host := controlPlaneHost(control)
+	hostname := host
+	direct := &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext},
+	}
+	if resp, err := direct.Get("https://" + hostname + probe); err == nil {
+		resp.Body.Close()
+		// tailscale.com 后缀同时覆盖登录与 DERP 相关子域。
+		os.Setenv("NO_PROXY", "tailscale.com")
+		os.Setenv("no_proxy", "tailscale.com")
+		return
+	}
+	if hostname != "controlplane.tailscale.com" {
+		return
+	}
+	// 直连不通时清掉绕过项，让 tsnet 沿用代理环境变量（若代理可用）。
+	os.Unsetenv("NO_PROXY")
+	os.Unsetenv("no_proxy")
+	proxied := &http.Client{Timeout: 5 * time.Second}
+	if resp, err := proxied.Get("https://" + hostname + probe); err == nil {
+		resp.Body.Close()
 	}
 }
 
