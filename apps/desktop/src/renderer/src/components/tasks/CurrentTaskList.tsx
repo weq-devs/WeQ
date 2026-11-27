@@ -113,6 +113,7 @@ export function CurrentTaskList({
   selection,
   layout = 'inline',
   onOpenDetail,
+  onOpenArchivedTasks,
   toolbarAction,
   cleanupBinding,
   exportActions,
@@ -127,6 +128,7 @@ export function CurrentTaskList({
   selection?: readonly [string | null | undefined, (id: string | null) => void];
   layout?: TaskLayout;
   onOpenDetail?: () => void;
+  onOpenArchivedTasks?: () => void;
   toolbarAction?: ReactNode;
   cleanupBinding?: { expectedAccountUin: string; expectedAccountConfigId: string } | null;
   exportActions?: ExportTaskActions;
@@ -1176,6 +1178,13 @@ export function CurrentTaskList({
     selectedResult?.ref.result,
   ]);
   const hasError = exportError || roaming.error || flash.error || background.error || archive.error;
+  const showArchiveAction =
+    onOpenArchivedTasks &&
+    !archived &&
+    !loading &&
+    !hasError &&
+    !visibleItems.length &&
+    items.some(({ id }) => management.get(id)?.isArchived && !archive.entries[id]?.deleted);
   const archivable = visibleItems.flatMap((task) => {
     const row = management.get(task.id);
     return isEnded(task) && row?.manual && !row.isArchived ? [row] : [];
@@ -1243,7 +1252,7 @@ export function CurrentTaskList({
             </span>
             {toolbarAction}
           </div>
-          {!archived ? (
+          {!archived && !showArchiveAction ? (
             <div className="weq-current-tasks-actions" data-toolbar-group="">
               <button
                 type="button"
@@ -1295,6 +1304,14 @@ export function CurrentTaskList({
           compact
           icon={<ListTodo />}
           title={loading ? '读取任务中…' : archived ? '暂无已归档任务' : '暂无任务'}
+          action={
+            showArchiveAction ? (
+              <button type="button" className="weq-set-btn" onClick={onOpenArchivedTasks}>
+                <Archive size={14} aria-hidden />
+                查看已归档任务
+              </button>
+            ) : null
+          }
         />
       ) : null}
       {visibleItems.length ? (
@@ -1346,7 +1363,7 @@ export function CurrentTaskList({
           ) : null}
         </div>
       ) : null}
-      {!paged && !archived ? (
+      {!paged && !archived && !showArchiveAction ? (
         <div className="weq-current-tasks-results" role="group" aria-label="已结束任务">
           <span>
             <NumericText>{`${visibleItems.filter(isEnded).length} 项已结束`}</NumericText>

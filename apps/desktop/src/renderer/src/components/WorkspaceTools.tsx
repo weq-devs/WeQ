@@ -548,6 +548,11 @@ export function WorkspaceTools({
                   surface="tasks"
                   taskLayout={expanded ? (mobile ? 'page' : 'split') : 'compact'}
                   onTaskExpand={() => setExpanded(true)}
+                  onOpenArchivedTasks={() => {
+                    useWorkspaceMenu.setState({ taskFocusId: null });
+                    setTaskTabRequest({ scope: accountScope, tab: 'archived' });
+                    setExpanded(true);
+                  }}
                   taskTabRequest={
                     taskTabRequest && taskTabRequest.scope === accountScope
                       ? taskTabRequest.tab
