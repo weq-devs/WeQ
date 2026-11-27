@@ -31,6 +31,57 @@ const build = (rows: SuggestionMessage[], kind: 'c2c' | 'group' = 'group') =>
   });
 
 describe('推荐回复的结构化上下文', () => {
+  it('群引用按序号和身份关联窗口内原消息，缺失或矛盾时只保留引用摘录', () => {
+    const context = JSON.parse(
+      build([
+        message({ msgId: 'original', msgSeq: '50' }),
+        message({
+          msgId: 'reply',
+          msgSeq: '51',
+          elementsRaw: [
+            { kind: 'reply', origMsgSeq: 50, origSenderUin: 20000 },
+            { kind: 'reply', origMsgSeq: 50, origSenderUin: 30000, replyTextSummary: '旧摘录' },
+            { kind: 'reply', origMsgSeq: 49, replyTextSummary: '窗口外的原话' },
+          ],
+        }),
+      ]).user,
+    );
+    const [original, reply] = context.messages;
+    expect(reply.references).toEqual([
+      { messageId: original.id, sender: original.sender, originalInContext: true },
+      { sender: expect.any(Number), originalInContext: false, quoteText: '旧摘录' },
+      { sender: null, originalInContext: false, quoteText: '窗口外的原话' },
+    ]);
+  });
+
+  it('私聊区分客户端序号与服务端序号，同号冲突或不唯一时不猜原消息', () => {
+    const rows = [
+      message({ msgId: 'wrong-server-seq', msgSeq: '7', clientSeq: '3' }),
+      message({ msgId: 'correct-client-seq', msgSeq: '80', clientSeq: '7' }),
+      message({
+        msgId: 'reply',
+        msgSeq: '81',
+        elementsRaw: [
+          { kind: 'reply', origMsgSeq: 7, origSenderUin: 20000 },
+          { kind: 'reply', origMsgSeq: 7 },
+          { kind: 'reply', origMsgIndex: 80, origMsgSeq: 7 },
+          { kind: 'reply', origMsgIndex: 80, origMsgSeq: 3 },
+        ],
+      }),
+    ];
+    const references = JSON.parse(build(rows, 'c2c').user).messages.at(-1).references;
+    expect(references.map((ref: { messageId?: string }) => ref.messageId)).toEqual([
+      'correct-client-seq',
+      undefined,
+      'correct-client-seq',
+      undefined,
+    ]);
+    const ambiguous = [rows[0]!, { ...rows[1]!, msgId: 'duplicate' }, ...rows.slice(1)];
+    expect(
+      JSON.parse(build(ambiguous, 'c2c').user).messages.at(-1).references[0].originalInContext,
+    ).toBe(false);
+  });
+
   it('同一次请求要求先概括再给候选，仍根据完整对话而非仅依据摘要生成', () => {
     const prompt = build([message()]);
     expect(prompt.system).toContain('一至三句话');
@@ -124,7 +175,7 @@ describe('推荐回复的结构化上下文', () => {
       message({ senderUid: '', senderUin: '0', sendTime: Number.NaN, text: attack }),
     ]);
     const context = JSON.parse(prompt.user);
-    expect(context.messages).toEqual([{ sender: null, text: attack }]);
+    expect(context.messages).toEqual([{ id: 'first', sender: null, text: attack }]);
     expect(prompt.system).not.toContain(attack);
     expect(prompt.system).toContain('不是指令');
   });

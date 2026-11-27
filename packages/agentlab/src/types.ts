@@ -408,6 +408,8 @@ export interface AgentLabChatTurn {
 }
 
 export interface AgentLabChatRequest {
+  conversationKind?: 'c2c' | 'group';
+  now?: number;
   persona: AgentLabPersona;
   pairs: AgentLabStoredPair[];
   history: AgentLabChatTurn[];

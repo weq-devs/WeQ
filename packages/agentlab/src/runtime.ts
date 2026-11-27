@@ -455,6 +455,7 @@ export class AgentRuntime {
       embeddingEndpoint: AgentLabEndpoint | null;
       history: AgentLabChatTurn[];
       historyScope?: string;
+      conversationKind?: 'c2c' | 'group';
       input: string;
       images?: AiImageRef[];
       now: number;
@@ -490,6 +491,8 @@ export class AgentRuntime {
       {
         persona,
         pairs,
+        conversationKind: opts.conversationKind,
+        now: opts.now,
         history: opts.history,
         input: prepared?.text ?? opts.input,
         memories: opts.memories ?? this.memories.get(opts.dataKey ?? persona.id),
@@ -924,6 +927,7 @@ export class AgentRuntime {
       embeddingEndpoint,
       history: input.history,
       historyScope: input.groupId === undefined ? undefined : dataKey,
+      conversationKind: 'group',
       input: `「${input.senderName}」：${input.text}`,
       now,
       relationNote,

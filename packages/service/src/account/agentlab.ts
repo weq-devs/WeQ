@@ -1141,6 +1141,7 @@ export class AgentLabService extends EventEmitter {
         embeddingEndpoint,
         history,
         historyScope: JSON.stringify(['group', groupId, member.memberId]),
+        conversationKind: 'group',
         input: inputText,
         now: Date.now(),
         relationNote,

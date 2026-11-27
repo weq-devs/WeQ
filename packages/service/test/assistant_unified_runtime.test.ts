@@ -751,7 +751,7 @@ it('默认发送方式实际用于受理，未触发压缩时完整带入历史'
   f.service.submitMessage({ sessionId: f.sessionId, requestId: 'auto', text: '追问' });
   await vi.waitFor(() => expect(f.service.getConversation(f.sessionId).at(-1)?.text).toBe('回答'));
   const body = JSON.parse(String(fetch.mock.calls[0]?.[1].body));
-  expect(body.messages.map((row: { content: string }) => row.content).slice(1)).toEqual([
+  expect(body.messages.map((row: { content: string }) => row.content).slice(1, -1)).toEqual([
     ...prior.map(({ text }) => text),
     '追问',
   ]);
