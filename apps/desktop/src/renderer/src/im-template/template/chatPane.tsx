@@ -1357,18 +1357,17 @@ function ChatPaneContent({
   const requestAnalysis = useRequestContentAnalysis();
   const [selectionMenu, setSelectionMenu] = useState<{
     kind: 'copy' | 'forward';
+    anchor: HTMLElement;
     x: number;
     y: number;
   } | null>(null);
-  const selectionMenuTrigger = useRef<HTMLElement | null>(null);
   const closeSelectionMenu = useCallback(() => {
     setSelectionMenu(null);
-    selectionMenuTrigger.current?.focus({ preventScroll: true });
-  }, []);
+    selectionMenu?.anchor.focus({ preventScroll: true });
+  }, [selectionMenu]);
   const openSelectionMenu = (kind: 'copy' | 'forward', anchor: HTMLElement) => {
-    selectionMenuTrigger.current = anchor;
     const rect = anchor.getBoundingClientRect();
-    setSelectionMenu({ kind, x: rect.left, y: rect.top });
+    setSelectionMenu({ kind, anchor, x: rect.left, y: rect.top });
   };
   const exportMessageIds = (ids: string[]) => {
     if (ids.some((id) => parseSelectionGap(id))) {
@@ -7496,6 +7495,7 @@ function ChatPaneContent({
               label={selectionMenu.kind === 'copy' ? '复制格式' : '转发方式'}
               x={selectionMenu.x}
               y={selectionMenu.y}
+              scrollAnchor={selectionMenu.anchor}
               onClose={closeSelectionMenu}
               actions={
                 selectionMenu.kind === 'copy'
