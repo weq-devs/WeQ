@@ -70,6 +70,7 @@ type MessageGroupKey = {
   senderUid?: string;
   senderSnapshotId?: string;
   time: number;
+  provisionalTime?: boolean;
 };
 
 export function consecutiveMessageGroups<T>(
@@ -93,18 +94,22 @@ export function consecutiveMessageGroups<T>(
         (!key.senderSnapshotId ||
           !previous.senderSnapshotId ||
           key.senderSnapshotId === previous.senderSnapshotId) &&
-        key.time >= previous.time &&
-        !shouldShowMessageTime(previous.time, key.time) &&
+        // 排队占位用本地提交时间，逐条换成 QQ 时间时，相邻两条可能短暂倒序。
+        (key.time >= previous.time || key.provisionalTime || previous.provisionalTime) &&
+        !shouldShowMessageTime(
+          Math.min(previous.time, key.time),
+          Math.max(previous.time, key.time),
+        ) &&
         !breakBefore(messages[index - 1]!, message)
       ) {
         result[index - 1] = result[index - 1] === 'last' ? 'middle' : 'first';
         result[index] = 'last';
         // 保留组内已核对的身份，个别行缺少 QQ 号或 UID 时不会丢掉另一项。
         previous = {
+          ...key,
           senderId: key.senderId || previous.senderId,
           senderUid: key.senderUid || previous.senderUid,
           senderSnapshotId: key.senderSnapshotId || previous.senderSnapshotId,
-          time: key.time,
         };
         continue;
       }
@@ -137,8 +142,14 @@ export function messageGroups(
       )
         return;
       const time = timeDate(message.createdAt)?.getTime();
-      if (time !== undefined)
-        return { senderId: message.senderId, senderUid: message.senderUid, time };
+      if (time !== undefined) {
+        return {
+          senderId: message.senderId,
+          senderUid: message.senderUid,
+          time,
+          provisionalTime: Boolean(message.optimistic),
+        };
+      }
     },
     breakBefore,
   );
