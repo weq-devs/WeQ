@@ -22,12 +22,12 @@ export const DEFAULT_FORWARD_OPTIONS: ForwardOptions = {
   failure: 'skip',
 };
 type MenuExportFormat = 'json' | 'jsonl' | 'jsonl.gz' | 'txt' | 'csv' | 'xlsx';
-interface MenuExportDetails {
+export interface MenuExportDetails {
   extra?: ExportExtraOptions;
   profile?: 'basic' | 'full';
   incrementalSupport?: boolean;
 }
-interface MenuResourceArchive extends MenuExportDetails {
+export interface MenuResourceArchive extends MenuExportDetails {
   metadataFormat?: 'json' | 'jsonl' | 'jsonl.gz' | 'none';
 }
 /** 菜单中的使用偏好沿用宿主共享设置；不存本次消息、接收者或文件选择。 */

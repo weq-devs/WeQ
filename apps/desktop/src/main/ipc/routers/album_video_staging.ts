@@ -27,7 +27,7 @@ interface StagingOptions {
   maxUploads?: number;
   maxTotalBytes?: number;
   persistence?: {
-    root(): string | undefined;
+    root(): string | undefined | Promise<string | undefined>;
     ownerKey(owner: object): string | undefined;
   };
 }
@@ -96,9 +96,11 @@ export class FileUploadStaging {
   }
 
   private async restore(owner: object, id: string) {
-    const root = this.options.persistence?.root();
-    const ownerKey = this.options.persistence?.ownerKey(owner);
-    if (!root || !ownerKey || !uploadIdPattern.test(id)) return;
+    const persistence = this.options.persistence;
+    const ownerKey = persistence?.ownerKey(owner);
+    if (!persistence || !ownerKey || !uploadIdPattern.test(id)) return;
+    const root = await persistence.root();
+    if (!root) return;
     const directory = join(root, id);
     let saved: SavedUpload;
     try {
@@ -192,7 +194,7 @@ export class FileUploadStaging {
       )
         throw new Error('暂存附件总量已达上限，请先完成或取消现有附件');
       const ownerKey = this.options.persistence?.ownerKey(owner);
-      const root = ownerKey ? this.options.persistence?.root() : undefined;
+      const root = ownerKey ? await this.options.persistence?.root() : undefined;
       if (root) {
         await mkdir(root, { recursive: true, mode: 0o700 });
         const persisted = await this.cleanPersisted(root);

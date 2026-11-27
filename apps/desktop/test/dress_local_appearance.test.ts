@@ -339,6 +339,7 @@ it('通话背景的单个下载按钮保存原视频，不把背景 ID 当作气
           itemId: 44,
           name: 'QQ 同款通话背景',
           mediaUrl: 'https://example.test/call-background.mp4',
+          video: true,
         },
       ],
       'callbg:44',

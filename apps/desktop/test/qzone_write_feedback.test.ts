@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QzoneView } from '../src/renderer/src/views/QzoneView';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import { closeMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
 import { useViewState } from '../src/renderer/src/state/view';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -301,6 +302,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  act(() => closeMediaPreview(document));
   useDialog.getState().close();
   close?.();
   close = undefined;
@@ -1581,6 +1583,12 @@ it('主页补全历史分享，保留不同发布，并与分享页共用评论�
 const activeMediaPreview = () =>
   document.querySelector<HTMLElement>('.weq-unified-preview:not([hidden])')!;
 
+async function openLoadedTile(button: HTMLButtonElement) {
+  const image = button.querySelector('img')!;
+  await act(async () => image.dispatchEvent(new Event('load')));
+  await act(async () => button.click());
+}
+
 it('主页按当前照片的精确键打开相册预览，关闭返回同一张', async () => {
   const tid = '112700000100000001000000';
   const photos = ['https://a.qpic.cn/first.jpg', 'https://a.qpic.cn/second.jpg'];
@@ -1613,7 +1621,7 @@ it('主页按当前照片的精确键打开相册预览，关闭返回同一张'
   });
   const view = await mount(false, '主页', { timelineOnly: true });
   const first = view.host.querySelector<HTMLButtonElement>('.weq-qzn-pictures button')!;
-  await act(async () => first.click());
+  await openLoadedTile(first);
   await act(async () =>
     activeMediaPreview().querySelector<HTMLButtonElement>('[aria-label="下一项媒体"]')!.click(),
   );
@@ -1663,8 +1671,8 @@ it('主页按当前照片的精确键打开相册预览，关闭返回同一张'
       expect(view.host.querySelectorAll('.weq-qzn-pictures button')).toHaveLength(2),
     ),
   );
-  await act(async () =>
-    view.host.querySelectorAll<HTMLButtonElement>('.weq-qzn-pictures button')[1]!.click(),
+  await openLoadedTile(
+    view.host.querySelectorAll<HTMLButtonElement>('.weq-qzn-pictures button')[1]!,
   );
   await act(async () =>
     [...activeMediaPreview().querySelectorAll('button')]
@@ -1735,10 +1743,9 @@ it('实况和普通视频都按媒体编号定位相册，切换到静态照片�
         (button) => button.textContent?.trim() === '在相册中查看',
       )!,
     );
-  const liveTile = () =>
-    view.host.querySelector<HTMLButtonElement>('[aria-label="查看空间实况照片 1"]')!;
+  const liveTile = () => view.host.querySelector<HTMLButtonElement>('.weq-qzn-video-open')!;
   await act(async () => vi.waitFor(() => expect(liveTile()).not.toBeNull()));
-  await click(liveTile());
+  await openLoadedTile(liveTile());
   await click(
     [...activeMediaPreview().querySelectorAll('button')].find(
       (button) => button.textContent?.trim() === '实况',
@@ -1755,7 +1762,7 @@ it('实况和普通视频都按媒体编号定位相册，切换到静态照片�
   await view.openPane('视频');
   const tiles = () => view.host.querySelectorAll<HTMLButtonElement>('.weq-qzal-album-open');
   await act(async () => vi.waitFor(() => expect(tiles()).toHaveLength(2)));
-  await click(tiles()[1]!);
+  await openLoadedTile(tiles()[1]!);
   await openInAlbum();
   expect(state.albumDetail).toHaveBeenLastCalledWith(
     expect.objectContaining({ topicId: 'motion-album', picKey: 'key-video' }),
@@ -1800,9 +1807,7 @@ it('主页的相册对话框用后续页的标题，并从原预览直接跳转�
     view.host.querySelector('[aria-label="空间内容"] [aria-current="page"]')?.textContent;
   const albumDialog = () =>
     document.querySelector<HTMLElement>('[role="dialog"]:has(.weq-qzone-album-head)')!;
-  await act(async () =>
-    view.host.querySelector<HTMLButtonElement>('.weq-qzn-pictures button')!.click(),
-  );
+  await openLoadedTile(view.host.querySelector<HTMLButtonElement>('.weq-qzn-pictures button')!);
   const source = activeMediaPreview();
   const openAlbum = [...source.querySelectorAll('button')].find(
     (button) => button.textContent?.trim() === '打开相册',
@@ -1875,7 +1880,7 @@ it('视频预览只链接同一作者的说说，关闭原文后返回正在浏�
   const view = await mount(false, '视频', { timelineOnly: true });
   const first = () => view.host.querySelector<HTMLButtonElement>('.weq-qzal-album-open')!;
   await act(async () => vi.waitFor(() => expect(first()).not.toBeNull()));
-  await act(async () => first().click());
+  await openLoadedTile(first());
   const source = activeMediaPreview();
   const sourceAction = () =>
     [...source.querySelectorAll('button')].find((item) => item.textContent?.includes('查看原说说'));

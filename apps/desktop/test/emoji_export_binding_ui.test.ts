@@ -130,6 +130,11 @@ it.each([false, true])('表情导出固定点击时的来源，准备后来源�
         }),
       ),
     );
+    act(() =>
+      [...host.querySelectorAll<HTMLButtonElement>('[aria-label="表情包导出格式"] button')]
+        .find((button) => button.textContent === '图片目录')!
+        .click(),
+    );
     act(() => host.querySelector<HTMLButtonElement>('.weq-epk-start')!.click());
     await act(async () =>
       document

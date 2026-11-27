@@ -61,7 +61,7 @@ it('preserves valid historical opaque IDs', async () => {
     personaId: 'valid-old_id-123',
     expectedAccountUin: '10001',
   });
-  expect(f.refresh).toHaveBeenCalledWith('valid-old_id-123');
+  expect(f.refresh).toHaveBeenCalledWith('valid-old_id-123', expect.any(String));
 });
 
 it('更新克隆请求到达前账号已切换时拒绝操作', async () => {

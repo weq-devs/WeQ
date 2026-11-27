@@ -1,11 +1,13 @@
 import { join } from 'node:path';
 import { PICKED_BROWSER_FILE_MAX_BYTES } from '../shared/browser_file_upload';
 import { FileUploadStaging } from './ipc/routers/album_video_staging';
-import { getAppContext, type AccountServices } from './context/app_context';
+import type { AccountServices } from './context/app_context';
 
 export function accountUploadPersistence(folder: string) {
   return {
-    root: () => {
+    root: async () => {
+      // tRPC 初始化时会载入暂存器，等真正访问磁盘时再读取账号上下文。
+      const { getAppContext } = await import('./context/app_context');
       const root = getAppContext().platform?.appDataRoot?.();
       return root ? join(root, 'cache', folder) : undefined;
     },
