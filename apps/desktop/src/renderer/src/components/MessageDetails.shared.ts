@@ -153,12 +153,30 @@ const snapshotFields: Record<string, string> = {
   subMsgType: '40012',
   sendType: '40013',
   senderUid: '40020',
+  peerUid: '40021',
   targetUid: '40021',
   targetUin: '40030',
   senderUin: '40033',
   sendStatus: '40041',
   sendTime: '40050',
 };
+
+const identifierFields = new Set([
+  '40001',
+  '40002',
+  '40003',
+  '40005',
+  '40020',
+  '40021',
+  '40027',
+  '40030',
+  '40033',
+  '40035',
+]);
+
+export function isMessageRecordIdentifier(field: string) {
+  return identifierFields.has(snapshotFields[field] ?? field);
+}
 
 export function snapshotRecordFields(snapshot: object): MessageRecordFields {
   const columns = Object.fromEntries(

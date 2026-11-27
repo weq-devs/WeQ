@@ -19,6 +19,7 @@ import { EmptyState } from './EmptyState';
 import { WindowSurface } from './WindowSurface';
 import { useToastApi } from './Toast.shared';
 import {
+  isMessageRecordIdentifier,
   messageRecordField,
   messageSnapshotField,
   snapshotRecordFields,
@@ -72,20 +73,15 @@ function isNumericValue(value: string | number) {
   return typeof value === 'number' || /^[+-]?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(value);
 }
 
-function RawField({ value, isNickname }: { value: MessageFieldValue; isNickname: boolean }) {
+function RecordValue({ value, numberFont }: { value: string | number; numberFont: boolean }) {
+  return numberFont ? <span className="weq-number weq-number-inherit">{value}</span> : value;
+}
+
+function RawField({ value, numberFont }: { value: MessageFieldValue; numberFont: boolean }) {
   const [open, setOpen] = useState(false);
-  if (value === null) return <code>NULL</code>;
-  if (typeof value !== 'object') {
-    return (
-      <code
-        className={
-          !isNickname && isNumericValue(value) ? 'weq-number weq-number-inherit' : undefined
-        }
-      >
-        {value === '' ? '""' : value}
-      </code>
-    );
-  }
+  if (value === null) return 'NULL';
+  if (typeof value !== 'object')
+    return <RecordValue value={value === '' ? '""' : value} numberFont={numberFont} />;
   return (
     <details onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary>
@@ -110,9 +106,14 @@ function Metadata({ record, snapshot }: { record: MessageRecordFields; snapshot?
       <tbody>
         {Object.entries(record.columns).map(([field, value]) => {
           const { name, display } = describe(field, value, record);
+          const isScalar = typeof value === 'string' || typeof value === 'number';
           const isNickname = snapshot === true && field === 'sendNick';
-          const numericDisplay =
-            display !== undefined && !isNickname && (display !== value || isNumericValue(display));
+          const numberFont =
+            isScalar &&
+            value !== '' &&
+            !isNickname &&
+            (isMessageRecordIdentifier(field) || isNumericValue(value));
+          const directDisplay = isScalar && display === String(value);
           return (
             <tr key={field}>
               <th scope="row">
@@ -122,15 +123,19 @@ function Metadata({ record, snapshot }: { record: MessageRecordFields; snapshot?
                     <br />
                   </>
                 ) : null}
-                <code
-                  className={isNumericValue(field) ? 'weq-number weq-number-inherit' : undefined}
-                >
-                  {field}
-                </code>
+                <RecordValue value={field} numberFont={isNumericValue(field)} />
               </th>
-              <td>{numericDisplay ? <NumericText>{display}</NumericText> : (display ?? '—')}</td>
               <td>
-                <RawField value={value} isNickname={isNickname} />
+                {display === undefined ? (
+                  '—'
+                ) : directDisplay ? (
+                  <RecordValue value={display} numberFont={numberFont} />
+                ) : (
+                  <NumericText>{display}</NumericText>
+                )}
+              </td>
+              <td>
+                <RawField value={value} numberFont={numberFont} />
               </td>
             </tr>
           );
@@ -293,7 +298,9 @@ export function MessageDetails({
             <div className="weq-message-detail-body">
               <div className="weq-message-detail-body-header">
                 <div>
-                  <strong>{senderName || <NumericText>{message.senderId}</NumericText>}</strong>
+                  <strong>
+                    {senderName || <RecordValue value={message.senderId} numberFont />}
+                  </strong>
                   {message.createdAt ? (
                     <time dateTime={message.createdAt}>
                       <NumericText>{formatDateTime(message.createdAt, 'second')}</NumericText>
