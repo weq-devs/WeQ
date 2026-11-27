@@ -51,6 +51,7 @@ export function QqProxyRecovery({
     retry: false,
   });
   const running = !qqProcess.isError && qqProcess.data?.running === true;
+  const stopped = !qqProcess.isError && qqProcess.data?.running === false;
   const canRestart =
     running &&
     !needsCurrentLogin &&
@@ -76,7 +77,7 @@ export function QqProxyRecovery({
       <div className="weq-restricted-actions">
         <button
           type="button"
-          className="weq-set-btn weq-set-btn-primary"
+          className={`weq-set-btn${stopped ? ' weq-set-btn-primary' : ''}`}
           onClick={() => {
             restart.reset();
             launch.mutate({ newInstance: running, ...(original ? { original } : {}) });
