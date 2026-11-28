@@ -15,6 +15,7 @@ import type { TranscribeResult } from '../../transcribe/engine';
 import { procedure, router } from '../trpc';
 import { messageMediaLocations } from '../../message_media_local';
 import { messageMediaLocationMissing } from '../../../shared/message_media';
+import { forwardCacheKindInput } from '../../../shared/forward_cache';
 import { exportTaskResult } from '../../../shared/export_task_result';
 import { exportArchivePolicy } from '../../../shared/task_archive';
 import { archiveViewedTask, taskArchiveStore } from '../../task_archive';
@@ -105,7 +106,7 @@ const messageMediaInput = resourceSourceInput.extend({
     msgId: z.string(),
     conv: z.string(),
     fwdMsgId: z.string().optional(),
-    fwdKind: z.enum(['c2c', 'group']).optional(),
+    fwdKind: forwardCacheKindInput.optional(),
     fwdResId: z.string().max(4096).optional(),
     pack: z.string(),
     hash: z.string(),

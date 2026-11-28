@@ -669,7 +669,7 @@ export function aiAssistantMessageToWire(
     mine: m.mine,
     senderUid: m.senderUid,
     segments: sanitize(m.segments) as AiSegmentWire[],
-    elements: sanitize(m.elements),
+    elements: sanitize(m.elements) as AiAssistantMessageWire['elements'],
     needsAuth: m.needsAuth,
   };
 }

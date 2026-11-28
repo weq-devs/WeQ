@@ -652,7 +652,7 @@ function registerMediaIpc(): void {
         token: string;
         conv: string;
         fwdMsgId?: string;
-        fwdKind?: 'c2c' | 'group';
+        fwdKind?: import('@weq/db').ForwardCacheKind;
         savePolicy?: ExportSavePolicy;
         expectedAccountUin?: string;
         expectedAccountConfigId?: string;

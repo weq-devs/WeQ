@@ -94,13 +94,16 @@ export class AiAssistantService {
   /** 单个会话的完整消息（AI 会话体量很小，一次读完）。 */
   async listMessages(sessionId: string): Promise<AiAssistantMessage[]> {
     const rows = await this.session.aiAssistant.listMessages(sessionId);
-    return rows.map((row) => {
+    const messages: AiAssistantMessage[] = [];
+    for (const row of rows) {
       const collapsed = collapseAiAssistantElements(row.elements);
       const text = collapsed.markdown?.markdownContent ?? '';
       const segments = text
         ? splitAiMarkdownSegments(text, collapsed.cards)
         : cardsAsSegments(collapsed.cards);
-      return {
+      // QQ 可以单独落库一条思考标记，折叠后没有任何可显示的内容。
+      if (segments.length === 0 && collapsed.others.length === 0) continue;
+      messages.push({
         msgId: String(row.msgId),
         msgSeq: String(row.msgSeq),
         sendTime: String(row.sendTime),
@@ -110,8 +113,9 @@ export class AiAssistantService {
         text,
         elements: toRenderElements(collapsed.others),
         needsAuth: agentNeedsAuth(collapsed.agentEndMeta),
-      };
-    });
+      });
+    }
+    return messages;
   }
 
   /** 会话列表预览：优先用正文摘要，没有时退回预览元素。 */

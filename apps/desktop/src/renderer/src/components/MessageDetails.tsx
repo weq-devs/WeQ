@@ -194,6 +194,7 @@ export function MessageDetails({
   const record = query.data;
   const localRecord = record?.kind === 'local' ? record : undefined;
   const revision = localRecord?.revision;
+  const editTarget = target?.kind === 'aiAssistant' ? undefined : target;
   const sourceSnapshot = snapshot ?? (record?.kind === 'cache' ? record.snapshot : undefined);
   const elements = updated ?? message.qqElements ?? [];
   const displayMessage = useMemo(
@@ -212,9 +213,9 @@ export function MessageDetails({
     return selected.length ? selected : messageCardElements({ message: displayMessage });
   }, [updated, displayMessage, cardElements]);
   const section = selectedSection === 'card' && !cards.length ? 'elements' : selectedSection;
-  const canEdit = Boolean(target && onEdited && revision);
+  const canEdit = Boolean(editTarget && onEdited && revision);
   const canOpenEditor = Boolean(
-    target && !target.cache && onEdited && user && (record === undefined || revision),
+    editTarget && !editTarget.cache && onEdited && user && (record === undefined || revision),
   );
   const formatted = useMemo(() => {
     if (tab !== 'structure') return '';
@@ -279,11 +280,11 @@ export function MessageDetails({
   }
 
   async function saveRecord(revision: string, next: unknown[]) {
-    if (!target || !onEdited) throw new Error('当前记录不可编辑。');
+    if (!editTarget || !onEdited) throw new Error('当前记录不可编辑。');
     setSaving(true);
     try {
       const result = await client.account.editMessageRecord.mutate({
-        ...target,
+        ...editTarget,
         revision,
         elements: next,
       });

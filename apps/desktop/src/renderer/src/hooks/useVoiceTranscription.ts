@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { getQueryKey } from '@trpc/react-query';
+import type { ForwardCacheKind } from '@weq/db';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useHostDataSaver } from '../lib/dataSaver';
@@ -10,7 +11,7 @@ export interface VoiceTranscriptionInput {
   name: string;
   token: string;
   msgId: string;
-  forward?: { carrierId: string; kind: 'c2c' | 'group'; conv: string; resId?: string };
+  forward?: { carrierId: string; kind: ForwardCacheKind; conv: string; resId?: string };
 }
 type VoiceTranscriptionResult = Awaited<
   ReturnType<typeof client.account.transcribeVoice.mutate>

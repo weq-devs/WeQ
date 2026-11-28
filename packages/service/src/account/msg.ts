@@ -1,4 +1,5 @@
 import { assertQqDatabaseWriteAllowed } from '@weq/db';
+import type { ForwardCacheKind } from '@weq/db';
 /**
  * MsgService — fetch the messages of one conversation by seq cursor.
  *
@@ -69,7 +70,7 @@ import { RecordSearchIndex } from './record_search_index';
 
 const bodyCodec = new ProtoMsg(MsgBody);
 type MessageRecordKind = 'group' | 'c2c' | 'official' | 'service';
-type MessageRecordTarget = { kind: MessageRecordKind; conv: string; msgId: string };
+type MessageRecordTarget<Kind = MessageRecordKind> = { kind: Kind; conv: string; msgId: string };
 
 function messageBodyRevision(body: Uint8Array): string {
   return createHash('sha256').update(body).digest('hex');
@@ -301,10 +302,13 @@ export class MsgService {
     return { rows: withNames, indexPending };
   }
 
-  async messageRecordDetails(target: MessageRecordTarget) {
-    const found = await this.findMessageRecord(target);
-    if (!found) return null;
-    const { columns, table, rowId, message } = found.row;
+  async messageRecordDetails(target: MessageRecordTarget | MessageRecordTarget<'aiAssistant'>) {
+    const row =
+      target.kind === 'aiAssistant'
+        ? await this.session.aiAssistant.getMessageRecord(target.conv, target.msgId)
+        : (await this.findMessageRecord(target))?.row;
+    if (!row) return null;
+    const { columns, table, rowId, message } = row;
     const body = columns['40800'];
     return {
       table,
@@ -314,7 +318,10 @@ export class MsgService {
       decoration: message.decoration,
       reactions: 'setEmojiList' in message ? message.setEmojiList : undefined,
       cache: decodeMsgCacheColumn(columns['40900']),
-      revision: body instanceof Uint8Array ? messageBodyRevision(body) : null,
+      revision:
+        target.kind !== 'aiAssistant' && body instanceof Uint8Array
+          ? messageBodyRevision(body)
+          : null,
     };
   }
 
@@ -1675,13 +1682,14 @@ export class MsgService {
    * into the real forwarded content. Returns [] on any miss / decode error.
    */
   async listForward(
-    kind: 'c2c' | 'group' | 'official' | 'service',
+    kind: ForwardCacheKind | 'official' | 'service',
     msgId: bigint,
   ): Promise<MsgCacheRecord[]> {
     try {
-      return kind === 'group'
-        ? await this.session.forwardMsgs.listGroupForward(msgId)
-        : await this.session.forwardMsgs.listC2cForward(msgId);
+      return await this.session.forwardMsgs.listForward(
+        kind === 'official' || kind === 'service' ? 'c2c' : kind,
+        msgId,
+      );
     } catch {
       return [];
     }
@@ -1705,7 +1713,7 @@ export class MsgService {
    * carries several media of the same kind.
    */
   async findForwardedMediaElement(
-    kind: 'c2c' | 'group',
+    kind: ForwardCacheKind,
     msgId: bigint,
     subMsgId: bigint,
     mediaKind: 'video' | 'file' | 'ptt',

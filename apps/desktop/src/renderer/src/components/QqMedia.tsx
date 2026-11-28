@@ -519,7 +519,7 @@ export function QqImage({
  *  cache the medium belongs to. Absent for normal timeline messages. */
 export interface ForwardRef {
   fwdMsgId: string;
-  fwdKind: 'c2c' | 'group';
+  fwdKind: import('@weq/db').ForwardCacheKind;
   fwdResId?: string;
 }
 

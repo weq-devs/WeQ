@@ -19,6 +19,7 @@ import { findMediaElement, handleMediaRequest } from './media_protocol';
 import { handleResourceRequest } from './resource_protocol';
 import { fileResponse } from './file_response';
 import { toProtocolAssetUrl } from './protocol_asset_url';
+import { forwardCacheKindInput } from '../shared/forward_cache';
 import { MEDIA_SAVE_URL_KINDS, type MediaSaveSource } from '../shared/media_save';
 import type { ResumableResourceRequest, ResourceExportRunContext } from '@weq/service';
 import { resolveRecordedChatFile } from './message_media_local';
@@ -31,7 +32,7 @@ const chatFileInput = z.object({
   token: z.string().optional(),
   conv: z.string().optional(),
   fwdMsgId: messageId.optional(),
-  fwdKind: z.enum(['c2c', 'group']).optional(),
+  fwdKind: forwardCacheKindInput.optional(),
   fwdResId: z.string().max(4096).optional(),
 });
 export const mediaSaveSourceInput = z.discriminatedUnion('kind', [

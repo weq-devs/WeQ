@@ -21,6 +21,7 @@ import { plainContentText } from '@weq/service/message-plain-text';
 import { setReactionWithRecent } from '../../recent_reactions';
 import { ChatFileForward } from '../../chat_file_forward';
 import { chatFileForwardInput } from '../../../shared/chat_file_forward';
+import { forwardCacheKindInput } from '../../../shared/forward_cache';
 import {
   albumAccessState,
   albumSelectionInput,
@@ -673,13 +674,12 @@ async function readSidebarSearch<T>(
   return result;
 }
 
-const messageRecordInput = exportAccountBindingInput
-  .required()
-  .extend({
-    kind: z.enum(['group', 'c2c', 'official', 'service']),
-    conv: z.string().min(1).max(128),
-    msgId: z.string().regex(/^-?\d{1,20}$/),
-  })
+const messageRecordIdentityInput = exportAccountBindingInput.required().extend({
+  conv: z.string().min(1).max(128),
+  msgId: z.string().regex(/^-?\d{1,20}$/),
+});
+const messageRecordInput = messageRecordIdentityInput
+  .extend({ kind: z.enum(['group', 'c2c', 'official', 'service']) })
   .refine((value) => value.kind !== 'service' || /^\d{1,20}$/.test(value.conv));
 
 const messagePageInput = convInput.merge(exportAccountBindingInput).extend({
@@ -5903,7 +5903,7 @@ export const accountRouter = router({
   getForwardMessages: procedure
     .input(
       z.object({
-        kind: z.enum(['c2c', 'group']),
+        kind: forwardCacheKindInput,
         msgId: z.string().min(1),
         /**
          * Optional server resource id of the merged forward. When the local
@@ -5922,11 +5922,7 @@ export const accountRouter = router({
       // 带服务端签发的 resId，点开就能拉到内容）。
       const msgId = /^\d+$/.test(input.msgId) ? BigInt(input.msgId) : null;
       const records =
-        msgId === null || msgId <= 0n
-          ? []
-          : input.kind === 'group'
-            ? await service.getGroupForward(msgId)
-            : await service.getC2cForward(msgId);
+        msgId === null || msgId <= 0n ? [] : await service.getLocal(input.kind, msgId);
       if (records.length === 0 && input.resId) {
         // 40900 缓存为空 -> 走协议在线拉取。要求 QQ 在线且未开「完全离线模式」。
         const state = albumAccessState(requireServices());
@@ -5943,20 +5939,25 @@ export const accountRouter = router({
 
   messageRecordDetails: procedure
     .input(
-      messageRecordInput.and(
-        z.object({
-          cache: z
-            .object({
-              format: z.enum(['native', 'protocol']).optional(),
-              retained: z.boolean(),
-              seq: z
-                .string()
-                .regex(/^-?\d{1,20}$/)
-                .optional(),
-            })
-            .optional(),
-        }),
-      ),
+      z
+        .union([
+          messageRecordIdentityInput.extend({ kind: z.literal('aiAssistant') }),
+          messageRecordInput,
+        ])
+        .and(
+          z.object({
+            cache: z
+              .object({
+                format: z.enum(['native', 'protocol']).optional(),
+                retained: z.boolean(),
+                seq: z
+                  .string()
+                  .regex(/^-?\d{1,20}$/)
+                  .optional(),
+              })
+              .optional(),
+          }),
+        ),
     )
     .query(async ({ input }) => {
       const services = requireExpectedAccount(
@@ -5971,6 +5972,7 @@ export const accountRouter = router({
           throw new Error('账号或数据源已切换');
       }
       if (input.cache) {
+        if (input.kind === 'aiAssistant') return null;
         const { format, retained, seq } = input.cache;
         const cached = await services.gapHistory.findByMsgId(input.msgId, {
           recalledOnly: retained,
@@ -10435,7 +10437,7 @@ export const accountRouter = router({
         forward: z
           .object({
             carrierId: z.string(),
-            kind: z.enum(['c2c', 'group']),
+            kind: forwardCacheKindInput,
             conv: z.string(),
             resId: z.string().max(4096).optional(),
           })

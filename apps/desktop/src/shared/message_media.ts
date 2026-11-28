@@ -1,3 +1,5 @@
+import type { ForwardCacheKind } from '@weq/db';
+
 export type MessageMediaTarget = {
   kind: 'pic' | 'emoji' | 'video' | 'ptt' | 'file' | 'mface';
   t: number;
@@ -7,7 +9,7 @@ export type MessageMediaTarget = {
   msgId: string;
   conv: string;
   fwdMsgId?: string;
-  fwdKind?: 'c2c' | 'group';
+  fwdKind?: ForwardCacheKind;
   fwdResId?: string;
   pack: string;
   hash: string;

@@ -1,5 +1,6 @@
 import { createContext, type CSSProperties } from 'react';
 import { create } from 'zustand';
+import type { ForwardCacheKind } from '@weq/db';
 import type { ForwardExportTarget, MessageBubbleSkin } from '@weq/service';
 import type { ContentOwner } from '../../../shared/content_selection';
 import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
@@ -41,8 +42,8 @@ export interface ForwardWindowState {
   id: number;
   /** Title shown in the header (parsed from the XML summary when available). */
   title: string;
-  /** The forward kind needed for the lookup (c2c vs group). */
-  kind: 'c2c' | 'group';
+  /** 承载消息所在的表。 */
+  kind: ForwardCacheKind;
   /** Group code (群号) of the chat this was opened from; '' for c2c. Only used
    *  as one of the two scene guesses when downloading a forwarded medium. */
   conv: string;
@@ -78,7 +79,7 @@ type OpenForwardOptions = {
   parentId?: number;
   anchor?: DOMRect;
   title: string;
-  kind: 'c2c' | 'group';
+  kind: ForwardCacheKind;
   conv: string;
   msgId: string;
   rootMsgId?: string;

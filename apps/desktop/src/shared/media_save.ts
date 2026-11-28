@@ -1,3 +1,5 @@
+import type { ForwardCacheKind } from '@weq/db';
+
 export const MEDIA_SAVE_URL_KINDS = ['file', 'image', 'video', 'voice', 'emoji'] as const;
 
 export type MediaSaveSource =
@@ -15,7 +17,7 @@ export type MediaSaveSource =
       token?: string;
       conv?: string;
       fwdMsgId?: string;
-      fwdKind?: 'c2c' | 'group';
+      fwdKind?: ForwardCacheKind;
       fwdResId?: string;
     }
   | {

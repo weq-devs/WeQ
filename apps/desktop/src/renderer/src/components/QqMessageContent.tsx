@@ -979,8 +979,7 @@ function QqMessageContentBody({
     }
     // 转账 / 红包 使用原有组件
     // 红包明细的会话标识：群 = 群号，私聊 = 对方 uid。
-    const redbagKind: 'c2c' | 'group' =
-      conversation?.type === 'group' ? 'group' : (forwardKind ?? 'c2c');
+    const redbagKind = conversation?.type === 'group' || forwardKind === 'group' ? 'group' : 'c2c';
     const redbagConv =
       conversation?.type === 'group'
         ? (conversation.id ?? groupCode)

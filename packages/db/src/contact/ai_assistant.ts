@@ -27,7 +27,8 @@
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
 import { ProtoMsg, decodePreviewElement, type Element } from '@weq/codec';
 import { RecentContactBody } from '@weq/codec/proto/msg/40051';
-import { decodeBody } from '../msg/util';
+import { decodeBody, decodeDress, decodeEmoji } from '../msg/util';
+import { readMessageSourceRows } from '../msg/export_source';
 import type { AiAssistantSession } from './types';
 import { QqDb } from '../qq_db';
 
@@ -121,6 +122,29 @@ export class AiAssistantDb {
       [sessionId],
     );
     return Number(rows[0]?.[0] ?? 0);
+  }
+
+  async getMessageRecord(sessionId: string, msgId: string) {
+    const table = 'ai_assistant_msg_table';
+    const fields = [...(await this.qq.tableColumns(table))];
+    if (!fields.length) return null;
+    const [record] = await readMessageSourceRows(
+      this.qq,
+      table,
+      '40021',
+      sessionId,
+      [msgId],
+      fields,
+    );
+    if (!record) return null;
+    return {
+      ...record,
+      message: {
+        elements: decodeBody(record.columns['40800']),
+        decoration: decodeDress(record.columns['40801']),
+        setEmojiList: decodeEmoji(record.columns['40062']),
+      },
+    };
   }
 
   close(): void {

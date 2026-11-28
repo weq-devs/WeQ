@@ -6,13 +6,19 @@
  * MsgCache (which can itself nest 40900 — see proto/msg/40900.ts). This class
  * fetches one message row by msgId and decodes that column.
  *
- * c2c and group share the same column layout (40001 = msgId, 40900 = cache),
- * differing only in table name — hence two thin methods over one query.
+ * 私聊、群聊和小Q使用相同的消息 ID 与缓存列，按消息来源定位表。
  */
 
 import { decodeMsgCacheColumn, type MsgCacheRecord } from '@weq/codec';
 import type { DatabaseAlgorithms, NtHelperBinding, SqlValue } from '@weq/native';
 import { QqDb } from '../qq_db';
+
+const FORWARD_TABLES = {
+  c2c: 'c2c_msg_table',
+  group: 'group_msg_table',
+  aiAssistant: 'ai_assistant_msg_table',
+};
+export type ForwardCacheKind = keyof typeof FORWARD_TABLES;
 
 export interface ForwardMsgDbOptions {
   /** Absolute path to nt_msg.db. */
@@ -32,12 +38,12 @@ export class ForwardMsgDb {
 
   /** Forward/reply cache for a c2c message, by msgId. */
   listC2cForward(msgId: bigint): Promise<MsgCacheRecord[]> {
-    return this.queryForward('c2c_msg_table', msgId);
+    return this.listForward('c2c', msgId);
   }
 
   /** Forward/reply cache for a group message, by msgId. */
   listGroupForward(msgId: bigint): Promise<MsgCacheRecord[]> {
-    return this.queryForward('group_msg_table', msgId);
+    return this.listForward('group', msgId);
   }
 
   /** 单页引用缓存批量读取；坏 BLOB 仅影响该条引用。 */
@@ -45,7 +51,7 @@ export class ForwardMsgDb {
     kind: 'c2c' | 'group',
     msgIds: readonly bigint[],
   ): Promise<Map<bigint, MsgCacheRecord[]>> {
-    const table = kind === 'group' ? 'group_msg_table' : 'c2c_msg_table';
+    const table = FORWARD_TABLES[kind];
     const ids = [...new Set(msgIds)];
     const result = new Map<bigint, MsgCacheRecord[]>();
     for (let offset = 0; offset < ids.length; offset += 256) {
@@ -66,9 +72,8 @@ export class ForwardMsgDb {
     return result;
   }
 
-  // `table` is an internal constant (never user input) so interpolating it
-  // into the SQL is safe; msgId is bound as a parameter.
-  private async queryForward(table: string, msgId: bigint): Promise<MsgCacheRecord[]> {
+  async listForward(kind: ForwardCacheKind, msgId: bigint): Promise<MsgCacheRecord[]> {
+    const table = FORWARD_TABLES[kind];
     const rows = await this.qq.query(`SELECT "40900" FROM ${table} WHERE "40001" = ? LIMIT 1`, [
       msgId,
     ]);

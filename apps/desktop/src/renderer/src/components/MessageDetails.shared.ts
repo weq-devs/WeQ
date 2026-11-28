@@ -47,6 +47,7 @@ const chatTypes: Record<number, string> = {
   5: '好友通知',
   6: '群通知',
   8: '数据线',
+  45: '小Q',
   99: '临时会话',
   100: '群临时会话',
   101: '好友验证',
@@ -100,7 +101,13 @@ export function messageRecordField(
   value: MessageFieldValue,
   record: MessageRecordFields,
 ) {
-  const name = field === '40027' && record.table === 'group_msg_table' ? '群号' : names[field];
+  const aiAssistant = record.table === 'ai_assistant_msg_table';
+  const name =
+    aiAssistant && (field === '40021' || field === '40027')
+      ? '小Q 会话 ID'
+      : field === '40027' && record.table === 'group_msg_table'
+        ? '群号'
+        : names[field];
   if (!name || value === null) return { name };
   if (typeof value === 'object') {
     const count =
@@ -132,6 +139,10 @@ export function messageRecordField(
     const date = new Date(numeric * 1000);
     const time = formatDateTime(date, 'second');
     return { name, display: field === '40058' ? time.slice(0, 10) : time };
+  }
+  if (aiAssistant) {
+    if (field === '40012' && numeric === 64) return { name, display: '小Q 回复' };
+    return { name, display: enums[field] ? enums[field][numeric] : String(value) };
   }
   if (
     (field === '40011' || field === '40012') &&

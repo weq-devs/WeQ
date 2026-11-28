@@ -30,7 +30,7 @@ export interface AiAssistantMessageWire {
   senderUid: string;
   segments: AiSegmentWire[];
   /** 其余元素（推荐消息 / 操作栏 / 图片），已转 RenderElement。 */
-  elements: unknown[];
+  elements: Array<{ type?: string; data?: Record<string, unknown> }>;
   /** 该条回复带授权申请。 */
   needsAuth: boolean;
 }

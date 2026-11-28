@@ -187,7 +187,7 @@ export function ForwardRecordList({
       latestMessageId: null,
       latestPeerMsgId: null,
       settled: true,
-      kind: win.kind,
+      kind: win.kind === 'group' ? 'group' : 'c2c',
       conv: `forward:${win.id}`,
     }),
     [intentEnabled, status, runningIntent, results, win.kind, win.id],
@@ -472,7 +472,7 @@ export function ForwardRecordList({
     mergePending.current = true;
     setMerging(true);
     try {
-      await actions.merge(rows, win.kind);
+      await actions.merge(rows, win.kind === 'group' ? 'group' : 'c2c');
     } catch (cause) {
       error('准备转发失败', cause);
     } finally {
@@ -504,7 +504,7 @@ export function ForwardRecordList({
         const result = await client.account.intentSense.analyzeForwardMessage.mutate({
           ...binding,
           msgId: entry.id,
-          kind: win.kind,
+          kind: win.kind === 'group' ? 'group' : 'c2c',
           conv: win.conv,
           rows: entries
             .slice(Math.max(0, entry.index - span), entry.index + 1)

@@ -97,6 +97,7 @@ import {
   isLikelyCorruptionError,
   withDatabaseWorkload,
   withRecordedGroupSenderNames,
+  type ForwardCacheKind,
 } from '@weq/db';
 import {
   DatabaseRecoveryGate,
@@ -684,7 +685,7 @@ export type ResumableResourceRequest =
             conv?: string;
             token?: string;
             fwdMsgId?: string;
-            fwdKind?: 'c2c' | 'group';
+            fwdKind?: ForwardCacheKind;
             fwdResId?: string;
           }
         | { kind: 'url'; url: string; name?: string };
