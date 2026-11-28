@@ -75,6 +75,7 @@ export class ConversationEntryTransition extends Component<Props> {
 
     const frame = scroll.cloneNode(false) as HTMLDivElement;
     frame.removeAttribute('tabindex');
+    frame.removeAttribute('data-snapshot-conversation');
     frame.style.width = `${scroll.offsetWidth}px`;
     frame.style.height = `${scroll.offsetHeight}px`;
     for (const child of children) {

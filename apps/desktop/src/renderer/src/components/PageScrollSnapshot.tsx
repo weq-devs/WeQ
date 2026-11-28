@@ -2,7 +2,11 @@ import { useLayoutEffect, useRef, type CSSProperties, type ReactNode, type RefOb
 import { z } from 'zod/v3';
 import { captureReadingPosition, restoreReadingPosition } from '../lib/conversationReadingPosition';
 import { pageSnapshots } from '../lib/pageSnapshots';
-import { TIMELINE_MESSAGE_LOCATED } from '../lib/timelineViewport';
+import {
+  messageElement,
+  timelineViewport,
+  TIMELINE_MESSAGE_LOCATED,
+} from '../lib/timelineViewport';
 import { usePageSnapshotKey } from './PageSnapshots.shared';
 
 const reading = z.object({
@@ -19,6 +23,7 @@ const positionSchema = z
       path: z.array(z.number().int().nonnegative()).max(32),
       top: z.number().finite().nonnegative(),
       left: z.number().finite().nonnegative(),
+      conversation: z.string().optional(),
       reading: reading.optional(),
     }),
   )
@@ -62,7 +67,10 @@ export function PageScrollSnapshot({
     const owner = container.ownerDocument.defaultView ?? window;
     let positions: Position[] = [];
     try {
-      positions = pageSnapshots.read(key, positionSchema) ?? [];
+      // 旧版聊天快照没有会话身份，不能判断锚点属于哪个聊天。
+      positions = (pageSnapshots.read(key, positionSchema) ?? []).filter(
+        (item) => !item.reading || (item.conversation && item.reading.anchorId),
+      );
     } catch {
       /* 失效的坐标不影响正文。 */
     }
@@ -91,25 +99,39 @@ export function PageScrollSnapshot({
     const find = (item: Position): HTMLElement | null => {
       let node: Element | undefined = container;
       for (const index of item.path) node = node?.children[index];
-      if (item.reading && !(node instanceof owner.HTMLElement && node.matches('.message-scroll')))
-        return container.querySelector('.message-scroll');
-      return node instanceof owner.HTMLElement ? node : null;
+      const byPath =
+        node instanceof owner.HTMLElement &&
+        node.closest('[data-page-snapshot]') === container &&
+        (!item.reading || node.matches('.message-scroll'))
+          ? node
+          : null;
+      if (!item.reading || byPath?.dataset.snapshotConversation === item.conversation)
+        return byPath;
+      return (
+        [...container.querySelectorAll<HTMLElement>('.message-scroll')].find(
+          (scroll) =>
+            scroll.dataset.snapshotConversation === item.conversation &&
+            scroll.closest('[data-page-snapshot]') === container,
+        ) ?? byPath
+      );
     };
     const save = (resample = false) => {
       clearTimeout(saveTimer);
       saveTimer = undefined;
       const recent = new Map(positions.map((item) => [item.path.join('.'), item]));
       for (const [target, item] of scrolled) {
+        // 防止防抖期间切换会话后，把新会话的消息写到旧会话名下。
+        if (item.conversation !== target.dataset.snapshotConversation) continue;
         const path = pathOf(container, target);
         if (path && (target.clientHeight || target.scrollTop || target.scrollLeft)) {
           item.path = path;
           item.top = Math.max(0, target.scrollTop);
           item.left = Math.max(0, target.scrollLeft);
-          if (target.matches('.message-scroll')) item.reading = captureReadingPosition(target);
+          if (item.conversation) item.reading = captureReadingPosition(target);
         }
         const id = item.path.join('.');
         recent.delete(id);
-        recent.set(id, item);
+        if (!item.conversation || item.reading?.anchorId) recent.set(id, item);
       }
       scrolled.clear();
       positions = [...recent.values()].slice(-64);
@@ -118,7 +140,8 @@ export function PageScrollSnapshot({
         for (const item of positions) {
           if (pending.has(item)) continue;
           const element = find(item);
-          if (!element?.clientHeight) continue;
+          if (!element?.clientHeight || item.conversation !== element.dataset.snapshotConversation)
+            continue;
           item.top = Math.max(0, element.scrollTop);
           item.left = Math.max(0, element.scrollLeft);
           if (item.reading) item.reading = captureReadingPosition(element);
@@ -138,11 +161,14 @@ export function PageScrollSnapshot({
         target.closest('[data-page-snapshot]') !== container
       )
         return;
-      const current = scrolled.get(target);
+      const conversation = target.dataset.snapshotConversation;
+      if (target.matches('.message-scroll') && !conversation) return;
+      const recorded = scrolled.get(target);
+      const current = recorded?.conversation === conversation ? recorded : undefined;
       const path = current?.path ?? pathOf(container, target);
       if (!path) return;
       if (current) scrolled.delete(target);
-      const position = current ?? { path, top: 0, left: 0 };
+      const position = current ?? { path, top: 0, left: 0, conversation };
       position.top = Math.max(0, target.scrollTop);
       position.left = Math.max(0, target.scrollLeft);
       scrolled.set(target, position);
@@ -171,21 +197,18 @@ export function PageScrollSnapshot({
       for (const item of pending) {
         const element = find(item);
         if (!element) continue;
+        if (item.conversation !== element.dataset.snapshotConversation) {
+          pending.delete(item);
+          continue;
+        }
         if (item.reading) {
-          if (!element.querySelector('[data-message-id]')) continue;
+          const anchor = item.reading.anchorId;
           if (
-            item.reading.anchorId &&
-            ![...element.querySelectorAll<HTMLElement>('[data-message-id]')].some(
-              (row) => row.dataset.messageId === item.reading?.anchorId,
-            )
-          ) {
-            if (
-              element.scrollTop !== item.top &&
-              element.scrollHeight - element.clientHeight >= item.top
-            )
-              element.scrollTop = item.top;
+            !anchor ||
+            (!messageElement(element, anchor) &&
+              timelineViewport(element)?.offset(anchor) === undefined)
+          )
             continue;
-          }
           restoreReadingPosition(element, item.reading);
         } else {
           if (
@@ -216,7 +239,11 @@ export function PageScrollSnapshot({
     }
     const timer = setTimeout(finish, 5000);
     if (pending.size) {
-      observer.observe(container, { subtree: true, childList: true });
+      observer.observe(container, {
+        subtree: true,
+        childList: true,
+        attributeFilter: ['data-snapshot-conversation'],
+      });
       resize.observe(container);
       restore();
     }

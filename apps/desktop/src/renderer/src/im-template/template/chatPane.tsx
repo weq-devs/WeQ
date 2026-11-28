@@ -6506,6 +6506,7 @@ function ChatPaneContent({
     }
   }
 
+  const conversationScope = JSON.stringify([user.id, conversation.type, conversation.id]);
   const pane = (
     <section
       {...multi.rootProps}
@@ -6858,6 +6859,7 @@ function ChatPaneContent({
                 marquee.dragging && 'is-marquee-selecting',
               )}
               ref={captureTimeline}
+              data-snapshot-conversation={conversationScope}
               data-latest-message-id={visibleMessages.at(-1)?.id}
               tabIndex={0}
               aria-label="聊天消息，方向键浏览消息，回车打开消息操作"
@@ -8729,7 +8731,7 @@ function ChatPaneContent({
   );
   return (
     <ConversationEntryTransition
-      scope={JSON.stringify([user.id, conversation.type, conversation.id])}
+      scope={conversationScope}
       active={tabActive}
       waiting={waitingForEntry}
       scrollRef={messageScrollRef}

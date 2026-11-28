@@ -9,6 +9,7 @@ import { useViewState } from '../src/renderer/src/state/view';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
+import type { QzoneSpaceRequest } from '../src/renderer/src/lib/qzoneNavigation';
 import type { QzoneInteraction, QzonePublication } from '../src/renderer/src/views/qzone_types';
 
 const state = vi.hoisted(() => ({
@@ -310,7 +311,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-async function mount(strict = false, pane = '说说', { timelineOnly = false } = {}) {
+async function mount(
+  strict = false,
+  pane = '说说',
+  { timelineOnly = false, request }: { timelineOnly?: boolean; request?: QzoneSpaceRequest } = {},
+) {
   let active = true;
   const host = document.createElement('div');
   document.body.append(host);
@@ -323,7 +328,7 @@ async function mount(strict = false, pane = '说说', { timelineOnly = false } =
       selfUin: '10001',
       nickname: '合成自己',
       active,
-      spaceRequest: {
+      spaceRequest: request ?? {
         accountUin: '10001',
         uin: '10001',
         revision: 'fixture',
@@ -346,7 +351,7 @@ async function mount(strict = false, pane = '说说', { timelineOnly = false } =
         .find((button) => button.textContent === label)!
         .click();
     });
-  if (pane !== '主页') await openPane(pane);
+  if (!request && pane !== '主页') await openPane(pane);
   if (!timelineOnly)
     await act(async () => vi.waitFor(() => expect(state.summary).toHaveBeenCalled()));
   const button = (label: string) =>
@@ -744,6 +749,48 @@ it('评论未确认保留草稿，受理后不关闭互动区并刷新评论，�
   expect(view.count()).toContain('评论 6');
   capture(view.host, 'comment-success');
 });
+
+it('从搜索定位评论后，迟到的评论刷新保留当前阅读位置', async () => {
+  vi.useFakeTimers();
+  const tid = '112700000100000001000000';
+  state.detail.mockResolvedValue({
+    post: { tid, content: '合成定位说说', time: 1, images: [], videos: [], commentNum: 1 },
+  });
+  const scrolledTargets: HTMLElement[] = [];
+  vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    if (this.classList.contains('is-notification-target')) scrolledTargets.push(this);
+  });
+  const view = await mount(false, '说说', {
+    timelineOnly: true,
+    request: {
+      accountUin: '10001',
+      uin: '10001',
+      revision: 'comment-search',
+      target: { kind: 'post', uin: '10001', tid, commentId: 'target', commentText: '搜索命中评论' },
+    },
+  });
+  await act(async () => vi.advanceTimersByTimeAsync(10));
+  expect(scrolledTargets).toHaveLength(1);
+  expect(scrolledTargets[0]?.textContent).toContain('搜索命中评论');
+  const refresh = deferred<Awaited<ReturnType<typeof state.interactions>>>();
+  state.interactions.mockReturnValueOnce(refresh.promise);
+  enter(view.host, '合成新评论');
+  await act(async () => view.button('发送说说评论').click());
+  expect(state.interactions).toHaveBeenCalledTimes(2);
+  await act(async () =>
+    refresh.resolve({
+      comments: [],
+      likes: [],
+      commentCountInclusive: 3,
+      fieldCoverage: { comments: 'observed' },
+    }),
+  );
+  expect(view.host.textContent).toContain('评论及回复共 3 条');
+  expect(scrolledTargets).toHaveLength(1);
+});
+
 it('连续操作期间校准失败，数量以当前即时状态为基准，失败恢复上一笔结果', async () => {
   const view = await mount();
   state.summary.mockRejectedValue(new Error('合成读取失败'));

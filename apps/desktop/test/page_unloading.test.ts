@@ -287,6 +287,7 @@ it('重建后的消息高度改变时按消息锚点恢复，而不是直接复�
       'div',
       {
         className: 'message-scroll',
+        'data-snapshot-conversation': 'direct-a',
         ref: (element: HTMLDivElement | null) => {
           if (element) element.getBoundingClientRect = () => new DOMRect(0, 100, 400, 200);
         },
@@ -394,14 +395,20 @@ it('用户中断等待中的滚动恢复后，迟到图片加载不能再次套�
   }
 });
 
-it.each([true, false])('切回消息页后显式定位优先（显式=%s）', async (explicit) => {
+it.each([
+  { label: '同会话恢复有效锚点', saved: 'direct-a', anchor: 'old', explicit: false, top: 120 },
+  { label: '同会话显式定位优先', saved: 'direct-a', anchor: 'old', explicit: true, top: 640 },
+  { label: '同会话缺少锚点', saved: 'direct-a', anchor: 'gone', explicit: false, top: 640 },
+  { label: '另一会话的同名锚点', saved: 'direct-b', anchor: 'old', explicit: false, top: 640 },
+  { label: '旧快照没有会话身份', saved: undefined, anchor: 'old', explicit: false, top: 640 },
+])('切回消息页后处理延迟恢复（$label）', async ({ saved, anchor, explicit, top }) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   const scroll = () => host.querySelector<HTMLElement>('.message-scroll')!;
-  const render = (activeKey: string, messageId?: string) =>
+  const render = (ready: boolean) =>
     act(() =>
       root.render(
         h(
@@ -409,46 +416,58 @@ it.each([true, false])('切回消息页后显式定位优先（显式=%s）', as
           { scope: 'account' },
           h(
             RetainedTabs,
-            { snapshotKey: 'main', activeKey },
-            activeKey === 'messages'
-              ? h(
-                  'div',
-                  {
-                    className: 'message-scroll',
-                    ref: (node: HTMLDivElement | null) => {
-                      if (node)
-                        Object.defineProperty(node, 'scrollHeight', {
-                          configurable: true,
-                          value: messageId ? 1000 : 0,
-                        });
-                    },
+            { snapshotKey: 'main', activeKey: 'messages' },
+            h(
+              'div',
+              {
+                className: 'message-scroll',
+                'data-snapshot-conversation': 'direct-a',
+                ref: (node: HTMLDivElement | null) => {
+                  if (node)
+                    Object.defineProperty(node, 'scrollHeight', {
+                      configurable: true,
+                      value: ready ? 1000 : 0,
+                    });
+                },
+              },
+              ready &&
+                h('div', {
+                  className: 'message-line',
+                  'data-message-id': 'old',
+                  ref: (node: HTMLDivElement | null) => {
+                    if (node)
+                      node.getBoundingClientRect = () => new DOMRect(0, 120 - scroll().scrollTop);
                   },
-                  messageId &&
-                    h('div', { className: 'message-line', 'data-message-id': messageId }),
-                )
-              : h('div'),
+                }),
+              ready && h('div', { className: 'message-line', 'data-message-id': 'notification' }),
+            ),
           ),
         ),
       ),
     );
   try {
-    render('messages', 'old');
-    scroll().scrollTop = 120;
-    scroll().dispatchEvent(new Event('scroll', { bubbles: true }));
-    render('contacts');
-    render('messages');
-    render('messages', 'notification-target');
+    pageSnapshots.write(JSON.stringify([JSON.stringify(['account', 'main:messages']), 'scroll']), [
+      {
+        path: [0],
+        top: 120,
+        left: 0,
+        conversation: saved,
+        reading: { scrollTop: 120, anchorId: anchor },
+      },
+    ]);
+    render(false);
+    render(true);
     if (!explicit)
       scroll().addEventListener(TIMELINE_MESSAGE_LOCATED, (event) => event.stopPropagation(), {
         once: true,
       });
-    const target = scroll().querySelector<HTMLElement>('[data-message-id]')!;
+    const target = scroll().querySelector<HTMLElement>('[data-message-id="notification"]')!;
     target.scrollIntoView = () => {
       scroll().scrollTop = 640;
     };
-    expect(revealTimelineMessage(scroll(), 'notification-target', true)).toBe(true);
+    expect(revealTimelineMessage(scroll(), 'notification', true)).toBe(true);
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
-    expect(scroll().scrollTop).toBe(explicit ? 640 : 120);
+    expect(scroll().scrollTop).toBe(top);
     expect(target.classList.contains('weq-reply-target-flash')).toBe(true);
   } finally {
     act(() => root.unmount());

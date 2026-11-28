@@ -2850,6 +2850,8 @@ function Interaction({
   renderReply?: (comment: QzoneInteraction['comments'][number]) => ReactNode;
 }) {
   const focusRef = useRef<HTMLDivElement>(null);
+  const positionedComment = useRef<string | undefined>(undefined);
+  const focusId = focusComment?.id;
   const readsPaused = useContext(QzoneReadPauseContext);
   const { active, refresh } = useContext(QzonePageContext);
   const [result, setResult] = useState<QzoneInteraction | null>(null);
@@ -2860,9 +2862,14 @@ function Interaction({
   const { run, cancel } = useQzoneRequests();
   const readyLikes = mode === 'likes' ? initialLikes : null;
   useEffect(() => {
-    if (active && result && focusRef.current)
-      focusRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, [active, result, focusComment?.id]);
+    if (!focusId) {
+      positionedComment.current = undefined;
+      return;
+    }
+    if (!active || !result || !focusRef.current || positionedComment.current === focusId) return;
+    positionedComment.current = focusId;
+    focusRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [active, result, focusId]);
   useEffect(() => {
     if (!active || readsPaused || writePending) return undefined;
     let live = true;
