@@ -1682,6 +1682,24 @@ function ChatPaneContent({
         : firstSeq;
     return unreadTimelineBoundary(visibleMessages, startSeq, lastSeq);
   }, [visibleMessages, firstSeq, lastSeq, viewportUnreadStart, hideReadDivider]);
+  const unreadDividerScope = JSON.stringify([user.id, conversation?.type, conversation?.id]);
+  const [dismissedUnreadDivider, setDismissedUnreadDivider] = useState<{
+    scope: string;
+    messageId: string;
+  }>();
+  if (dismissedUnreadDivider && dismissedUnreadDivider.scope !== unreadDividerScope)
+    setDismissedUnreadDivider(undefined);
+  const unreadDividerDismissed = dismissedUnreadDivider?.scope === unreadDividerScope;
+  const unreadDividerPresent = useClosingContent(
+    unreadDividerDismissed ? null : true,
+    unreadDividerScope,
+  );
+  const visibleUnreadBoundaryId =
+    showUnreadDivider && !unreadDividerDismissed ? unreadBoundaryId : undefined;
+  const displayedUnreadBoundaryId =
+    showUnreadDivider && unreadDividerDismissed && unreadDividerPresent
+      ? dismissedUnreadDivider.messageId
+      : visibleUnreadBoundaryId;
   const groupPositions = useMemo(() => {
     if (!groupConsecutiveMessages) return undefined;
     return messageGroups(visibleMessages, {
@@ -6458,7 +6476,7 @@ function ChatPaneContent({
                     conversation.generated || message.optimistic ? 'millisecond' : 'second'
                   }
                 />
-                {showUnreadDivider && message.id === unreadBoundaryId ? (
+                {message.id === visibleUnreadBoundaryId ? (
                   <div className="weq-unread-divider" role="separator" aria-label="以下为未读消息">
                     <span aria-hidden>以下为未读消息</span>
                   </div>
@@ -6824,7 +6842,7 @@ function ChatPaneContent({
           jumpRevision={jumpRequest?.revision}
           deleted={deletedKeys}
           isHidden={isTimelineMessageHidden}
-          unreadBoundary={showUnreadDivider ? unreadBoundaryId : undefined}
+          unreadBoundary={displayedUnreadBoundaryId}
           prewarmBudgetMiB={mediaSettings.data?.chatMessagePrewarmMiB}
           ownSenderId={user.id}
           observeMessageVisibility={observeMessageVisibility}
@@ -6929,13 +6947,31 @@ function ChatPaneContent({
                             conversation.generated || message.optimistic ? 'millisecond' : 'second'
                           }
                         />
-                        {showUnreadDivider && message.id === unreadBoundaryId ? (
+                        {message.id === displayedUnreadBoundaryId ? (
                           <div
                             className="weq-unread-divider"
                             role="separator"
                             aria-label="以下为未读消息"
+                            aria-hidden={unreadDividerDismissed || undefined}
+                            data-closing={unreadDividerDismissed || undefined}
                           >
-                            <span aria-hidden>以下为未读消息</span>
+                            <button
+                              className="weq-unread-divider-dismiss"
+                              type="button"
+                              aria-label="以下为未读消息，关闭未读分界线"
+                              disabled={unreadDividerDismissed}
+                              onClick={(event) => {
+                                if (event.detail === 0)
+                                  messageScrollRef.current?.focus({ preventScroll: true });
+                                setDismissedUnreadDivider({
+                                  scope: unreadDividerScope,
+                                  messageId: message.id,
+                                });
+                              }}
+                            >
+                              以下为未读消息
+                              <X className="weq-unread-divider-close-icon" size={12} aria-hidden />
+                            </button>
                           </div>
                         ) : null}
                         <MessageRow
