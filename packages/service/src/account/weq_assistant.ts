@@ -40,7 +40,7 @@ import { join } from 'node:path';
 import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import type { SqlValue } from '@weq/native';
-import { QqDb, C2cMsgDb } from '@weq/db';
+import { QqDb, C2cMsgDb, qqDatabaseReadOnly } from '@weq/db';
 import { ProtoMsg, decodeElement, encodeElement, ElementType } from '@weq/codec';
 import type { ArkElement } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
@@ -366,8 +366,7 @@ export class WeqAssistantService {
    * given / native writes are disallowed / the account's nt_data dir can't be resolved.
    */
   private writeAvatarFile(sourcePath?: string): string | null {
-    if (!sourcePath) return null;
-    if (!this.allowNativeWrite) return null;
+    if (!sourcePath || !this.allowNativeWrite || qqDatabaseReadOnly()) return null;
     const ntData = this.platform.ntDataDir(this.session.context.uin);
     if (!ntData) return null;
     const dir = join(ntData, 'avatar', 'user', this.avatarShard);

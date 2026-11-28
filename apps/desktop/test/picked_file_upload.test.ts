@@ -1,12 +1,15 @@
 // @vitest-environment node
 import http from 'node:http';
-import { readFile } from 'node:fs/promises';
-import { afterEach, expect, it, vi } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import {
   BROWSER_FILE_CHUNK_BYTES,
   PICKED_FILE_UPLOAD_PREFIX,
 } from '../src/shared/browser_file_upload';
 import { pickedBrowserFiles } from '../src/main/browser_files';
+import { initBackupContext } from '../src/main/context/backup_context';
 import { handleRequest } from '../src/main/web/http';
 
 const state = vi.hoisted(() => ({ config: 'fixture', services: {} as object }));
@@ -17,6 +20,14 @@ vi.mock('../src/main/context/app_context', () => ({
   }),
 }));
 
+let dataRoot: string;
+beforeAll(async () => {
+  dataRoot = await mkdtemp(join(tmpdir(), 'weq-picked-file-upload-'));
+  expect(initBackupContext(dataRoot).ok).toBe(true);
+});
+afterAll(async () => {
+  await rm(dataRoot, { recursive: true, force: true });
+});
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -72,9 +83,9 @@ it('二进制附件分段在真实 HTTP 路由保留鉴权、来源、偏移和�
   expect(await head.json()).toEqual({ offset: 3 });
   const tail = await f.send(Uint8Array.of(5, 6), { 'X-WeQ-Upload-Offset': '3' });
   expect(await tail.json()).toEqual({ offset: 5 });
-  expect(await readFile(pickedBrowserFiles.complete(f.owner, f.id))).toEqual(
-    Buffer.from([0, 255, 120, 5, 6]),
-  );
+  const path = pickedBrowserFiles.complete(f.owner, f.id);
+  expect(path).toBe(join(dataRoot, 'cache', 'picked-file-transfer', f.id, 'files', 'fixture.jpg'));
+  expect(await readFile(path)).toEqual(Buffer.from([0, 255, 120, 5, 6]));
 });
 
 it('分段超限和正文未读完的连接中止不推进偏移，可从相同位置重传', async () => {

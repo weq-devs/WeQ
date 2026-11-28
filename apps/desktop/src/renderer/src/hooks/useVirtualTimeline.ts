@@ -2,6 +2,7 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -37,6 +38,7 @@ import { useMobileWebLayout } from './useMobileWebViewport';
 export const TIMELINE_VIRTUAL_THRESHOLD = 40;
 export const TIMELINE_OVERSCAN = 6;
 const EMPTY_WARM_ROWS: readonly string[] = [];
+const MAX_PREWARM_FRAME_WAIT_MS = 32;
 const observeTimelineRect: typeof observeElementRect = (instance, callback) =>
   observeElementRect(instance, (rect) => {
     // 隐藏视口的零尺寸不回灌范围；重新显示时继续交付真实宽高。
@@ -260,7 +262,7 @@ export function useVirtualTimeline({
       const index = instance.indexFromElement(element);
       const cached = instance.itemSizeCache.get(instance.options.getItemKey(index));
       const range = instance.range;
-      // 空闲预挂载的离屏行先登记观察，避免 React 提交时逐行强制布局。
+      // 额外预挂载的离屏行先登记观察，避免 React 提交时逐行强制布局。
       if (
         !entry &&
         range &&
@@ -291,68 +293,79 @@ export function useVirtualTimeline({
   const visibleStart = virtualizer.range?.startIndex;
   const visibleEnd = virtualizer.range?.endIndex;
   const isScrolling = virtualizer.isScrolling;
+  const warmFrame = useRef<number | null>(null);
+  const prewarm = useEffectEvent((nearby: boolean) => {
+    const range = virtualizer.range;
+    const height = virtualizer.scrollRect?.height;
+    if (!canPrewarm || !warmBytesAt || !range || !height || document.hidden) return;
+    if (!nearby && virtualizer.isScrolling) return;
+    const near = nearRows(
+      { ...range, count: keys.length, overscan: TIMELINE_OVERSCAN },
+      virtualizer,
+    );
+    if (!near.length) return;
+    const nearStart = near[0]!;
+    const nearEnd = near[near.length - 1]!;
+    const { at, direction, velocity } = motion.current;
+    const rows = advanceTimelinePrewarm({
+      keys,
+      index: warmIndex,
+      bytesAt: warmBytesAt,
+      geometry: virtualizer.measurementsCache,
+      visibleStart: range.startIndex,
+      visibleEnd: range.endIndex,
+      nearStart,
+      nearEnd,
+      direction: nearby && direction === 0 ? (nearStart > 0 ? -1 : 1) : direction,
+      velocity,
+      current: warmRows,
+      budget: warmBudgetBytes,
+      aheadPixels: nearby ? height + Math.min(height, velocity * 48) : undefined,
+    });
+    if (!rows) return;
+    startTransition(() => {
+      setWarm((previous) => {
+        const latest = motion.current;
+        // 两条预热路径共用预算，过期的计划不能覆盖已提交的批次。
+        if (previous !== warm || !activeRef.current || latest.scope !== scope) return previous;
+        if (nearby ? latest.direction !== direction : latest.at !== at) return previous;
+        return { scope, rows };
+      });
+    });
+  });
   useEffect(() => {
     if (!canPrewarm) {
       if (warm.rows.length) setWarm({ scope, rows: EMPTY_WARM_ROWS });
       return;
     }
-    if (!warmBytesAt || isScrolling || visibleStart === undefined || visibleEnd === undefined)
-      return;
-    let disposed = false;
-    const cancel = scheduleBackgroundLoad(() => {
-      if (disposed || !virtualizer.range || virtualizer.isScrolling) return;
-      const range = virtualizer.range;
-      const near = nearRows(
-        { ...range, count: keys.length, overscan: TIMELINE_OVERSCAN },
-        virtualizer,
-      );
-      if (!near.length) return;
-      const { at, direction, velocity } = motion.current;
-      const rows = advanceTimelinePrewarm({
-        keys,
-        index: warmIndex,
-        bytesAt: warmBytesAt,
-        geometry: virtualizer.measurementsCache,
-        visibleStart: range.startIndex,
-        visibleEnd: range.endIndex,
-        nearStart: near[0]!,
-        nearEnd: near[near.length - 1]!,
-        direction,
-        velocity,
-        current: warmRows,
-        budget: warmBudgetBytes,
+    if (visibleStart === undefined || visibleEnd === undefined) return;
+    if (warmFrame.current === null) {
+      const scheduledAt = performance.now();
+      warmFrame.current = requestAnimationFrame(() => {
+        warmFrame.current = null;
+        // 前台范围先提交。主线程忙到错过帧时，等下一次滚动或空闲批次。
+        if (performance.now() - scheduledAt <= MAX_PREWARM_FRAME_WAIT_MS) prewarm(true);
       });
-      if (rows)
-        startTransition(() => {
-          setWarm((previous) =>
-            !disposed &&
-            activeRef.current &&
-            motion.current.scope === scope &&
-            motion.current.at === at
-              ? { scope, rows }
-              : previous,
-          );
-        });
-    }, 32);
-    return () => {
-      disposed = true;
-      cancel();
-    };
+    }
+    if (!isScrolling) return scheduleBackgroundLoad(() => prewarm(false), 32);
   }, [
     canPrewarm,
     isScrolling,
-    keys,
-    nearRows,
     scope,
-    virtualizer,
     visibleEnd,
     visibleStart,
     warm,
     warmBudgetBytes,
     warmBytesAt,
-    warmIndex,
-    warmRows,
   ]);
+  useEffect(
+    () => () => {
+      if (warmFrame.current === null) return;
+      cancelAnimationFrame(warmFrame.current);
+      warmFrame.current = null;
+    },
+    [canPrewarm, scope],
+  );
   useLayoutEffect(() => {
     mountedIndexes.current = new Set(virtualItems?.map(({ index }) => index));
   }, [virtualItems]);

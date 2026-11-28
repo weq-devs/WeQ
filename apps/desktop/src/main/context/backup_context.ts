@@ -5,17 +5,24 @@ import {
   withSharedConfigLock,
   type WeqFileStartup,
 } from '@weq/service';
+import { configureStartupQqFilePolicy } from './startup_qq_file_policy';
 
 let current: WeqFileStartup | undefined;
 let sharedStorage = false;
 export function initBackupContext(root = weqAppDataRoot(), shared = sharedStorage): WeqFileStartup {
   sharedStorage = shared;
-  current ??= bootstrapWeqBackupFiles(root, shared);
+  if (!current) {
+    configureStartupQqFilePolicy(root);
+    current = bootstrapWeqBackupFiles(root, shared);
+  }
   return current;
 }
 export function getBackupContext(): WeqFileStartup {
   if (!current) throw new Error('文件配置尚未初始化');
   return current;
+}
+export function getInitializedAppDataRoot(): string | undefined {
+  return current?.ok ? current.root : undefined;
 }
 export function resetBackupContextForRecovery(): string {
   if (!current || current.ok) throw new Error('当前不需要重试备份恢复');

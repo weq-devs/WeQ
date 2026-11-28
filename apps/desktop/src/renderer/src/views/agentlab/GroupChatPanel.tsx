@@ -136,6 +136,10 @@ export function GroupChatPanel({
     () => new Map(personaList.map((persona) => [persona.id, persona])),
     [personaList],
   );
+  const membersById = useMemo(
+    () => new Map(detail.data?.members.map((member) => [member.memberId, member])),
+    [detail.data?.members],
+  );
 
   // 解析源身份与生成内容，头像、气泡和消息操作由普通页面负责。
   const metaFor = useCallback(
@@ -146,17 +150,14 @@ export function GroupChatPanel({
     ): { name: string; uin?: string; bot: boolean; personaId?: string; faces?: FaceContext } => {
       if (senderKind === 'user') return { name: '我', uin: selfUin, bot: false, faces: userFaces };
       const p = personasById.get(senderId);
-      const uin = p ? profileByUid.get(p.sourceId)?.uin || p.sourceUin : undefined;
+      const sourceUin = p ? profileByUid.get(p.sourceId)?.uin || p.sourceUin : undefined;
+      const uin = sourceUin || membersById.get(senderId)?.avatarUin;
       const faces: FaceContext | undefined = p?.systemFaces?.length
         ? { whitelist: p.systemFaces, descToId: faceDescToId }
         : undefined;
       return { name: p?.name ?? fallbackName, uin, bot: true, personaId: senderId, faces };
     },
-    [personasById, profileByUid, faceDescToId, selfUin, userFaces],
-  );
-  const nameById = useMemo(
-    () => new Map(members.map((m) => [m.memberId, m.displayName])),
-    [members],
+    [personasById, profileByUid, faceDescToId, selfUin, userFaces, membersById],
   );
 
   async function onSend(body: string): Promise<void> {
@@ -361,10 +362,14 @@ export function GroupChatPanel({
       cloneChatMessages(history, viewId, (index) => {
         const row = history[index]!;
         if (row.senderKind === 'user') return user;
-        const meta = metaFor(row.senderId, 'persona', nameById.get(row.senderId) ?? '克隆体');
+        const meta = metaFor(
+          row.senderId,
+          'persona',
+          membersById.get(row.senderId)?.displayName ?? '克隆体',
+        );
         return cloneChatUser(row.senderId, meta.name, meta.uin, true);
       }),
-    [history, viewId, user, metaFor, nameById],
+    [history, viewId, user, metaFor, membersById],
   );
   const sourceMessages = useMemo(
     () => new Map(history.map((message, index) => [messages[index]?.id ?? message.id, message])),
@@ -378,7 +383,11 @@ export function GroupChatPanel({
         render: ({ message, mine }) => {
           const source = sourceMessages.get(message.id);
           const meta = source
-            ? metaFor(source.senderId, source.senderKind, nameById.get(source.senderId) ?? '克隆体')
+            ? metaFor(
+                source.senderId,
+                source.senderKind,
+                membersById.get(source.senderId)?.displayName ?? '克隆体',
+              )
             : undefined;
           return (
             <>
@@ -400,7 +409,7 @@ export function GroupChatPanel({
         },
       },
     ],
-    [sourceMessages, metaFor, nameById],
+    [sourceMessages, metaFor, membersById],
   );
   return (
     <>

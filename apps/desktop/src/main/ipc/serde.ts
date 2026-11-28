@@ -277,6 +277,8 @@ export interface OnlineStatusWire extends FormattedOnlineStatus {}
 export interface ChatMsgWire {
   cachedBubbles?: import('@weq/service').MessageBubbleSkin[];
   localSent?: boolean;
+  sentFromWeq?: true;
+  livePush?: true;
   sourceFormat?: 'native' | 'protocol';
   source?: 'roaming';
   ntSeqVerified?: boolean;
@@ -1026,6 +1028,10 @@ export function elementsFromEditable<T>(v: T): T {
     return out as T;
   }
   return v;
+}
+
+export function messageElementsToWire(elements: ReturnType<typeof toRenderElements>) {
+  return elements.map(({ type, data }) => ({ type, data: sanitize({ ...data }) }));
 }
 
 export function replyMediaToWire(patch: { msgId: string; elements: unknown[] }): {

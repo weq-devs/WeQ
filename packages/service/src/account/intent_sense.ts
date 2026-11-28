@@ -44,6 +44,7 @@ import {
 } from '@weq/agentlab';
 import type { EndpointResolver } from './assistant';
 import { JsonStore, readJsonFile, writeJsonFileAtomic } from '../common/json_store';
+import { automaticAiRestricted, watchTransferPolicy } from '../common/transfer_policy';
 import type { PreferencePersistence } from '../common/shared_preferences';
 import { InteractionProfileService } from './interaction_profile';
 import { extractJsonBlock } from './intent_json';
@@ -576,7 +577,7 @@ export interface EnsureStats {
   failed: number;
   /** 本次读取快照的最新消息；客户端可补齐旧在途批次之后到达的目标。 */
   latestMsgId?: string;
-  skipped?: 'disabled' | 'config-changed';
+  skipped?: 'disabled' | 'config-changed' | 'data-saver';
   error?: string;
 }
 
@@ -730,8 +731,8 @@ export class IntentSenseService {
       this.configStore.save();
     this.profileService = new InteractionProfileService(
       () => this.config,
-      (kind, peerUid, limit) =>
-        this.loadMessages(kind, peerUid, limit, undefined, undefined, 'profile'),
+      (kind, peerUid, limit, automatic) =>
+        this.loadMessages(kind, peerUid, limit, undefined, undefined, 'profile', automatic),
       (ref) => this.endpoint(ref),
       {
         localEngine: this.opts.localEngine,
@@ -1106,6 +1107,8 @@ export class IntentSenseService {
     if (!this.effectiveFor(kind, conv) || this.config.analysisMode === 'manual') {
       return Promise.resolve({ cached: 0, analyzed: 0, failed: 0, skipped: 'disabled' });
     }
+    if (this.config.engine === 'api' && automaticAiRestricted())
+      return Promise.resolve({ cached: 0, analyzed: 0, failed: 0, skipped: 'data-saver' });
     const revision = this.analysisRevision;
     const key = `${conversationKey(kind, conv)}:${revision}`;
     const running = this.inFlight.get(key);
@@ -1150,6 +1153,9 @@ export class IntentSenseService {
           Date.now() < this.apiCooldownUntil),
     );
     if (hit && !options?.manual) return hit;
+    const automatic = !options?.manual;
+    const blocked = () => automatic && this.config.engine === 'api' && automaticAiRestricted();
+    if (blocked()) return null;
 
     // 优先从最近窗口定位该消息，以便一并拿到前序对话上下文；若不在近期窗口则回退按 ID 单查。
     const recent = await this.loadMessages(kind, conv, Math.max(60, contextMessages + 1));
@@ -1162,11 +1168,12 @@ export class IntentSenseService {
         kind,
         conv,
         'intent',
+        { automatic },
       );
       row = selected.at(-1);
       context = extractContextBefore(selected, selected.length - 1, contextMessages, this.config);
     } else {
-      const rows = await this.loadMessages(kind, conv, 1, [msgId], undefined, 'intent');
+      const rows = await this.loadMessages(kind, conv, 1, [msgId], undefined, 'intent', automatic);
       row = rows[0];
       const roaming = /^roaming:(?:(?:native|protocol):)?([1-9]\d*):-?\d+$/.exec(msgId);
       if (row && roaming && contextMessages > 0) {
@@ -1182,6 +1189,7 @@ export class IntentSenseService {
           kind,
           conv,
           'intent',
+          { automatic },
         );
         context = extractContextBefore(
           [...selected, row],
@@ -1194,7 +1202,7 @@ export class IntentSenseService {
     if (!row?.text) return null;
     if (row.mine && !this.config.analyzeAfterSelf && !options?.manual) return null;
     this.syncDefaultModels();
-    if (revision !== this.analysisRevision) return null;
+    if (revision !== this.analysisRevision || blocked()) return null;
 
     const result = await this.analyzePrepared(row, context, revision);
     if (result) {
@@ -1312,7 +1320,10 @@ export class IntentSenseService {
     const contextMessages = this.config.analysisContextMessages;
     const current = () => {
       this.syncDefaultModels();
-      return revision === this.analysisRevision;
+      return (
+        revision === this.analysisRevision &&
+        !(this.config.engine === 'api' && automaticAiRestricted())
+      );
     };
     const cache = this.cacheFor(kind, conv);
     // 当用户切换到 api 引擎且未处于熔断期时，之前由 local 引擎产生的缓存不视为最终命中，允许升级重算为 api 结果
@@ -1333,6 +1344,7 @@ export class IntentSenseService {
       undefined,
       undefined,
       'intent',
+      true,
     );
     if (!current()) return { cached: 0, analyzed: 0, failed: 0, skipped: 'config-changed' };
     if (rows.at(-1)?.mine && !this.config.analyzeAfterSelf)
@@ -1749,10 +1761,17 @@ export class IntentSenseService {
     return this.profileService.onCacheChanged(listener);
   }
 
-  getProfile(peerUid: string, options?: { cachedOnly?: boolean }): Promise<IntentProfile | null> {
+  getProfile(
+    peerUid: string,
+    options?: { cachedOnly?: boolean; manual?: boolean },
+  ): Promise<IntentProfile | null> {
     this.syncDefaultModels();
     const revision = this.profileRevision;
-    return this.profileService.getProfile(peerUid, options).then((result) => {
+    const automatic = !options?.manual;
+    const cachedOnly =
+      options?.cachedOnly ||
+      (automatic && this.config.profileEngine === 'api' && automaticAiRestricted());
+    return this.profileService.getProfile(peerUid, { cachedOnly, automatic }).then((result) => {
       this.syncDefaultModels();
       if (revision !== this.profileRevision) throw new Error('默认画像模型已更改，请重新读取');
       return result;
@@ -1954,7 +1973,8 @@ export class IntentSenseService {
     if (
       this.config.conversationOverrides[conversationKey(kind, conv)] === false ||
       !this.config.suggestionsEnabled ||
-      (this.config.suggestionMode === 'manual' && options.refresh !== true)
+      (options.refresh !== true &&
+        (this.config.suggestionMode === 'manual' || automaticAiRestricted()))
     )
       return Promise.resolve([]);
     const revision = this.suggestionRevision;
@@ -1962,8 +1982,13 @@ export class IntentSenseService {
     const key = conversationKey(kind, conv);
     const inFlightKey = `${key}:${revision}`;
     const running = this.suggestionInFlight.get(inFlightKey);
-    if (running) return running;
+    if (running && !this.suggestionControllers.get(inFlightKey)?.signal.aborted) return running;
     const controller = new AbortController();
+    const unwatch = manualRefresh
+      ? undefined
+      : watchTransferPolicy(() => {
+          if (automaticAiRestricted()) controller.abort();
+        });
     this.suggestionControllers.set(inFlightKey, controller);
     const result: { round?: ReplySuggestionHistoryEntry } = {};
     const id = randomUUID();
@@ -2035,15 +2060,12 @@ export class IntentSenseService {
       const onImageLog = (text: string, level?: 'info' | 'warn') => {
         if (current()) log('图片处理', text, level);
       };
-      let rows = await this.prepareImageRows(
-        inputRows,
-        kind,
-        conv,
-        'suggestions',
-        controller.signal,
+      let rows = await this.prepareImageRows(inputRows, kind, conv, 'suggestions', {
+        signal: controller.signal,
         onImageLog,
-        endpoint ?? undefined,
-      );
+        directEndpoint: endpoint ?? undefined,
+        automatic: !manualRefresh,
+      });
       if (!current()) return [];
       const trace = details.trace!;
       details.entry = {
@@ -2249,14 +2271,11 @@ export class IntentSenseService {
           )
             throw error;
           log('图片处理', '模型未接受随请求发送的图片，改用图片解读后重试。', 'warn');
-          rows = await this.prepareImageRows(
-            inputRows,
-            kind,
-            conv,
-            'suggestions',
+          rows = await this.prepareImageRows(inputRows, kind, conv, 'suggestions', {
             signal,
             onImageLog,
-          );
+            automatic: !manualRefresh,
+          });
           if (!current()) return [];
           body = await request();
         }
@@ -2313,6 +2332,7 @@ export class IntentSenseService {
       }
     })()
       .catch((error: unknown) => {
+        if (!manualRefresh && controller.signal.aborted) return [];
         if (currentRevision() && details.progress?.status !== 'stopped') {
           if (details.trace)
             details.trace.error = error instanceof Error ? error.message : String(error);
@@ -2327,6 +2347,7 @@ export class IntentSenseService {
         throw error;
       })
       .finally(() => {
+        unwatch?.();
         controller.signal.removeEventListener('abort', stop);
         if (details.progress?.status === 'running')
           this.updateSuggestionProgress(
@@ -2428,11 +2449,20 @@ export class IntentSenseService {
     kind: IntentConversationKind,
     conv: string,
     feature: AiImageFeature,
-    signal?: AbortSignal,
-    onImageLog?: (text: string, level?: 'info' | 'warn') => void,
-    directEndpoint?: AgentLabEndpoint,
+    {
+      signal,
+      onImageLog,
+      directEndpoint,
+      automatic = false,
+    }: {
+      signal?: AbortSignal;
+      onImageLog?: (text: string, level?: 'info' | 'warn') => void;
+      directEndpoint?: AgentLabEndpoint;
+      automatic?: boolean;
+    } = {},
   ): Promise<SenseRow[]> {
     if (!this.opts.images) return rows;
+    const offlineOnly = automatic && automaticAiRestricted();
     const selected = rows.map((row) => ({
       row,
       images: messageImageRefs(row.elementsRaw, kind, conv, row.msgId, row.sendTime * 1000),
@@ -2441,7 +2471,11 @@ export class IntentSenseService {
       feature === 'intent' && this.config.engine === 'api' && Date.now() >= this.apiCooldownUntil
         ? this.endpoint()
         : null;
-    if (analysisEndpoint && this.opts.images.canSendDirect?.(feature, analysisEndpoint)) {
+    if (
+      !offlineOnly &&
+      analysisEndpoint &&
+      this.opts.images.canSendDirect?.(feature, analysisEndpoint)
+    ) {
       // 只为真正进入 API 批次的目标和上文取图，本地分析仍使用原来的文字链路。
       return selected.map(({ row, images }) =>
         images.length
@@ -2479,6 +2513,7 @@ export class IntentSenseService {
         text: elementsToSenseText(row.elementsRaw, false),
         images,
         signal,
+        offlineOnly: automatic && automaticAiRestricted(),
         ...(directEndpoint && budget
           ? { endpoint: directEndpoint, direct: true, directBudget: budget, preferCached: true }
           : {}),
@@ -2545,10 +2580,11 @@ export class IntentSenseService {
     onlyMsgIds?: string[],
     beforeSeq?: bigint,
     feature?: AiImageFeature,
+    automatic = false,
   ): Promise<SenseRow[]> {
     const prepareRows = async (rows: SenseRow[]) => {
       return feature && feature !== 'suggestions'
-        ? this.prepareImageRows(rows, kind, conv, feature)
+        ? this.prepareImageRows(rows, kind, conv, feature, { automatic })
         : rows;
     };
     const toRow = (m: C2cMsg | GroupMsg): SenseRow => {

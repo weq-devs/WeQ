@@ -10,6 +10,7 @@
  * 报文（路由 / 元素），不连任何网络。
  */
 
+import { createHash } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -45,6 +46,7 @@ import {
   toOutcome,
   type ResolvedSendTarget,
 } from '../src/account/message_send';
+import { SentMediaCache } from '../src/account/sent_media_cache';
 
 /** 文件用例用的临时目录（sendFile 需要真实存在的路径）。 */
 let dir = '';
@@ -116,6 +118,107 @@ function fakeNative() {
     },
   };
 }
+
+it.each([
+  { kind: 'image', type: 'pic', bytes: makeSolidPng(2, 2), name: 'image.png' },
+  { kind: 'record', type: 'ptt', bytes: Buffer.of(1, 2, 3), name: 'record.silk' },
+  { kind: 'video', type: 'video', bytes: Buffer.of(4, 5, 6), name: 'video.mp4' },
+] as const)(
+  '本地 $kind 在发送前暂存，接受后才凭指纹和媒体凭据可读',
+  async ({ kind, type, bytes, name }) => {
+    const digest = createHash('md5').update(bytes).digest('hex');
+    const cache = new SentMediaCache(dir, `outgoing-${kind}`);
+    const native = fakeNative();
+    let accepted = false;
+    let retained: unknown;
+    native.sendOidbPacket = async () => {
+      expect(cache.find(type, 'fixture-token', digest)).toBeNull();
+      return Buffer.from(
+        encode(NTV2_UPLOAD_RESP_TOP, {
+          upload: {
+            msgInfo: {
+              msgInfoBody: [
+                {
+                  index: {
+                    fileUuid: 'fixture-token',
+                    info: { fileName: name, fileSize: bytes.byteLength, fileHash: digest },
+                  },
+                  fileExist: true,
+                },
+              ],
+            },
+          },
+        }),
+      );
+    };
+    native.sendPacket = async () =>
+      Buffer.from(
+        encode(SEND_MESSAGE_RESPONSE, {
+          result: accepted ? 0 : 1,
+          groupSequence: 17,
+          timestamp1: 1700000000,
+        }),
+      );
+    const service = new MessageSendService(
+      native,
+      fakeSession(),
+      () => 1,
+      undefined,
+      async (message) => {
+        retained = message.elements;
+      },
+      undefined,
+      () => false,
+      undefined,
+      { sentMedia: cache, download: async () => null },
+    );
+    const send = () =>
+      service.sendElements({
+        peerType: 'group',
+        targetId: '42',
+        elements: [{ kind, source: bytes, fileName: name }],
+      });
+    expect((await send()).ok).toBe(false);
+    expect(cache.find(type, 'fixture-token', digest)).toBeNull();
+    accepted = true;
+    expect((await send()).ok).toBe(true);
+    expect(retained).toEqual([
+      expect.objectContaining({
+        type,
+        data: expect.objectContaining({
+          [type === 'pic' ? 'md5' : 'md5Bytes']: digest,
+          fileToken: 'fixture-token',
+        }),
+      }),
+    ]);
+    const reopened = new SentMediaCache(dir, `outgoing-${kind}`);
+    const file = reopened.find(type, 'fixture-token');
+    expect(file).toBeTruthy();
+    expect(reopened.find(type, 'changed-token', digest)).toBe(file);
+    expect(await fsp.readFile(file!)).toEqual(Buffer.from(bytes));
+    expect(new SentMediaCache(dir, 'other-account').find(type, 'fixture-token', digest)).toBeNull();
+  },
+);
+
+it('宿主已暂存的附件沿用同一磁盘文件，发布后仍可删除暂存路径', async () => {
+  const original = path.join(dir, 'staged-attachment');
+  const bytes = Buffer.from('local upload fixture');
+  const digest = createHash('md5').update(bytes).digest('hex');
+  await fsp.writeFile(original, bytes);
+  const cache = new SentMediaCache(dir, 'outgoing-attachment');
+  const staged = (await cache.stage(original, true))!;
+  const inode = (await fsp.stat(original)).ino;
+  expect((await fsp.stat(staged.path)).ino).toBe(inode);
+  await staged.publish('file', digest, ['attachment-token'], 'fixture.txt');
+  await staged.discard();
+  await fsp.unlink(original);
+  expect(cache.find('file', 'attachment-token', '', 'another.txt')).toBeNull();
+  const found = cache.find('file', 'attachment-token', '', 'fixture.txt');
+  expect(found).toBeTruthy();
+  expect(path.extname(found!)).toBe('.txt');
+  expect((await fsp.stat(found!)).ino).toBe(inode);
+  expect(await fsp.readFile(found!)).toEqual(bytes);
+});
 
 describe('设备文件发送', () => {
   it.each(['u_Wcc5rknRRqRO8y5gxMD6sA', 'u_rK7NMsbv2ZjEGPdCuOiCfw', 'u_l7jpPIZxQo0mzJwoEt-SKw'])(

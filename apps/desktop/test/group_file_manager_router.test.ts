@@ -27,6 +27,7 @@ vi.mock('../src/main/context/app_context', () => {
     groupFile: { list: f.list },
     contentSearch: { remember: f.remember },
     messageSend: { sendFile: f.sendFile },
+    mediaDownload: {},
     fileResource: {
       trustPath: f.trustPath,
       untrustPath: f.untrustPath,

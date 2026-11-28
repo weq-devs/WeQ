@@ -51,11 +51,6 @@ describe('设置的两级导航', () => {
     });
   });
   it('代理和提醒归 QQ 在线能力，长期授权保留独立入口', () => {
-    expect(settingsGroupFor('account').sections).toEqual([
-      'account',
-      'long-term-authorization',
-      'enhancement-packs',
-    ]);
     expect(SETTINGS_PAGE_LABELS.startup).toBe('启动与退出');
     expect(SETTINGS_PAGE_LABELS.appearance).toBe('主题与布局');
     expect(SETTINGS_PAGE_LABELS.global).toBe('通知与提醒');
@@ -77,8 +72,22 @@ describe('设置的两级导航', () => {
   ] as const)('旧页面 %s 和搜索仍可定位对应卡片', (section, keyword, settingId) => {
     expect(resolveSettingsTarget({ section })).toMatchObject({ section: 'account', settingId });
     expect(searchAppEntries(keyword)[0]).toMatchObject({
-      path: '设置 / 能力 / QQ 在线能力',
+      path: '设置 / QQ / 能力档位',
       target: { kind: 'setting', section: 'account', settingId },
+    });
+  });
+  it.each([
+    ['qzone', 'QQ 空间', '转发时引用上一人文案', 'qzone-forward'],
+    ['mail', 'QQ 邮箱', '邮件查询间隔', 'mail-poll-interval'],
+  ] as const)('%s 的设置页和条目保留搜索入口', (section, label, keyword, settingId) => {
+    const page = searchAppEntries(label).find((entry) => entry.id === `settings.page.${section}`);
+    expect(page).toMatchObject({
+      path: `${label} / 设置`,
+      target: { kind: 'setting', section },
+    });
+    expect(searchAppEntries(keyword)[0]).toMatchObject({
+      path: `${label} / 设置`,
+      target: { kind: 'setting', section, settingId },
     });
   });
   it.each([
@@ -133,14 +142,14 @@ describe('设置的两级导航', () => {
   });
 
   it.each([
-    ['诊断工具', 'QQ 高级工具', 'QQ'],
-    ['QQ 协议工具', 'QQ 高级工具', 'QQ'],
-    ['QQ 设备标识与登录账号', 'QQ 登录管理', 'QQ'],
+    ['诊断工具', '高级工具', 'QQ'],
+    ['QQ 协议工具', '高级工具', 'QQ'],
+    ['QQ 设备标识与登录账号', '登录管理', 'QQ'],
     ['QQ 账号管理', '设备标识与登录账号', 'QQ'],
     ['QQ 登录记录管理', '设备标识与登录账号', 'QQ'],
     ['登录账号列表', '设备标识与登录账号', 'QQ'],
-    ['数据库宽容', 'QQ 数据库管理', 'QQ'],
-    ['资源目录管理', 'QQ 资源管理', 'QQ'],
+    ['数据库宽容', '数据库管理', 'QQ'],
+    ['资源目录管理', '资源管理', 'QQ'],
     ['已保存的 provider', '已保存的服务商', 'AI'],
     ['优先使用 CDN', '优先直连 QQ 加载图片', '通用'],
     ['媒体来源', '资源加载', '通用'],

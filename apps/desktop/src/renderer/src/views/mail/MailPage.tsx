@@ -5,7 +5,15 @@ import { formatDateTime } from '@weq/time';
 import { TimeLabel } from '../../components/TimeLabel';
 import { ReminderDot } from '../../components/ReminderBadge';
 import { EmptyState } from '../../components/EmptyState';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import {
   preferenceValue,
   changePreference,
@@ -83,6 +91,7 @@ import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useRequestContentExport } from '../../state/contentSelection.shared';
 import { useMobileBack } from '../../hooks/useMobileNavigation';
 import type { MailOpenTarget } from '../../lib/mailNavigation';
+import { scrollToNewest } from '../../lib/scrollToNewest';
 
 const initialStatus: MailStatus = {
   state: 'disconnected',
@@ -92,6 +101,18 @@ const initialStatus: MailStatus = {
   error: null,
 };
 const emptyPage: MailPageData = { items: [], page: 0, total: 0, unread: 0, hasMore: false };
+
+function newestArrival(previous: MailSummary[], incoming: MailSummary[]): string | undefined {
+  const ids = new Set(previous.map(({ id }) => id));
+  const latestTime = previous.reduce((latest, item) => Math.max(latest, item.time), 0);
+  let newest: MailSummary | undefined;
+  for (const item of incoming) {
+    if (!ids.has(item.id) && item.time >= latestTime && (!newest || item.time > newest.time))
+      newest = item;
+  }
+  return newest?.id;
+}
+
 function folderIcon(id: number) {
   return id === 1
     ? Inbox
@@ -111,13 +132,15 @@ export function MailPage({
   selfEmail,
   active = true,
   searchTarget,
-  onOpenSettings,
+  settingsOpen = false,
+  onToggleSettings,
 }: {
   api: MailApi;
   selfEmail: string;
   active?: boolean;
   searchTarget?: MailOpenTarget | null;
-  onOpenSettings?: () => void;
+  settingsOpen?: boolean;
+  onToggleSettings?: (trigger: HTMLButtonElement) => void;
 }) {
   const notificationToast = useToastApi();
   const save = useExportSavePolicy();
@@ -153,6 +176,12 @@ export function MailPage({
     [keyword, setKeyword] = usePageState('keyword', '', pageValue.string);
   const [page, setPage] = useState(emptyPage),
     [loading, setLoading] = useState(false);
+  const [refreshingList, setRefreshingList] = useState(false);
+  const [listRefreshRevision, requestListRefresh] = useState(0);
+  const pendingListRefresh = useRef<string | null>(null);
+  const listHead = useRef<{ api: MailApi; key: string; items: MailSummary[] } | null>(null);
+  const rows = useRef<HTMLDivElement>(null);
+  const [newest, setNewest] = useState<{ key: string; id: string } | null>(null);
   const [selectedId, setSelectedId] = usePageState<string | null>(
       'selected',
       null,
@@ -239,8 +268,31 @@ export function MailPage({
   } | null>(null);
   composeVisible.current = showCompose;
   const ready = status.state === 'ready';
+  const headKey = JSON.stringify([folderId, unreadOnly, keyword]);
   const listRequestKey = JSON.stringify([folderId, pageNumber, unreadOnly, keyword, revision]);
   const listFailed = failedListRequest === listRequestKey;
+  useLayoutEffect(() => {
+    if (!newest) return;
+    const list = rows.current;
+    if (!active || newest.key !== headKey || pageNumber !== 0 || !list) {
+      setNewest(null);
+      return;
+    }
+    const reveal = () => {
+      if (!list.clientHeight) return false;
+      const item = list.querySelector<HTMLElement>(`[data-mail-id="${CSS.escape(newest.id)}"]`);
+      if (item) scrollToNewest(list, item === list.firstElementChild ? undefined : item);
+      setNewest(null);
+      return true;
+    };
+    if (reveal()) return;
+    // 窄屏阅读时列表隐藏，返回列表后再定位。
+    const observer = new ResizeObserver(() => {
+      if (reveal()) observer.disconnect();
+    });
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [active, headKey, newest, pageNumber]);
   const multi = useMultiSelection({
     ids: mailIds,
     selected: checkedIds,
@@ -249,6 +301,13 @@ export function MailPage({
     normalClick: 'passthrough',
     anchorRef: selectionAnchor,
   });
+  const setRows = useCallback(
+    (element: HTMLDivElement | null) => {
+      rows.current = element;
+      multi.rootProps.ref(element);
+    },
+    [multi.rootProps.ref],
+  );
   const selectedFolder = folders.find((item) => item.id === folderId);
   const selection = checked.length ? checked : selectedId ? [selectedId] : [];
   const markReadLabel = selection.length ? '标为已读' : '全部标为已读';
@@ -362,8 +421,13 @@ export function MailPage({
   }, [api, connect, handleMailEvent]);
   useEffect(() => {
     if (!ready) loadedList.current = null;
+    const manual = pendingListRefresh.current === headKey && ready && activity.enabled;
+    if (!manual && pendingListRefresh.current !== null) {
+      pendingListRefresh.current = null;
+      setRefreshingList(false);
+    }
     if (!ready || !activity.enabled) return;
-    if (loadedList.current?.api === api && loadedList.current.key === listRequestKey) {
+    if (!manual && loadedList.current?.api === api && loadedList.current.key === listRequestKey) {
       setLoading(false);
       return;
     }
@@ -372,17 +436,47 @@ export function MailPage({
     setLoading(true);
     setFailedListRequest(null);
     setError('');
-    void readWithRetry(
-      () =>
-        api.list(
-          { folderId, page: pageNumber, unreadOnly, keyword: keyword || undefined },
-          controller.signal,
-        ),
-      controller.signal,
-    )
+    const head =
+      listHead.current?.api === api && listHead.current.key === headKey
+        ? listHead.current.items
+        : undefined;
+    const load = (page: number) =>
+      readWithRetry(
+        () =>
+          api.list(
+            { folderId, page, unreadOnly, keyword: keyword || undefined },
+            controller.signal,
+          ),
+        controller.signal,
+      );
+    // 恢复到历史页时补读一次首页，后续可区分真正的新邮件和已存在的首页邮件。
+    if (!manual && pageNumber !== 0 && !head) {
+      void load(0)
+        .then((value) => {
+          if (!controller.signal.aborted)
+            listHead.current = { api, key: headKey, items: value.items };
+        })
+        .catch(() => {});
+    }
+    void load(manual ? 0 : pageNumber)
       .then((value) => {
         if (!controller.signal.aborted && sequence === loadSequence.current) {
-          loadedList.current = { api, key: listRequestKey };
+          if (value.page === 0) listHead.current = { api, key: headKey, items: value.items };
+          const arrival =
+            manual && (head || pageNumber === 0)
+              ? newestArrival(head ?? [], value.items)
+              : undefined;
+          if (manual && !arrival && pageNumber !== 0) return;
+          loadedList.current = {
+            api,
+            key: arrival
+              ? JSON.stringify([folderId, 0, unreadOnly, keyword, revision])
+              : listRequestKey,
+          };
+          if (arrival) {
+            setPageNumber(0);
+            setNewest({ key: headKey, id: arrival });
+          }
           setPage(value);
           const ids = new Set(value.items.map((item) => item.id));
           setChecked((current) => current.filter((id) => ids.has(id)));
@@ -397,7 +491,12 @@ export function MailPage({
         }
       })
       .finally(() => {
-        if (!controller.signal.aborted && sequence === loadSequence.current) setLoading(false);
+        if (controller.signal.aborted || sequence !== loadSequence.current) return;
+        if (manual) {
+          pendingListRefresh.current = null;
+          setRefreshingList(false);
+        }
+        setLoading(false);
       });
     return () => controller.abort();
   }, [
@@ -409,7 +508,11 @@ export function MailPage({
     pageNumber,
     unreadOnly,
     keyword,
+    headKey,
     listRequestKey,
+    listRefreshRevision,
+    revision,
+    setPageNumber,
   ]);
   useEffect(() => {
     if (!ready) loadedFolders.current = null;
@@ -678,6 +781,22 @@ export function MailPage({
         <div className="weq-mail-top-actions">
           <button
             type="button"
+            title="刷新邮件列表"
+            aria-label="刷新邮件列表"
+            aria-busy={refreshingList}
+            disabled={!ready || !activity.enabled || loading || refreshingList}
+            onClick={() => {
+              pendingListRefresh.current = headKey;
+              setRefreshingList(true);
+              requestListRefresh((value) => value + 1);
+            }}
+          >
+            <span className={refreshingList ? 'weq-spin' : undefined}>
+              <RefreshCw size={17} aria-hidden />
+            </span>
+          </button>
+          <button
+            type="button"
             title="导出邮件"
             aria-label="导出邮件"
             disabled={!requestExport}
@@ -690,8 +809,15 @@ export function MailPage({
           >
             <Download size={17} />
           </button>
-          {onOpenSettings ? (
-            <button type="button" title="邮箱设置" aria-label="邮箱设置" onClick={onOpenSettings}>
+          {onToggleSettings ? (
+            <button
+              type="button"
+              title="邮箱设置"
+              aria-label="邮箱设置"
+              aria-haspopup="dialog"
+              aria-expanded={settingsOpen}
+              onClick={(event) => onToggleSettings(event.currentTarget)}
+            >
               <Settings size={17} />
             </button>
           ) : null}
@@ -925,8 +1051,8 @@ export function MailPage({
                 <Trash2 size={16} />
               </button>
             </div>
-            <div {...multi.rootProps} className="weq-mail-rows" aria-busy={loading}>
-              {loading && !page.items.length ? (
+            <div {...multi.rootProps} ref={setRows} className="weq-mail-rows" aria-busy={loading}>
+              {loading && !refreshingList && !page.items.length ? (
                 <div className="weq-mail-empty" role="status">
                   <LoaderCircle size={24} className="weq-mail-spin" aria-hidden />
                   <span>正在加载邮件</span>
@@ -935,6 +1061,7 @@ export function MailPage({
                 page.items.map((item) => (
                   <article
                     key={item.id}
+                    data-mail-id={item.id}
                     className={`weq-mail-row${item.id === selectedId || checkedIds.has(item.id) ? ' is-selected' : ''}${item.unread ? ' is-unread' : ''}`}
                   >
                     <input

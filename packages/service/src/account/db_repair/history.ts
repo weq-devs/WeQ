@@ -1,3 +1,4 @@
+import { assertQqFileWriteAllowed } from '@weq/db';
 /**
  * 修复历史与备份保留策略。
  *
@@ -109,6 +110,7 @@ export class DbRepairHistory {
     const records = this.store.data.records.filter((item) => item.id !== id);
     const path = record.backupPath;
     if (path && !records.some((item) => item.backupPath === path)) {
+      assertQqFileWriteAllowed({ path: dirname(path), tree: true });
       try {
         rmSync(dirname(path), { recursive: true, force: true });
         if (lstatSync(path, { throwIfNoEntry: false })) throw new Error('数据库备份仍存在');
@@ -173,6 +175,7 @@ export class DbRepairHistory {
     const record = store.data.records.find((record) => record.id === id);
     if (!record) throw new Error('找不到修复记录，请刷新后重试');
     if (!record.backupPath) return { removed: false };
+    assertQqFileWriteAllowed({ path: dirname(record.backupPath), tree: true });
     rmSync(dirname(record.backupPath), { recursive: true, force: true });
     if (existsSync(record.backupPath)) throw new Error('数据库备份仍存在，未更新修复记录');
     store.replace({

@@ -385,6 +385,83 @@ it('后来的普通消息不覆盖另一渠道的 @你预览和位置', async ()
   }
 });
 
+it.each([
+  {
+    seq: '170',
+    event: 'mentionAll',
+    origSenderUid: 'peer',
+    mention: { atTargetUid: 'all', textContent: '@全体成员' },
+    title: '@全体成员 · 测试群',
+    body: '来自 测试成员',
+  },
+  {
+    seq: '171',
+    event: 'mentionMe',
+    origSenderUid: 'other',
+    mention: { atTargetUid: 'self', textContent: '@测试账号' },
+    title: '@你 · 测试群',
+    body: '来自 测试成员',
+  },
+  {
+    seq: '172',
+    event: 'replyMe',
+    origSenderUid: 'self',
+    title: '回复你 · 测试群',
+    body: '测试成员回复了你',
+  },
+  {
+    seq: '173',
+    event: 'groupMessage',
+    origSenderUid: 'other',
+    title: '测试群',
+    body: '测试成员引用了一条消息',
+  },
+])('只有引用和可选 @ 时，横幅与系统通知按 $event 显示', async (scenario) => {
+  const both = { banner: true, system: true };
+  act(() =>
+    useNotificationPolicy.getState().setEvents({
+      ...useNotificationPolicy.getState().events,
+      groupMessage: both,
+      mentionAll: both,
+      mentionMe: both,
+      replyMe: both,
+    }),
+  );
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () =>
+      root.render(createElement(Probe, { resolveGroupSenderName: () => '测试成员' })),
+    );
+    const { seq, event, origSenderUid, mention, title, body } = scenario;
+    await act(async () =>
+      f.receive?.(
+        batch(seq, {
+          kind: 'group',
+          conv: '10003',
+          elements: [
+            {
+              type: 'reply',
+              data: {
+                origSenderUid,
+                origElements: [{ type: 'text', data: { textContent: '被引用的原文' } }],
+              },
+            },
+            ...(mention ? [{ type: 'at', data: mention }] : []),
+            { type: 'text', data: { textContent: ' ' } },
+          ],
+        }),
+      ),
+    );
+    expect(useToast.getState().toasts).toMatchObject([{ event, title, summary: body }]);
+    expect(f.notify).toHaveBeenCalledOnce();
+    expect(f.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ reasons: [event], seq, title, body }),
+    );
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 it('群关键词只在所选群的已开启渠道接管普通通知', async () => {
   const events = useNotificationPolicy.getState().events;
   act(() =>

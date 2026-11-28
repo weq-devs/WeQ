@@ -80,6 +80,7 @@ export type {
   AppLockMethod,
   WindowCloseBehavior,
   VoiceTranscribeConfig,
+  RecognitionPriority,
   OcrModelsConfig,
   LocalModelResources,
   McpServerConfig,
@@ -1088,6 +1089,7 @@ export type {
 export type { PeerStats } from './account/peer_stats';
 
 // ---- export pipeline (account/export) ----
+export { findChatVoiceRef, toOnlineVoiceRequest } from './account/export';
 export {
   fetchQzoneEmotionRange,
   exportGroupToJson,
@@ -1097,6 +1099,13 @@ export {
   toExportedMessage,
   elementToText,
   elementsToText,
+  resolveGroupSenderPage,
+  type GroupPageSenderMessage,
+  type GroupPageSenderMember,
+  type GroupPageSenderDeps,
+  type GroupPageSenderResult,
+  type GroupPageSenderDiagnostic,
+  type ProjectedGroupPageSender,
   messageToText,
   formatTime,
 } from './account/export';

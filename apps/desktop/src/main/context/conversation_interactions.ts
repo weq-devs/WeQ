@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { AccountSession } from '@weq/account';
-import type { Element } from '@weq/codec';
+import { POKE_DETAILED_ID, parsePokeDirection, type Element } from '@weq/codec';
 import { type InteractionMessagePosition, withDatabasePriority } from '@weq/db';
 import { JsonStore } from '@weq/service/json-store';
 import { NEW_CONV_FRESH_SEC } from '@weq/service/live-message';
@@ -20,41 +20,8 @@ type InteractionBaseline = {
 };
 type Watermarks = Pick<UnreadInfoService, 'getUnreadInfos' | 'onCountsChanged'>;
 const kinds: Kind[] = ['c2c', 'group'];
-const pokeVerb = /拍了拍|戳了戳/;
 const chatType = (kind: Kind) => (kind === 'group' ? 2 : 1);
 const convKey = (kind: Kind, conv: string) => `${chatType(kind)}_${conv}`;
-
-function pokePeople(element: Extract<Element, { kind: 'grayTipPoke' | 'grayTipXml' }>) {
-  const [before, after] = (element.grayTipXmlContent ?? '').split(pokeVerb, 2);
-  const xmlPerson = (text?: string) =>
-    /<qq\b[^>]*\b(?:uid|uin)=["']([^"']+)["']/i.exec(text ?? '')?.[1];
-  const actor = xmlPerson(before);
-  const target = xmlPerson(after);
-  // 实机戳一戳可把收件人写进 actionInitiator，成对的灰条参与者优先。
-  if (actor && target) return [actor, target];
-  if (element.tipJson) {
-    try {
-      const { items } = JSON.parse(element.tipJson) as {
-        items?: Array<{ type?: string; txt?: string; uid?: string; uin?: string }>;
-      };
-      const index =
-        items?.findIndex((item) => item?.type === 'nor' && pokeVerb.test(item.txt ?? '')) ?? -1;
-      if (items && index >= 0) {
-        const person = (item: (typeof items)[number]) =>
-          item?.type === 'qq' && (item.uid || item.uin);
-        const from = items.slice(0, index).map(person).find(Boolean);
-        const to = items
-          .slice(index + 1)
-          .map(person)
-          .find(Boolean);
-        if (from && to) return [from, to];
-      }
-    } catch {
-      // 只提示能够确认参与者的互动。
-    }
-  }
-  return [element.actionInitiator?.uid, element.actionTarget?.uid];
-}
 
 export function incomingConversationInteraction(
   elements: Element[],
@@ -74,8 +41,8 @@ export function incomingConversationInteraction(
         : element.kind === 'grayTipXml'
           ? element.detailId
           : undefined;
-    if (detail !== 1061) continue;
-    const [actor, target] = pokePeople(element);
+    if (detail !== POKE_DETAILED_ID) continue;
+    const [actor, target] = parsePokeDirection(element);
     if (actor && target && !self.has(actor) && self.has(target)) return 'poke';
   }
 }

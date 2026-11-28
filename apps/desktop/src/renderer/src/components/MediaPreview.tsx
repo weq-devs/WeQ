@@ -19,11 +19,10 @@ import { mediaZoomKeyDown } from './MediaPreviewControls.shared';
 import { useZoomPan } from './useZoomPan';
 import { PreviewOcr } from './usePreviewOcr';
 import { MediaSourceSave } from './MediaSaveControls';
-import { MediaLoadingRing, TransferRing } from './TransferRing';
+import { TransferRing } from './TransferRing';
 import { useTransferProgress } from '../lib/transferActivity';
 import { preferenceValue, useClientPreferences } from '../lib/clientPreferences';
 import { useDataSaver } from '../lib/dataSaver';
-import { useVideoBuffering } from '../hooks/useVideoBuffering';
 import { useTaskPage } from '../hooks/useTaskPage';
 import { client } from '../trpc/client';
 import { exportMedia } from '../lib/mediaExport';
@@ -368,7 +367,6 @@ function MediaPreviewItemBody({
   );
   const video = useRef<HTMLVideoElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const buffering = useVideoBuffering(eventKey, active && current.kind === 'video');
   const latestEvent = useRef(eventKey);
   latestEvent.current = eventKey;
   const setVideo = useCallback(
@@ -705,6 +703,7 @@ function MediaPreviewItemBody({
                 ref={image}
                 className="weq-lightbox-image"
                 src={mediaRetryUrl(previewSrc, attempt)}
+                style={imagePixels ? undefined : { visibility: 'hidden' }}
                 alt={item.title || '图片'}
                 draggable={false}
                 onLoad={(event) => {
@@ -772,7 +771,6 @@ function MediaPreviewItemBody({
             autoPlay={active}
             muted={item.isLivePhoto === true}
             playsInline
-            {...buffering.events}
             style={{ ...zoom.style, touchAction: zoom.zoomed ? 'none' : 'auto' }}
             onMouseDown={(event) => {
               if (
@@ -793,20 +791,14 @@ function MediaPreviewItemBody({
                 surface.focus({ preventScroll: true });
             }}
             onCanPlay={() => {
-              buffering.events.onCanPlay();
               if (latestEvent.current === eventKey) setStatus('ready');
             }}
             onError={() => {
-              buffering.events.onError();
               if (latestEvent.current === eventKey) setStatus('error');
             }}
           />
         ) : null}
-        {active &&
-          !waiting &&
-          current.kind === 'video' &&
-          status !== 'error' &&
-          buffering.waiting && <MediaLoadingRing label="正在缓冲视频" />}
+        {/* 播放器挂载后由原生控件显示视频缓冲提示。 */}
         {waiting || current.kind === 'image' || displayStatus === 'error' ? (
           <MediaLoadStatus
             kind={current.kind === 'image' ? '图片' : '视频'}

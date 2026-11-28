@@ -4,8 +4,8 @@
  * 独立系统窗口，跟着通话状态走：呼叫中 → 振铃 → 接通 → 挂断。
  * 只在**主动发起**时出现 —— 来电由 QQ 本体处理，WeQ 收不到那条推送。
  *
- * 这个文件只负责**窗口生命周期与编排**（订阅、开关窗、挂断收尾）。界面拆到了
- * `components/call/`：
+ * 窗口开关与挂断收尾由 CallWindowHost 管理。这里编排界面和媒体，使用
+ * `components/call/` 的通话组件：
  *
  *   CallStage          背景 / 光环 / 头像 / 名字 / 状态 / 波形（形状按多人通话定）
  *   CallControls       底部操作栏（`extra` 插槽留给未来的摄像头 / 屏幕共享）
@@ -15,13 +15,13 @@
  * 音频链路在 `hooks/useCallAudio.ts`，录音控制在 `hooks/useCallRecorder.ts`。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CallVideoEncoding } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { resourceUrl } from '../lib/resourceUrl';
 import { requestOpenSettings } from '../lib/callSettingsBridge';
-import { prefersInlineToolWindow, useToolWindow } from '../hooks/useCompositionWindow';
+import { prefersInlineToolWindow } from '../hooks/useCompositionWindow';
 import { Modal } from './Dialog';
 import { useCallAudio } from '../hooks/useCallAudio';
 import { nextRotation } from '../lib/callVideo';
@@ -32,9 +32,12 @@ import { useCallScreen } from '../hooks/useCallScreen';
 import { useCallRecorder } from '../hooks/useCallRecorder';
 import { RenderDocumentContext } from '../lib/renderDocument';
 import { HoverTooltip } from './HoverTooltip';
-import { useToastApi } from './Toast.shared';
-import { notificationSource } from '../lib/notificationNavigation.shared';
 import { useAppLock } from '../state/lock';
+import {
+  CallWindowHost,
+  type CallWindowContentProps,
+  type CallWindowProps,
+} from './call/CallWindowHost';
 import { CallStage, type CallPeer, type CallState } from './call/CallStage';
 import { CallControls } from './call/CallControls';
 import { CallRecorderBar, CallRecordingCard } from './call/CallRecorderBar';
@@ -155,26 +158,19 @@ function endText(reason: string | null): string {
  * 之后再留 1.6 秒给用户看结果，然后自己关掉 —— **但录过音时不自动关**，
  * 录音卡片要留给用户播放 / 打开目录。
  */
-export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: () => void }) {
-  const notificationWindow = useRef<Window | null>(null);
-  const notificationOrigin = useMemo(
-    () =>
-      notificationSource(
-        {
-          kind: 'local',
-          open: () => {
-            const popup = notificationWindow.current;
-            if (popup && !popup.closed) popup.focus();
-            else requestOpenSettings('callRecording');
-          },
-        },
-        '返回通话或录音设置',
-      ),
-    [],
-  );
-  const notificationToast = useToastApi(notificationOrigin);
+export function CallWindow(props: CallWindowProps) {
+  return <CallWindowHost {...props} Content={CallWindowContent} />;
+}
+
+export function CallWindowContent({
+  info,
+  tool,
+  requestHangup,
+  closeWindow,
+  hangupPending,
+  notificationToast,
+}: CallWindowContentProps) {
   const locked = useAppLock((state) => state.locked);
-  const [info, setInfo] = useState<CallInfo>(initial);
   const [muted, setMuted] = useState(false);
   const [speakerOff, setSpeakerOff] = useState(false);
   const [backdropFailed, setBackdropFailed] = useState(false);
@@ -261,77 +257,6 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     keepMicForRecording: Boolean(recorder.recording?.active),
   });
 
-  const hangup = trpc.call.hangup.useMutation({
-    onError: () => {
-      hangupRequested.current = false;
-    },
-  });
-  /**
-   * 语音是竖屏（400×620，留给大头像与波形），视频是横屏（16:9 的画面）。
-   *
-   * 窗口尺寸只在 `open()` 时定，所以这里在布局切换时自己 `resizeTo` ——
-   * 保持左上角不动、按比例换宽高，用户手动改过的尺寸会被这一次切换覆盖，
-   * 但之后不再干预（只在 `videoLayout` 真变化时跑）。
-   */
-  const tool = useToolWindow({
-    name: 'weq-call',
-    title: 'WeQ · 语音通话',
-    width: 400,
-    height: 620,
-    bodyClass: 'weq-call-window-body',
-  });
-  useEffect(() => {
-    notificationWindow.current = tool.popup;
-    return () => {
-      notificationWindow.current = null;
-    };
-  }, [tool.popup]);
-  const finishedRef = useRef(finished);
-  finishedRef.current = finished;
-  const hangupRef = useRef(hangup.mutate);
-  hangupRef.current = hangup.mutate;
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const hangupRequested = useRef(false);
-  const closeRequested = useRef(false);
-  const requestHangup = useCallback(() => {
-    if (finishedRef.current || hangupRequested.current) return;
-    hangupRequested.current = true;
-    hangupRef.current();
-  }, []);
-  const closeWindow = useCallback(() => {
-    if (closeRequested.current) return;
-    closeRequested.current = true;
-    tool.close();
-    onCloseRef.current();
-  }, [tool.close]);
-  const lifecycle = useRef(0);
-  useEffect(() => {
-    const generation = ++lifecycle.current;
-    const popup = tool.open();
-    if (!popup && !prefersInlineToolWindow()) {
-      requestHangup();
-      notificationToast.push({
-        tone: 'error',
-        message: '无法打开通话窗口',
-        detail: '已结束本次呼叫，请允许弹出窗口后重试。',
-      });
-      onCloseRef.current();
-    }
-    const timer = window.setInterval(() => {
-      if (!popup?.closed) return;
-      requestHangup();
-      closeWindow();
-    }, 200);
-    return () => {
-      window.clearInterval(timer);
-      // StrictMode 会立即重挂载；只为真正卸载（切号／退出主界面）挂断。
-      queueMicrotask(() => {
-        if (lifecycle.current === generation) requestHangup();
-      });
-    };
-  }, [tool.open, requestHangup, closeWindow, notificationToast]);
-
   /**
    * 布局切换时换窗口尺寸。
    *
@@ -350,15 +275,6 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
       // 某些窗口管理器会拒绝 resizeTo，退化成让 CSS 自己适配即可。
     }
   }, [tool.popup, videoLayout]);
-
-  // ── 状态订阅 ──
-  trpc.call.onCallState.useSubscription(undefined, {
-    onData: (next) => {
-      const call = next as CallInfo;
-      if (call?.state) setInfo((prev) => ({ ...prev, ...call }));
-    },
-    onError: (error) => console.error('[call] state subscription error', error),
-  });
 
   // 主进程侧的非致命错误（目前只有「电脑声音采集失败」）。用 toast 而不是塞进
   // 状态行：通话本身没问题，不该让状态文字变成报错。
@@ -588,7 +504,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
             recording={Boolean(recorder.recording?.active)}
             recordingEnabled={live && !recorder.busy}
             finished={finished}
-            hangupPending={hangup.isPending}
+            hangupPending={hangupPending}
             onToggleMute={() => setMuted((value) => !value)}
             onToggleSpeaker={() => setSpeakerOff((value) => !value)}
             onToggleCamera={handleToggleCamera}

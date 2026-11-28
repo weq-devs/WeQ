@@ -4,7 +4,14 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
-import { AntiRecallDb, scheduleDatabase, type RecallBaseline, type RecallLogRow } from '@weq/db';
+import {
+  AntiRecallDb,
+  QqDb,
+  configureQqDatabaseReadOnly,
+  scheduleDatabase,
+  type RecallBaseline,
+  type RecallLogRow,
+} from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 import { AntiRecallService } from '../src/account/anti_recall';
 import type { DbChange, DbWatchTask } from '../src/account/db_watch';
@@ -93,6 +100,7 @@ function rows(count: number, start = 1): RecallLogRow[] {
 }
 const poll = () => state.tasks.at(-1)!.onDbFileChangeHook(change);
 afterEach(() => {
+  configureQqDatabaseReadOnly(() => false);
   for (const service of services.splice(0)) service.stopMonitor();
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -369,4 +377,27 @@ it('触发器写入路径仍关闭连接释放锁，不受只读连接复用影�
   await f.service.applyTriggers();
   expect(reconcile).toHaveBeenCalledOnce();
   expect(f.close).toHaveBeenCalledOnce();
+});
+
+it('只读模式保留已有防撤回触发器及配置，拒绝更换触发器方式', async () => {
+  const { service, nt, path } = fixture();
+  fixtureDb(path).exec(`
+    CREATE TABLE group_msg_table (id INTEGER);
+    CREATE TRIGGER weq_anti_recall_group AFTER INSERT ON group_msg_table BEGIN SELECT 1; END;
+  `);
+  const writes = vi.spyOn(nt, 'executeSqlWrite');
+  configureQqDatabaseReadOnly(() => true);
+  await service.applyTriggers();
+  await expect(service.setMethod('off')).rejects.toThrow('只读模式');
+  const db = new QqDb(nt, { dbPath: path });
+  await expect(db.write('INSERT INTO group_msg_table VALUES (1)')).rejects.toThrow('只读模式');
+  expect(writes).not.toHaveBeenCalled();
+  expect(await service.getStatus()).toMatchObject({
+    enabled: true,
+    method: 'database',
+    databaseReadOnly: true,
+  });
+  expect(
+    fixtureDb(path).prepare("SELECT name FROM sqlite_master WHERE type='trigger'").all(),
+  ).toContainEqual({ name: 'weq_anti_recall_group' });
 });

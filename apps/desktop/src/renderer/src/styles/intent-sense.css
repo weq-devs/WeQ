@@ -383,6 +383,15 @@ html[data-theme='dark'] .weq-intent-popover {
     box-shadow 120ms ease-out;
 }
 
+.weq-affinity-pill > svg {
+  flex-shrink: 0;
+}
+
+.weq-affinity-pill > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .weq-affinity-pill:hover:not(:disabled) {
   box-shadow: var(--weq-shadow-soft);
 }

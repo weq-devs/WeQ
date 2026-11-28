@@ -3,7 +3,9 @@ import {
   validReadPosition,
   newerReadPosition,
   directoryUnreadKey,
+  isQqDirectoryReadKey,
 } from '@weq/service/client-preferences';
+import { trpc } from '../trpc/client';
 import { useQQReadActivity } from './useQQAutoRefresh';
 import { useStableCallback } from './useStableCallback';
 import {
@@ -22,12 +24,19 @@ export function useDirectoryReadPosition(
 ) {
   const { enabled } = useQQReadActivity(active, { onlineOnly: false });
   const ready = useClientPreferences(isAccountStateReady);
+  const qqRead = isQqDirectoryReadKey(key);
+  const mode = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: false,
+    select: (settings) => settings.qqCapabilityMode,
+  });
+  const settingsReady = !qqRead || mode.data !== undefined;
+  const canAdvance = useStableCallback(() => !qqRead || (mode.data && mode.data !== 'read-only'));
   // 目录刷新不算再次阅读，避免覆盖会话打开后手动留下的未读标记。
   const directoryReportsUnread = useStableCallback(
     () => position !== '0' && position === unreadPosition,
   );
   useEffect(() => {
-    if (!enabled || !key || !validReadPosition(position) || !ready) return;
+    if (!enabled || !key || !validReadPosition(position) || !ready || !canAdvance()) return;
     const reads = sharedAccountRecords('reads');
     const previous = String(reads[key] ?? '0');
     const marker = reads[directoryUnreadKey(key)];
@@ -40,5 +49,5 @@ export function useDirectoryReadPosition(
       saveAccountRecords('reads', {
         [key]: { position, ...(typeof marker === 'string' ? { marker } : {}) },
       });
-  }, [enabled, key, position, ready, directoryReportsUnread]);
+  }, [enabled, key, position, ready, settingsReady, directoryReportsUnread, canAdvance]);
 }

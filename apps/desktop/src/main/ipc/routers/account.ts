@@ -50,9 +50,17 @@ import {
   requireResourceSource,
   assertResourceSource,
 } from './resource_source';
+import { saveQqCapabilityPreference } from '../../qq_output_path';
 import { messageExportFormatInput } from '../../../shared/message_export_format';
 import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
-import { withDatabaseRequest, assertDatabaseWritable, measureDatabaseStartup } from '@weq/db';
+import {
+  withDatabaseRequest,
+  withQqFileWrite,
+  assertDatabaseWritable,
+  assertQqDatabaseWriteAllowed,
+  qqDatabaseReadOnly,
+  measureDatabaseStartup,
+} from '@weq/db';
 import { cardDisplayNames } from './card_display_names';
 import { readContactSpecialCare } from './contact_special_care';
 import {
@@ -138,6 +146,8 @@ import {
 } from '../../../shared/group_member_order';
 
 import { onlineTranscriber } from '../../online_transcribe';
+import { probeCaptureBackend } from '../../capture_session';
+import { findChatVoiceRef, toOnlineVoiceRequest } from '@weq/service';
 import {
   databasePerformance,
   withDatabasePriority,
@@ -159,6 +169,7 @@ const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
 const agentLabPersonaId = z.string().regex(AGENTLAB_PERSONA_ID_PATTERN, '克隆 ID 无效');
 import { sampleHitokoto } from '../../hitokoto';
 import type { TranscribeResult } from '../../transcribe/engine';
+import { transferRestricted } from '@weq/service/transfer-policy';
 import { resolveLocalOcrModel, runLocalOcr, type LocalOcrModel } from '../../ocr/local';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
@@ -189,6 +200,7 @@ import type {
 import {
   directoryUnreadKey,
   isDirectoryReadKey,
+  isQqDirectoryReadKey,
   messageReadPosition,
   newerReadPosition,
   validReadPosition,
@@ -262,6 +274,7 @@ import {
   type MessagePageOptions,
 } from '@weq/service';
 import type { GroupInfoChange } from '../../group_info_watch';
+import type { QqLiveBusinessBatch, QqLivePeer } from '../../../shared/qq_live_business';
 import type { GroupReactionStates } from '../../qq_sync/group_reaction_watch';
 import {
   buddyRequestToWire,
@@ -294,6 +307,7 @@ import {
   groupExtToWire,
   onlineStatusToWire,
   elementsToEditable,
+  messageElementsToWire,
   elementsFromEditable,
   guildDirectSessionToWire,
   guildDirectMsgToWire,
@@ -635,6 +649,15 @@ async function readSidebarSearch<T>(
     throw new Error('账号或数据源已切换，请重新搜索');
   return result;
 }
+
+const messageRecordInput = exportAccountBindingInput
+  .required()
+  .extend({
+    kind: z.enum(['group', 'c2c', 'official', 'service']),
+    conv: z.string().min(1).max(128),
+    msgId: z.string().regex(/^-?\d{1,20}$/),
+  })
+  .refine((value) => value.kind !== 'service' || /^\d{1,20}$/.test(value.conv));
 
 const messagePageInput = convInput.merge(exportAccountBindingInput).extend({
   readWindow: messageReadWindowInput.optional(),
@@ -1258,6 +1281,8 @@ function applyConversationRead(
   devicePosition?: string,
 ): ReturnType<AccountServices['unreadInfo']['markReadAndReport']> {
   const ctx = getAppContext();
+  if (qqDatabaseReadOnly())
+    return Promise.resolve({ changed: false, report: { state: 'disabled' } });
   if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup)
     return (
       devicePosition === undefined
@@ -1565,7 +1590,7 @@ export const accountRouter = router({
           input.expectedAccountUin,
           input.expectedAccountConfigId,
         );
-        interactionBadges.acknowledge(input.ids, input.bannerOnly);
+        if (!qqDatabaseReadOnly()) interactionBadges.acknowledge(input.ids, input.bannerOnly);
       }),
   }),
   noticeRead: noticeRead.router,
@@ -2341,7 +2366,7 @@ export const accountRouter = router({
           .map((persona) => persona.sourceId),
       ),
     ];
-    // 九宫格合成头像要的是 QQ 号（CDN 头像按 uin 拼），克隆体只存了源好友 uid。
+    // 合成头像用 QQ 号。仍存在的克隆体优先使用当前源好友的头像。
     const uinByUid = new Map<string, string>();
     if (sourceUids.length > 0) {
       try {
@@ -2364,23 +2389,23 @@ export const accountRouter = router({
       (turn) => turn.senderKind !== 'user',
     );
     return groups.map((group) => {
-      const members = services.agentLab
-        .getGroupDetail(group.id)
-        ?.members.filter((member) => member.kind === 'persona');
-      const memberUins = (members ?? [])
-        .map((member) => {
-          const persona = personasById.get(member.memberId);
-          if (persona?.sourceKind !== 'c2c' || !persona.sourceId) return '';
-          return uinByUid.get(persona.sourceId) ?? '';
-        })
-        .filter(Boolean);
+      const members = services.agentLab.getGroupDetail(group.id)?.members ?? [];
+      const memberUins = members.flatMap((member) => {
+        const persona = personasById.get(member.memberId);
+        const uin =
+          member.kind === 'user'
+            ? member.memberId
+            : ((persona?.sourceKind === 'c2c' ? uinByUid.get(persona.sourceId) : undefined) ??
+              member.avatarUin);
+        return uin && /^[1-9]\d*$/.test(uin) ? [uin] : [];
+      });
       return {
         ...group,
         ...latestGeneratedActivity(
           histories.get(group.id)!,
           (senderId) =>
             personasById.get(senderId)?.name ??
-            members?.find((member) => member.memberId === senderId)?.displayName,
+            members.find((member) => member.memberId === senderId)?.displayName,
         ),
         draftPreview: generatedDraftSummary(drafts.get(`virtual:clone:group:${group.id}`)),
         memberUins,
@@ -3839,6 +3864,11 @@ export const accountRouter = router({
         input.expectedAccountUin,
         input.expectedAccountConfigId,
       );
+      if (
+        input.targets.length ||
+        input.directoryTargets.some(({ key }) => isQqDirectoryReadKey(key))
+      )
+        assertQqDatabaseWriteAllowed();
       if (input.directoryTargets.length) {
         const state = currentDraftState();
         let changes: DirectoryReadChange[] = [];
@@ -3881,6 +3911,8 @@ export const accountRouter = router({
       const services = requireExpectedAccount(input.expectedAccountUin);
       const local = directoryReadUndo.get(services);
       if (local?.token === input.undoToken) {
+        if (local.qqToken || local.changes.some(({ key }) => isQqDirectoryReadKey(key)))
+          assertQqDatabaseWriteAllowed();
         const state = currentDraftState();
         const restored = state.undoDirectoryReadState(local.changes);
         reportOfficialDirectoryReads(
@@ -3974,6 +4006,7 @@ export const accountRouter = router({
     .mutation(async ({ input }) => {
       const { chatType, uid, visibleSeqs, expectedAccountUin, expectedAccountConfigId } = input;
       const services = requireExpectedAccount(expectedAccountUin, expectedAccountConfigId);
+      if (qqDatabaseReadOnly()) return { changed: false, report: { state: 'disabled' as const } };
       const sequence = await services.unreadInfo.visibleReadSequence(chatType, uid, visibleSeqs);
       if (
         sequence === undefined ||
@@ -3996,6 +4029,7 @@ export const accountRouter = router({
     .mutation(({ input }) => {
       const { expectedAccountUin, expectedAccountConfigId, uid, sequences } = input;
       const services = requireExpectedAccount(expectedAccountUin, expectedAccountConfigId);
+      if (qqDatabaseReadOnly()) return { recorded: false };
       services.unreadInfo.recordReplyViews(uid, sequences);
       return { recorded: true };
     }),
@@ -4673,12 +4707,14 @@ export const accountRouter = router({
             transcribeVoice: z.boolean(),
             /** 在线转写：优先向 QQ 服务端要文本，漏包 / 过期回退本地模型（需 QQ 在线）。 */
             onlineTranscribe: z.boolean().optional(),
+            voicePriority: z.enum(['local', 'qq']).optional(),
             /** 在线转写并发请求数（默认 5）。 */
             onlineConcurrency: z.number().int().min(1).max(32).optional(),
             /** 图片文字识别（自动 OCR）：写 ocr.json + 回写消息文件。 */
             ocrImages: z.boolean().optional(),
             /** 在线识别（0xe07_0）；不开启就是纯本地识别。 */
             onlineOcr: z.boolean().optional(),
+            ocrPriority: z.enum(['local', 'qq']).optional(),
             /** 在线识别并发（默认 5）。 */
             onlineOcrConcurrency: z.number().int().min(1).max(32).optional(),
             /** 是否已下好筛图模型（渲染层判定；false 时跳过预筛选阶段）。 */
@@ -5808,6 +5844,120 @@ export const accountRouter = router({
       return withMessageBubbles(records.map(forwardRecordToWire), requireServices().dressInstall);
     }),
 
+  messageRecordDetails: procedure
+    .input(
+      messageRecordInput.and(
+        z.object({
+          cache: z
+            .object({
+              format: z.enum(['native', 'protocol']).optional(),
+              retained: z.boolean(),
+              seq: z
+                .string()
+                .regex(/^-?\d{1,20}$/)
+                .optional(),
+            })
+            .optional(),
+        }),
+      ),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      function checkScope() {
+        if (
+          requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+          services
+        )
+          throw new Error('账号或数据源已切换');
+      }
+      if (input.cache) {
+        const { format, retained, seq } = input.cache;
+        const cached = await services.gapHistory.findByMsgId(input.msgId, {
+          recalledOnly: retained,
+        });
+        checkScope();
+        if (
+          !cached ||
+          cached.kind !== input.kind ||
+          cached.conv !== input.conv ||
+          (format && cached.sourceFormat !== format) ||
+          (seq && cached.msgSeq !== seq) ||
+          Boolean(cached.recall?.retained) !== retained
+        )
+          return null;
+        return {
+          kind: 'cache' as const,
+          snapshot: { ...cached, elements: messageElementsToWire(cached.elements) },
+          elements: messageElementsToWire(cached.elements),
+          cache: [],
+          revision: null,
+        };
+      }
+      const result = await services.msgs.messageRecordDetails(input);
+      checkScope();
+      if (!result) return null;
+      const { columns, elements, cache, revision, ...record } = result;
+      return {
+        kind: 'local' as const,
+        ...record,
+        columns: Object.fromEntries(
+          Object.entries(columns).map(([field, value]) => [
+            field,
+            value instanceof Uint8Array
+              ? {
+                  encoding: 'hex' as const,
+                  data: Buffer.from(value).toString('hex'),
+                  bytes: value.length,
+                }
+              : typeof value === 'bigint'
+                ? value.toString()
+                : value,
+          ]),
+        ),
+        elements: elementsToEditable(elements),
+        cache: cache.map(forwardRecordToWire),
+        revision,
+      };
+    }),
+
+  editMessageRecord: procedure
+    .input(
+      messageRecordInput.and(
+        z.object({
+          revision: z.string().regex(/^[a-f0-9]{64}$/),
+          elements: z.array(z.any()),
+        }),
+      ),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const elements = await services.msgs.editMessageRecord(
+        input,
+        input.revision,
+        elementsFromEditable(input.elements),
+        () => {
+          if (
+            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+            services
+          )
+            throw new Error('账号或数据源已切换');
+          assertCurrentAccountWritable(input);
+        },
+      );
+      if (!elements) throw new Error('消息正文已变化或记录已移除，请重新打开详情。');
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
+      return messageElementsToWire(elements);
+    }),
+
   /** Get un-filtered raw elements for one message (for editing). */
   getRawElements: procedure
     .input(z.object({ msgId: z.string().min(1) }))
@@ -6595,6 +6745,7 @@ export const accountRouter = router({
         conv: string;
         messages: ChatMsgWire[];
         live?: true;
+        livePeer?: QqLivePeer;
         recallPatch?: true;
       }>((emit) => {
         const handler = (change: RoamingCacheChange) => {
@@ -6608,6 +6759,7 @@ export const accountRouter = router({
             kind: change.kind,
             conv: change.conv,
             live: change.live,
+            livePeer: change.livePeer,
             recallPatch: change.recallPatch,
             messages: withMessageBubbles(
               change.messages.map(roamingMsgToWire),
@@ -6671,6 +6823,22 @@ export const accountRouter = router({
       emit.next({ kind: 'friend' });
       emit.next({ kind: 'group' });
       return () => dbEventBus.off('contact-notices-changed', handler);
+    });
+  }),
+
+  /** 同账号 QQ 代理解析出的业务推送与断线事件。 */
+  onQqLiveBusiness: procedure.input(exportAccountBindingInput).subscription(({ input }) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    const session = getAppContext().account;
+    return observable<QqLiveBusinessBatch>((emit) => {
+      const handler = (source: unknown, batch: QqLiveBusinessBatch) => {
+        if (source === session && getAppContext().services === services) emit.next(batch);
+      };
+      dbEventBus.on('qq-live-business', handler);
+      return () => dbEventBus.off('qq-live-business', handler);
     });
   }),
 
@@ -6808,6 +6976,12 @@ export const accountRouter = router({
       hasUid: Boolean(record?.uid),
       needsMemoryRead,
       ssoReady: attachEnabled && ssoReady,
+      voiceOnlineAvailable: Boolean(
+        access.qqOnline &&
+          attachEnabled &&
+          getAppContext().platform &&
+          probeCaptureBackend().available,
+      ),
       credentialsPending: getAppContext().onlineCredentialsPending(),
       credentialsIssue: getAppContext().onlineCredentialsIssue(),
     };
@@ -6845,21 +7019,7 @@ export const accountRouter = router({
     });
   }),
 
-  /**
-   * 聊天图片文字识别 —— 识别聊天里出现过的图片上的文字。
-   *
-   * 两条腿，**在线优先**：
-   *
-   *   1. **在线**（OIDB 0xe07_0）：QQ 在线 + 未开完全离线 + a2/d2/d2key/guid 齐全时走它
-   *      （见 {@link ocrOnlineBlocker}）。入参就是图片元素自己的信息：`fileToken` 用来
-   *      现签一条 CDN 直链，宽高既是随行元数据、也是回包坐标系的基准。
-   *   2. **本地模型**：上面那些条件缺一项、或者在线那条路失败（图过期 / 服务端取不到），
-   *      就用设置里下好的本地识别模型跑（`onnxruntime` + PP-OCR，见 `main/ocr/`）。
-   *      它要的是**图本体**，所以 `src`（灯箱正在显示的那张图的地址）得一起传进来。
-   *
-   * 两条腿都不可用时按钮就该是灰的（渲染层按 `getGroupAlbumAccessState` 判定）；
-   * 真走到了这一步再报错。返回值带 `source`，前端据此在结果上标「在线 / 本地」。
-   */
+  /** 聊天图片识别先复用缓存，新识别按全局偏好回退。 */
   ocrChatImage: procedure
     .input(
       z.object({
@@ -6908,62 +7068,43 @@ export const accountRouter = router({
         );
       }
 
-      if (online) {
+      const recognizeOnline = async () => {
+        const result = await services.chatImageOcr.recognize(input);
+        await cacheOcrText(input.md5, 'oidb', {
+          text: result.blocks.map((block) => block.text).join('\n'),
+          blocks: result.blocks,
+          imageWidth: result.imageWidth,
+          imageHeight: result.imageHeight,
+          lang: result.srcLang,
+          variant: 'original',
+        });
+        return { ...result, source: 'oidb' as const };
+      };
+      const recognizeLocal = async (model: NonNullable<typeof local>) => {
+        const result = await recognizeOcrLocally(input, model, services);
+        await cacheOcrText(input.md5, `local:${result.modelId}`, {
+          text: result.blocks.map((block) => block.text).join('\n'),
+          blocks: result.blocks,
+          imageWidth: result.imageWidth,
+          imageHeight: result.imageHeight,
+          modelId: result.modelId,
+          elapsedMs: result.elapsedMs,
+        });
+        return result;
+      };
+      const priority = requireBootstrap().userConfig.getSetting('ocr').priority;
+      const order = priority === 'local' ? (['local', 'qq'] as const) : (['qq', 'local'] as const);
+      const errors = [];
+      for (const source of order) {
         try {
-          const result = await services.chatImageOcr.recognize(input);
-          await cacheOcrText(input.md5, 'oidb', {
-            text: result.blocks.map((b) => b.text).join('\n'),
-            blocks: result.blocks,
-            imageWidth: result.imageWidth,
-            imageHeight: result.imageHeight,
-            lang: result.srcLang,
-            variant: 'original',
-          });
-          return { ...result, source: 'oidb' as const };
+          if (source === 'qq' && online) return await recognizeOnline();
+          if (source === 'local' && local) return await recognizeLocal(local);
         } catch (error) {
-          // 服务层抛的都是给人看的中文短句；兜底再包一层，避免渲染层收到空 message。
-          const message =
-            error instanceof Error && error.message ? error.message : '文字识别失败，请稍后重试。';
-          if (!local) throw new Error(message);
-          try {
-            const localResult = await recognizeOcrLocally(input, local, services);
-            await cacheOcrText(input.md5, `local:${localResult.modelId}`, {
-              text: localResult.blocks.map((b) => b.text).join('\n'),
-              blocks: localResult.blocks,
-              imageWidth: localResult.imageWidth,
-              imageHeight: localResult.imageHeight,
-              modelId: localResult.modelId,
-              elapsedMs: localResult.elapsedMs,
-            });
-            return localResult;
-          } catch (localError) {
-            // 两条腿都折了：主线是在线那条的报错（用户更可能因此有动作），本地这条附在后面。
-            const localMessage =
-              localError instanceof Error && localError.message
-                ? localError.message
-                : '本地模型也没识别成功';
-            throw new Error(`${message}（本地模型：${localMessage}）`);
-          }
+          const message = error instanceof Error ? error.message : String(error);
+          errors.push(`${source === 'qq' ? 'QQ 在线' : '本地模型'}：${message}`);
         }
       }
-
-      // 在线不可用（QQ 离线 / 未开自动读取 / 物料不全）→ 本地模型兜底。
-      try {
-        const localResult = await recognizeOcrLocally(input, local!, services);
-        await cacheOcrText(input.md5, `local:${localResult.modelId}`, {
-          text: localResult.blocks.map((b) => b.text).join('\n'),
-          blocks: localResult.blocks,
-          imageWidth: localResult.imageWidth,
-          imageHeight: localResult.imageHeight,
-          modelId: localResult.modelId,
-          elapsedMs: localResult.elapsedMs,
-        });
-        return localResult;
-      } catch (error) {
-        throw new Error(
-          error instanceof Error && error.message ? error.message : '本地识别失败，请稍后重试。',
-        );
-      }
+      throw new Error(errors.join('。') || '文字识别失败，请稍后重试。');
     }),
 
   /**
@@ -7070,10 +7211,12 @@ export const accountRouter = router({
    * 导出灯箱点「开启在线转录」时 arm：起一个网卡抓包会话（Linux 走提权子进程，
    * Windows 检查 Npcap），导出转录阶段据此发 `pttTrans` 请求并归集异步 push。
    */
-  onlineTranscribeStatus: procedure.query(() => ({
-    armed: onlineTranscriber.isArmed(),
-    uin: onlineTranscriber.armedUin(),
-  })),
+  onlineTranscribeStatus: procedure.query(() => {
+    const uin = onlineTranscriber.armedUin();
+    const armed =
+      onlineTranscriber.isArmed() && uin === String(getAppContext().account?.context.uin);
+    return { armed, uin: armed ? uin : null };
+  }),
 
   /**
    * arm 在线转写抓包会话。前置：QQ 在线 + 未开启完全离线模式（attach 总控）+ 抓包
@@ -7082,19 +7225,26 @@ export const accountRouter = router({
   onlineTranscribeArm: procedure
     .input(z.object({ uin: z.string().min(1).optional() }).optional())
     .mutation(async ({ input }) => {
-      const state = albumAccessState(requireServices());
+      const services = requireServices();
+      const state = albumAccessState(services);
       if (!state.qqOnline) throw new Error('需要先登录该账号的 QQ 客户端。');
       if (!state.attachEnabled) {
         throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），无法开启在线转写。');
       }
-      const uin = input?.uin ?? String(getAppContext().account?.context.uin ?? '');
-      if (!uin) throw new Error('尚未打开账号，无法开启在线转写。');
-      return { ok: true, ...(await onlineTranscriber.arm(uin)) };
+      const uin = services.accountConfig.getRecord()?.uin;
+      if (!uin || (input?.uin && input.uin !== uin))
+        throw new Error('账号已切换，请重新开启在线转写。');
+      const checkAccount = () => {
+        if (getAppContext().services !== services)
+          throw new Error('账号已切换，请重新开启在线转写。');
+      };
+      return { ok: true, ...(await onlineTranscriber.arm(uin, checkAccount)) };
     }),
 
   /** 停掉在线转写的抓包会话（导出结束 / 关闭开关时调用，幂等）。 */
   onlineTranscribeDisarm: procedure.mutation(async () => {
-    await onlineTranscriber.disarm();
+    const uin = requireServices().accountConfig.getRecord()?.uin;
+    if (uin) await onlineTranscriber.disarm(uin);
     return { ok: true };
   }),
 
@@ -7218,6 +7368,7 @@ export const accountRouter = router({
           ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
           elements: elements as never,
           random: input.random,
+          isStagedSource: (path) => pickedBrowserFiles.ownsCompletePath(services, path),
           ...(input.preparedChatFont !== undefined
             ? { preparedChatFont: input.preparedChatFont }
             : {}),
@@ -7312,6 +7463,14 @@ export const accountRouter = router({
       const path = input.uploadId
         ? await browserFiles.consume(services, input.uploadId)
         : input.path!;
+      const managed =
+        Boolean(input.uploadId) || pickedBrowserFiles.ownsCompletePath(services, path);
+      const staged = managed
+        ? await services.mediaDownload.sentMedia?.stage(path, true).catch((error: unknown) => {
+            console.warn('[发送附件] 保留宿主暂存失败', error);
+          })
+        : undefined;
+      let retainedForRetry = false;
       try {
         const host = input.uploadId ? null : getHost();
         const keepSource =
@@ -7320,7 +7479,7 @@ export const accountRouter = router({
           services.messageSend.sendFile({
             peerType: input.peerType,
             targetId: input.targetId,
-            path,
+            path: staged?.path ?? path,
             ...(input.fileName ? { fileName: input.fileName } : {}),
             ...(input.folderId ? { folderId: input.folderId } : {}),
             ...(input.transferId
@@ -7341,6 +7500,12 @@ export const accountRouter = router({
             },
           }),
         );
+        if (outcome.ok && staged)
+          await staged
+            .publish('file', outcome.md5Hex, [outcome.fileId], outcome.fileName)
+            .catch((error: unknown) => {
+              console.warn('[发送附件] 已发缓存写入失败', error);
+            });
         if (outcome.ok && keepSource)
           services.fileResource.rememberSentFile(
             outcome.fileId,
@@ -7348,9 +7513,21 @@ export const accountRouter = router({
             outcome.fileSize,
             path.trim(),
           );
+        if (!outcome.ok && input.uploadId && (outcome.scene === 'group' || outcome.result)) {
+          try {
+            await browserFiles.releaseRejected(services, input.uploadId);
+            retainedForRetry = true;
+          } catch (error) {
+            console.warn('[发送附件] 保留重试暂存失败', error);
+          }
+        }
         return outcome;
       } finally {
-        if (input.uploadId) await browserFiles.discard(services, input.uploadId, true);
+        await staged?.discard();
+        if (input.uploadId && !retainedForRetry)
+          await browserFiles.discard(services, input.uploadId, true).catch((error: unknown) => {
+            console.warn('[发送附件] 暂存回收失败', error);
+          });
       }
     }),
 
@@ -8155,18 +8332,22 @@ export const accountRouter = router({
           foreground: batch.foreground === true,
           status: batch.status,
           paused: batch.interrupted === true,
+          ...(batch.pausedByPolicy ? { pausedByPolicy: true } : {}),
           finishedAt: batch.finishedAt,
           canRetry: batch.canRetry === true,
           fileSize: batch.fileSize,
           downloadedBytes: batch.downloadedBytes,
           error: batch.error,
-          files: batch.files.map(({ id, relativePath, status, fileSize, downloadedBytes }) => ({
-            id,
-            relativePath,
-            status,
-            fileSize,
-            downloadedBytes,
-          })),
+          files: batch.files.map(
+            ({ id, relativePath, status, fileSize, downloadedBytes, pausedByPolicy }) => ({
+              id,
+              relativePath,
+              status,
+              fileSize,
+              downloadedBytes,
+              ...(pausedByPolicy ? { pausedByPolicy: true } : {}),
+            }),
+          ),
         }));
     }),
 
@@ -9164,7 +9345,7 @@ export const accountRouter = router({
         extension: extname(name).slice(1),
       });
       if (!target) return null;
-      await service.saveMediaAs(input.id, target.path);
+      await withQqFileWrite(target.path, () => service.saveMediaAs(input.id, target.path));
       return { downloadId: target.downloadId, name };
     }),
 
@@ -9273,12 +9454,14 @@ export const accountRouter = router({
             transcribeVoice: z.boolean(),
             /** 在线转写：优先向 QQ 服务端要文本，漏包 / 过期回退本地模型（需 QQ 在线）。 */
             onlineTranscribe: z.boolean().optional(),
+            voicePriority: z.enum(['local', 'qq']).optional(),
             /** 在线转写并发请求数（默认 5）。 */
             onlineConcurrency: z.number().int().min(1).max(32).optional(),
             /** 图片文字识别（自动 OCR）：写 ocr.json + 回写消息文件。 */
             ocrImages: z.boolean().optional(),
             /** 在线识别（0xe07_0）；不开启就是纯本地识别。 */
             onlineOcr: z.boolean().optional(),
+            ocrPriority: z.enum(['local', 'qq']).optional(),
             /** 在线识别并发（默认 5）。 */
             onlineOcrConcurrency: z.number().int().min(1).max(32).optional(),
             /** 是否已下好筛图模型（渲染层判定；false 时跳过预筛选阶段）。 */
@@ -9562,7 +9745,7 @@ export const accountRouter = router({
       if (!host.account) throw new Error('当前未打开账号');
       assertFullModeSource(host, host.account);
       const { userConfig } = requireBootstrap();
-      if (!userConfig.getSettings().autoAttachQq) userConfig.setSettings({ autoAttachQq: true });
+      if (!userConfig.getSettings().autoAttachQq) saveQqCapabilityPreference('online');
       return { requested: true };
     }),
 
@@ -10160,98 +10343,166 @@ export const accountRouter = router({
         expectedAccountConfigId: z.string().optional(),
       }),
     )
-    .mutation(async ({ input }): Promise<TranscribeResult> => {
-      const ctx = getAppContext();
-      const boot = ctx.bootstrap;
-      const services = ctx.services;
-      if (!boot) return { success: false, error: '原生组件未就绪' };
-      if (!services) return { success: false, error: '未打开账号' };
-      requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
-      const msgId = !input.forward && /^\d+$/.test(input.msgId) ? BigInt(input.msgId) : null;
-      const readStoredTranscript = async () => {
-        if (msgId === null || !input.automatic) return undefined;
-        const row = await services.msgs.getRawElements(msgId);
-        const voice = row?.elements.find(
-          (element) => element.kind === 'ptt' && element.fileName === input.name,
-        );
-        return voice?.kind === 'ptt' ? voice.pttTranscript : undefined;
-      };
-      await services.sentVoiceTranscripts?.flush();
-      if (ctx.services !== services)
-        return { success: false, error: '账号已切换，已停止语音转写。' };
-      requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
-      const stored = await readStoredTranscript();
-      if (stored) return { success: true, text: stored };
-
-      const modelId = boot.userConfig.getLocalModelId('voice');
-      if (!modelId) return { success: false, error: '请先下载本地语音模型' };
-      const model = getVoiceModel(modelId);
-      if (!model) return { success: false, error: '转录模型不存在' };
-
-      const status = boot.voiceTranscribe.getModelStatus(modelId);
-      if (!status?.downloaded) return { success: false, error: '转录模型未下载' };
-
-      // Locate the silk on disk; fall back to an rkey-backed CDN download (same
-      // path the ptt media protocol uses).
-      const { resolveVoiceSilk } = await import('../../media_protocol');
-      const checkSource = () => {
-        if (ctx.services !== services) throw new Error('账号已切换，已停止语音转写。');
-        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
-      };
-      const silk = await resolveVoiceSilk(
-        services,
-        {
-          ...input,
-          msgId: input.forward?.carrierId ?? input.msgId,
-          conv: input.forward?.conv ?? '',
-          ...(input.forward
-            ? { fwdMsgId: input.msgId, fwdKind: input.forward.kind, fwdResId: input.forward.resId }
-            : {}),
-        },
-        checkSource,
-      );
-      if (!silk) return { success: false, error: '未找到语音文件' };
-
-      const { decodeSilkToWav16kBuffer } = await import('../../voice');
-      const wav = await decodeSilkToWav16kBuffer(silk);
-      if (!wav) return { success: false, error: '语音解码失败' };
-
-      const paths = boot.voiceTranscribe.resolveModelPaths(modelId);
-      if (!paths.model || !paths.tokens) return { success: false, error: '模型文件缺失' };
-
-      const { transcribeWav } = await import('../../transcribe/engine');
-      const result = await transcribeWav(
-        wav,
-        { model: paths.model, tokens: paths.tokens },
-        { engine: model.engine, languages: model.languages },
-      );
-      if (!result.success) return { success: false, error: result.error ?? '识别失败' };
-      const text = result.text ?? '';
-      if (ctx.services !== services) return { success: false, error: '账号已切换，已停止保存转写' };
-      checkSource();
-      if (msgId !== null) {
-        // Best-effort: a failed back-write must not lose the text we just got.
-        // Only the TEXT goes back to the DB — `pttTranscript` (45923) is the
-        // field QQ itself reads, so it must stay a plain string. Emotion and
-        // events ride alongside in the response instead.
-        const written = await services.msgs
-          .setPttTranscript(msgId, input.name, text, {
-            ifEmpty: input.automatic,
-            current: () => ctx.services === services,
-          })
-          .catch(() => false);
-        if (input.automatic && !written) {
-          const currentText = await readStoredTranscript();
-          if (currentText) return { success: true, text: currentText };
+    .mutation(
+      async ({
+        input,
+      }): Promise<
+        TranscribeResult & {
+          deferred?: boolean;
+          source?: 'local' | 'qq';
         }
-      }
-      return {
-        success: true,
-        text,
-        emotion: result.emotion ?? null,
-        events: result.events ?? [],
-      };
-    }),
+      > => {
+        const ctx = getAppContext();
+        const boot = ctx.bootstrap;
+        const services = ctx.services;
+        if (!boot) return { success: false, error: '原生组件未就绪' };
+        if (!services) return { success: false, error: '未打开账号' };
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+        const msgId = !input.forward && /^\d+$/.test(input.msgId) ? BigInt(input.msgId) : null;
+        const readStoredTranscript = async () => {
+          if (msgId === null || !input.automatic) return undefined;
+          const row = await services.msgs.getRawElements(msgId);
+          const voice = row?.elements.find(
+            (element) => element.kind === 'ptt' && element.fileName === input.name,
+          );
+          return voice?.kind === 'ptt' ? voice.pttTranscript : undefined;
+        };
+        await services.sentVoiceTranscripts?.flush();
+        if (ctx.services !== services)
+          return { success: false, error: '账号已切换，已停止语音转写。' };
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+        const stored = await readStoredTranscript();
+        if (stored) return { success: true, text: stored };
+
+        const checkSource = () => {
+          if (ctx.services !== services) throw new Error('账号已切换，已停止语音转写。');
+          requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+        };
+        const recognizeOnline = async (): Promise<TranscribeResult> => {
+          checkSource();
+          const record = services.accountConfig.getRecord();
+          if (
+            !record?.uin ||
+            !record.qqOnline ||
+            !record.qqPid ||
+            !fullModeAllowed(ctx) ||
+            !probeCaptureBackend().available
+          )
+            return { success: false, error: 'QQ 在线转写未就绪' };
+          if (msgId === null) return { success: false, error: '此语音可用本地模型转写' };
+          const message = await services.msgs.getChatMessageForVoice(msgId);
+          const ref = message && findChatVoiceRef(message, input.name, input.token);
+          const request = ref && toOnlineVoiceRequest(ref);
+          if (!request) return { success: false, error: '此语音可用本地模型转写' };
+          const text = await onlineTranscriber.transcribeOne(record.uin, request, checkSource);
+          return text === undefined
+            ? { success: false, error: 'QQ 在线转写未返回结果' }
+            : { success: true, text };
+        };
+        const recognizeLocal = async (): Promise<TranscribeResult & { deferred?: boolean }> => {
+          const modelId = boot.userConfig.getLocalModelId('voice');
+          if (!modelId) return { success: false, error: '请先下载本地语音模型' };
+          const model = getVoiceModel(modelId);
+          if (!model) return { success: false, error: '转录模型不存在' };
+
+          const status = boot.voiceTranscribe.getModelStatus(modelId);
+          if (!status?.downloaded) return { success: false, error: '转录模型未下载' };
+
+          // Locate the silk on disk; fall back to an rkey-backed CDN download (same
+          // path the ptt media protocol uses).
+          const { resolveVoiceSilk } = await import('../../media_protocol');
+          const localOnly = Boolean(input.automatic && transferRestricted());
+          const silk = await resolveVoiceSilk(
+            services,
+            {
+              ...input,
+              msgId: input.forward?.carrierId ?? input.msgId,
+              conv: input.forward?.conv ?? '',
+              ...(input.forward
+                ? {
+                    fwdMsgId: input.msgId,
+                    fwdKind: input.forward.kind,
+                    fwdResId: input.forward.resId,
+                  }
+                : {}),
+            },
+            checkSource,
+            localOnly,
+          );
+          if (!silk)
+            return localOnly
+              ? { success: false, deferred: true, error: '省流量模式已暂缓自动转写' }
+              : { success: false, error: '未找到语音文件' };
+
+          const { decodeSilkToWav16kBuffer } = await import('../../voice');
+          const wav = await decodeSilkToWav16kBuffer(silk);
+          if (!wav) return { success: false, error: '语音解码失败' };
+
+          const paths = boot.voiceTranscribe.resolveModelPaths(modelId);
+          if (!paths.model || !paths.tokens) return { success: false, error: '模型文件缺失' };
+
+          const { transcribeWav } = await import('../../transcribe/engine');
+          return transcribeWav(
+            wav,
+            { model: paths.model, tokens: paths.tokens },
+            { engine: model.engine, languages: model.languages },
+          );
+        };
+
+        const order =
+          input.automatic || msgId === null
+            ? (['local'] as const)
+            : boot.userConfig.getSetting('voiceTranscribe').priority === 'qq'
+              ? (['qq', 'local'] as const)
+              : (['local', 'qq'] as const);
+        const errors = [];
+        let source: 'local' | 'qq' = order[0];
+        let result: TranscribeResult & { deferred?: boolean } = { success: false };
+        for (const candidate of order) {
+          checkSource();
+          result = await (candidate === 'qq' ? recognizeOnline() : recognizeLocal()).catch(
+            (error: unknown): TranscribeResult => ({
+              success: false,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
+          if (result.deferred) return result;
+          if (result.success) {
+            source = candidate;
+            break;
+          }
+          if (result.error) errors.push(result.error);
+        }
+        if (!result.success) return { success: false, error: errors.join('。') || '识别失败' };
+        const text = result.text ?? '';
+        if (ctx.services !== services)
+          return { success: false, error: '账号已切换，已停止保存转写' };
+        checkSource();
+        if (msgId !== null) {
+          // Best-effort: a failed back-write must not lose the text we just got.
+          // Only the TEXT goes back to the DB — `pttTranscript` (45923) is the
+          // field QQ itself reads, so it must stay a plain string. Emotion and
+          // events ride alongside in the response instead.
+          const written = await services.msgs
+            .setPttTranscript(msgId, input.name, text, {
+              ifEmpty: input.automatic,
+              current: () => ctx.services === services,
+            })
+            .catch(() => false);
+          if (input.automatic && !written) {
+            const currentText = await readStoredTranscript();
+            if (currentText) return { success: true, text: currentText };
+          }
+        }
+        return {
+          success: true,
+          text,
+          source,
+          emotion: result.emotion ?? null,
+          events: result.events ?? [],
+        };
+      },
+    ),
 
   /** 数据库损坏反馈：打包日志/settings.db/密钥算法配置/检查报告到缓存目录，并打开文件夹 + GitHub/QQ。 */
   collectDbDamageFeedback: procedure

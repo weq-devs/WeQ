@@ -1,3 +1,9 @@
+import {
+  isQqCapabilityMode,
+  legacyQqCapabilityMode,
+  qqCapabilityAllowsOnline,
+  type QqCapabilityMode,
+} from '../common/qq_capability_mode';
 /**
  * UserConfigService — host-wide preferences.
  *
@@ -86,6 +92,9 @@ import { writeFileAtomicSync } from '../common/atomic_write';
 import { withSharedConfigLock } from './shared_config_lock';
 import { diffSettings, emitSettingsChanged, type SettingsChange } from '../common/settings_changes';
 import {
+  assertQqFileWriteAllowed,
+  beginQqFileWrite,
+  qqFileWriteTouchesData,
   configureDatabaseReadConcurrency,
   normalizeDatabaseReadConcurrency,
   DEFAULT_DATABASE_READ_CONCURRENCY,
@@ -687,7 +696,10 @@ function hasOneBotNetworks(config: OneBotConfig): boolean {
   );
 }
 
+export type RecognitionPriority = 'local' | 'qq';
+
 export interface VoiceTranscribeConfig {
+  priority: RecognitionPriority;
   /** 离线转录模型 id（空 = 关）。 */
   modelId: string;
   /** 浏览聊天时自动转换尚无文字的语音。 */
@@ -708,6 +720,7 @@ export interface VoiceTranscribeConfig {
  * 两个 id 都指向 `@weq/service` 的 OCR 模型注册表（`common/ocr_models.ts`）。
  */
 export interface OcrModelsConfig {
+  priority: RecognitionPriority;
   modelId: string;
   filterModelId: string;
   /** 非手动 OCR 前先筛除无文字图片，不改变模型资源选择。 */
@@ -715,6 +728,10 @@ export interface OcrModelsConfig {
   autoDownloadOriginal: boolean;
   /** 导出时同时向 QQ 发起的在线识别请求数。 */
   onlineConcurrency: number;
+}
+
+function recognitionPriority(value: unknown, fallback: RecognitionPriority): RecognitionPriority {
+  return value === 'local' || value === 'qq' ? value : fallback;
 }
 
 function recognitionConcurrency(value: unknown, fallback: number): number {
@@ -915,6 +932,7 @@ export interface AppSettings {
    * 登录时的数据库密钥提取仍独立于此策略。
    */
   autoAttachQq: boolean;
+  qqCapabilityMode: QqCapabilityMode;
   /** 当前账号在线能力或代理需要关注时显示窗口提示。 */
   qqStatusIndicatorEnabled: boolean;
   /** 进入受限状态的被动横幅；不隐藏真实授权请求或主动错误。 */
@@ -1218,7 +1236,8 @@ export const JOIN_GROUP_PROMPT_VERSION = 1;
  */
 export function planWelcomePolicyMigration(config: UserConfig): Partial<UserConfig> | null {
   const seen = config.welcomePolicyVersion ?? 1;
-  if (seen >= WELCOME_POLICY_VERSION) return null;
+  if (seen >= WELCOME_POLICY_VERSION || isQqCapabilityMode(config.settings?.qqCapabilityMode))
+    return null;
   // settings 不存在时，新默认值本身就是关的，无需写入。
   if (!config.settings || config.settings.autoAttachQq === false) return null;
   // settings 是浅合并：必须整份带过去，只改 autoAttachQq 一个字段。
@@ -1330,6 +1349,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // 默认关闭：是否扫描 QQ 内存由首次运行欢迎框征得同意后再打开，见
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
+  qqCapabilityMode: 'local',
   restrictedModeBannerEnabled: true,
   qqStatusIndicatorEnabled: true,
   webServiceAutoStart: false,
@@ -1340,9 +1360,16 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autoLockMinutes: 0,
   appLock: { enabled: false, method: 'totp' },
   modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
-  voiceTranscribe: { modelId: '', autoTranscribe: false, onlineConcurrency: 5, ttsProviders: [] },
+  voiceTranscribe: {
+    priority: 'local',
+    modelId: '',
+    autoTranscribe: false,
+    onlineConcurrency: 5,
+    ttsProviders: [],
+  },
   // 本地图片文字识别：两个用途各自独立选模型（都空 = 未启用）。
   ocr: {
+    priority: 'qq',
     modelId: '',
     filterModelId: '',
     prefilterEnabled: false,
@@ -2186,6 +2213,7 @@ export class UserConfigService {
 
   cacheDir(category: string): string {
     const dir = join(this.cacheBaseDir(), category);
+    assertQqFileWriteAllowed({ path: dir, tree: true });
     mkdirSync(dir, { recursive: true });
     return dir;
   }
@@ -2235,7 +2263,10 @@ export class UserConfigService {
     // 兼容旧键名：这个开关历史上叫 `autoInjectQq`（注入时代），旧配置里存的
     // 是那个键，读的时候一并认，免得升级后被静默重置成默认值。
     const legacyAutoAttachQq = (s as { autoInjectQq?: boolean } | undefined)?.autoInjectQq;
-    const autoAttachQq = s?.autoAttachQq ?? legacyAutoAttachQq ?? d.autoAttachQq;
+    const qqCapabilityMode = isQqCapabilityMode(s?.qqCapabilityMode)
+      ? s.qqCapabilityMode
+      : legacyQqCapabilityMode((s?.autoAttachQq ?? legacyAutoAttachQq) === true, false);
+    const autoAttachQq = qqCapabilityAllowsOnline(qqCapabilityMode);
     //
     // 同一个道理：这个开关原名 `suppressPtraceHint`（把「引导提权」笼统叫成 ptrace），
     // 改名后旧配置里仍是原名，读的时候一并认，勾过「不再提醒」的用户不该被重置。
@@ -2266,6 +2297,7 @@ export class UserConfigService {
           ? s.exportSaveMode
           : d.exportSaveMode,
       autoAttachQq,
+      qqCapabilityMode,
       qqStatusIndicatorEnabled: qqStatusIndicatorPreference(s) ?? d.qqStatusIndicatorEnabled,
       restrictedModeBannerEnabled: s?.restrictedModeBannerEnabled !== false,
       webServiceAutoStart: s?.webServiceAutoStart === true,
@@ -2362,6 +2394,7 @@ export class UserConfigService {
       modelResources: resources,
       voiceTranscribe: {
         modelId: resources.voice,
+        priority: recognitionPriority(s?.voiceTranscribe?.priority, d.voiceTranscribe.priority),
         onlineConcurrency: recognitionConcurrency(
           s?.voiceTranscribe?.onlineConcurrency,
           d.voiceTranscribe.onlineConcurrency,
@@ -2376,6 +2409,7 @@ export class UserConfigService {
       ocr: {
         modelId: resources.ocr,
         filterModelId: resources.filter,
+        priority: recognitionPriority(s?.ocr?.priority, d.ocr.priority),
         prefilterEnabled:
           typeof s?.ocr?.prefilterEnabled === 'boolean'
             ? s.ocr.prefilterEnabled
@@ -2433,6 +2467,15 @@ export class UserConfigService {
     this.write({ totpSecret: secret ?? undefined });
   }
 
+  migrateQqCapabilityMode(proxyEnabled: boolean): void {
+    this.updateShared(() => {
+      if (isQqCapabilityMode(this.read().settings?.qqCapabilityMode)) return;
+      this.applySettings({
+        qqCapabilityMode: legacyQqCapabilityMode(this.getSetting('autoAttachQq'), proxyEnabled),
+      });
+    });
+  }
+
   setSettings(patch: AppSettingsPatch): AppSettings {
     return this.updateShared(() => this.applySettings(patch));
   }
@@ -2449,8 +2492,12 @@ export class UserConfigService {
         patch.modelResources?.filter ?? patch.ocr?.filterModelId ?? current.modelResources.filter,
       intent: patch.modelResources?.intent ?? current.modelResources.intent,
     };
-    // 不再按平台归一化 —— macOS 也能读内存（需 root + 关 SIP），由用户自己选。
-    const autoAttachQq = patch.autoAttachQq ?? current.autoAttachQq;
+    const qqCapabilityMode =
+      patch.qqCapabilityMode ??
+      (patch.autoAttachQq !== undefined && patch.autoAttachQq !== current.autoAttachQq
+        ? legacyQqCapabilityMode(patch.autoAttachQq, false)
+        : current.qqCapabilityMode);
+    const autoAttachQq = qqCapabilityAllowsOnline(qqCapabilityMode);
     const fonts = messageFontSettings(patch);
     const next: AppSettings = {
       sharedPreferences: {
@@ -2483,6 +2530,7 @@ export class UserConfigService {
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
+      qqCapabilityMode,
       qqStatusIndicatorEnabled: patch.qqStatusIndicatorEnabled ?? current.qqStatusIndicatorEnabled,
       restrictedModeBannerEnabled:
         patch.restrictedModeBannerEnabled ?? current.restrictedModeBannerEnabled,
@@ -2614,6 +2662,10 @@ export class UserConfigService {
       modelResources: resources,
       voiceTranscribe: {
         modelId: resources.voice,
+        priority: recognitionPriority(
+          patch.voiceTranscribe?.priority,
+          current.voiceTranscribe.priority,
+        ),
         onlineConcurrency: recognitionConcurrency(
           patch.voiceTranscribe?.onlineConcurrency,
           current.voiceTranscribe.onlineConcurrency,
@@ -2628,6 +2680,7 @@ export class UserConfigService {
       ocr: {
         modelId: resources.ocr,
         filterModelId: resources.filter,
+        priority: recognitionPriority(patch.ocr?.priority, current.ocr.priority),
         prefilterEnabled:
           typeof patch.ocr?.prefilterEnabled === 'boolean'
             ? patch.ocr.prefilterEnabled
@@ -2684,6 +2737,12 @@ export class UserConfigService {
       aiImages: normalizeImagePreferences({ ...current.aiImages, ...patch.aiImages }),
     };
     const stored: DeepPartial<AppSettings> = { ...next };
+    if (
+      patch.qqCapabilityMode === undefined &&
+      patch.autoAttachQq === undefined &&
+      this.read().settings?.qqCapabilityMode === undefined
+    )
+      delete stored.qqCapabilityMode;
     // 首次打开旧账号前的无关设置保存，不提前固化尚未迁入的通知值。
     if (
       patch.notificationEvents === undefined &&
@@ -2860,7 +2919,13 @@ export class UserConfigService {
 
   cacheBaseDir(): string {
     const o = this.read().cacheDirOverride;
-    return o?.trim() ? o : this.defaultCacheBase();
+    if (!o?.trim()) return this.defaultCacheBase();
+    if (
+      this.getSetting('qqCapabilityMode') === 'read-only' &&
+      qqFileWriteTouchesData({ path: o, tree: true })
+    )
+      return this.defaultCacheBase();
+    return o;
   }
   appDataRoot(): string {
     return this.root;
@@ -2869,10 +2934,11 @@ export class UserConfigService {
   getCacheDirInfo(): { effective: string; override: string | null; default: string } {
     const def = this.defaultCacheBase();
     const o = this.read().cacheDirOverride ?? null;
-    return { effective: o?.trim() ? o : def, override: o, default: def };
+    return { effective: this.cacheBaseDir(), override: o, default: def };
   }
 
   setCacheDirOverride(dir: string | null): void {
+    if (dir?.trim()) assertQqFileWriteAllowed({ path: dir, tree: true });
     this.write({ cacheDirOverride: dir?.trim() ? dir : null });
     this.logger.info('updated cache directory override', {
       event: 'set-cache-dir-override',
@@ -2928,7 +2994,9 @@ export class UserConfigService {
     for (const item of targets) {
       const { id, path: dir } = item;
       if (!existsSync(dir)) continue;
+      let finishWrite: (() => void) | undefined;
       try {
+        finishWrite = beginQqFileWrite({ path: dir, tree: true });
         if (item.cleanupKind === 'dress-previews') {
           const previews = await listDressPreviewFiles(dir);
           if (previews.incomplete) throw new Error('装扮预览目录读取不完整，未清理');
@@ -2956,6 +3024,8 @@ export class UserConfigService {
           dir,
           ...logErrorContext(error),
         });
+      } finally {
+        finishWrite?.();
       }
     }
     this.logger.info('cleared weq cache', {

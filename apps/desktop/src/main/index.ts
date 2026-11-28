@@ -7,6 +7,7 @@ import {
 import { controlCompositionWindow } from './composition_window';
 import { flushConversationCalendarResults } from './ipc/routers/conversation_calendar';
 import { applicationToolPopupOptions, createToolWindowRegistry } from './tool_window';
+import { openBootstrapSettingsWindow } from './bootstrap_settings_window';
 import {
   allowMessageImageWindow,
   isMessageImageWindow,
@@ -517,18 +518,27 @@ function registerWindowLayoutIpc(): void {
         'configId' in scope && typeof scope.configId === 'string' ? scope.configId : undefined,
     });
   });
-  accountIpc.handle('window:set-layout', (event, layout: WindowLayout | 'settings') => {
+  accountIpc.handle('bootstrap-settings:open', (event) => {
+    const owner = getMainWindow();
+    if (owner?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) return;
+    const runtime = currentAccountRuntime();
+    return openBootstrapSettingsWindow(owner, {
+      preload: join(moduleDir, '../preload/index.mjs'),
+      attach: (win) => {
+        mainIpcHandler?.attachWindow(win);
+        registerApplicationToolWindows(win, runtime);
+        labelPerformanceWindow(win, 'WeQ · 设置');
+      },
+      load: (win) => loadApplicationRenderer(win, { 'bootstrap-settings': '1' }),
+      quitting: () => isQuitting,
+    });
+  });
+  accountIpc.handle('window:set-layout', (event, layout: WindowLayout) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return;
     const area = screen.getDisplayMatching(win.getBounds()).workArea;
-    if (layout === 'settings') {
-      // 设置借用主界面尺寸，保留登录窗口及其原生装饰。
-      applyWindowLayout(win, 'chat', area);
-      return true;
-    }
     if (layout !== 'home' && layout !== 'chat') return;
     // Linux 无运行时装饰开关，仅在账号页/工作区切换时重建，保留后台账号会话。
-    // 设置过程中不重载渲染层，以免丢掉未保存的编辑和已打开的工具窗。
     if (
       process.platform === 'linux' &&
       win === getMainWindow() &&
@@ -844,6 +854,15 @@ function resolveWindowIcon(): Electron.NativeImage | undefined {
   return img.isEmpty() ? undefined : img;
 }
 
+function loadApplicationRenderer(win: BrowserWindow, query?: Record<string, string>) {
+  if (is.dev && process.env.ELECTRON_RENDERER_URL) {
+    const url = new URL(process.env.ELECTRON_RENDERER_URL);
+    for (const [key, value] of Object.entries(query ?? {})) url.searchParams.set(key, value);
+    return win.loadURL(url.href);
+  }
+  return win.loadFile(join(moduleDir, '../renderer/index.html'), { query });
+}
+
 function createWindow(
   showInitially = true,
   layout: WindowLayout = startupWindowLayout(
@@ -932,8 +951,6 @@ function createWindow(
   win.once(
     'closed',
     runtime.bind(() => {
-      toolWindows.clear(recoveryId);
-      repairWindowScopes.delete(recoveryId);
       rendererRecoveries.delete(recoveryId);
       recovery.dispose();
       if (!isQuitting && getMainWindow() === win) {
@@ -988,6 +1005,17 @@ function createWindow(
     }),
   );
 
+  registerApplicationToolWindows(win, runtime);
+  void loadApplicationRenderer(win);
+  return win;
+}
+
+function registerApplicationToolWindows(win: BrowserWindow, runtime: AccountRuntime): void {
+  const ownerId = win.webContents.id;
+  win.once('closed', () => {
+    toolWindows.clear(ownerId);
+    repairWindowScopes.delete(ownerId);
+  });
   win.webContents.setWindowOpenHandler(({ url, frameName }) => {
     if (isMessageImageWindow(url, frameName)) return allowMessageImageWindow(win);
     const options = applicationToolPopupOptions(url, frameName);
@@ -1071,13 +1099,6 @@ function createWindow(
       });
     }),
   );
-
-  if (is.dev && process.env.ELECTRON_RENDERER_URL) {
-    void win.loadURL(process.env.ELECTRON_RENDERER_URL);
-  } else {
-    void win.loadFile(join(moduleDir, '../renderer/index.html'));
-  }
-  return win;
 }
 
 // 每个桌面应用只持有一个 Electron 单实例锁，账号窗口共享这一宿主。

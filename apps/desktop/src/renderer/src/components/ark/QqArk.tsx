@@ -40,6 +40,7 @@ import {
 } from '../../lib/groupAlbumNavigation';
 import { MapPin, Megaphone, ShieldAlert } from 'lucide-react';
 import { cachedAvatarUrl } from '../../lib/avatarCache';
+import { CardPreviewImage } from '../CardPreviewImage';
 import {
   resolveArkCard,
   parseArkData,
@@ -244,9 +245,7 @@ function NewsCard({ v }: { v: ArkValues }): ReactElement {
       {v.title ? <div className="weq-ark-title">{v.title}</div> : null}
       <div className="weq-ark-body-compact">
         <div className="weq-ark-desc">{v.desc || v.summary || ''}</div>
-        {thumb ? (
-          <img className="weq-ark-preview-small" src={arkImg(thumb)} alt="" loading="lazy" />
-        ) : null}
+        {thumb ? <CardPreviewImage className="weq-ark-preview-small" src={thumb} /> : null}
       </div>
     </ArkShell>
   );
@@ -275,7 +274,7 @@ function AppBlockCard({ v }: { v: ArkValues }): ReactElement {
           {v.desc}
         </div>
       ) : null}
-      {big ? <img className="weq-ark-preview-big" src={arkImg(big)} alt="" loading="lazy" /> : null}
+      {big ? <CardPreviewImage className="weq-ark-preview-big" src={big} /> : null}
     </ArkShell>
   );
 }
@@ -291,7 +290,7 @@ function MediaBlockCard({ v }: { v: ArkValues }): ReactElement {
       {v.summary || v.desc || v.title ? (
         <div className="weq-ark-title">{v.summary || v.desc || v.title}</div>
       ) : null}
-      {big ? <img className="weq-ark-preview-big" src={arkImg(big)} alt="" loading="lazy" /> : null}
+      {big ? <CardPreviewImage className="weq-ark-preview-big" src={big} /> : null}
       {v.button ? <div className="weq-ark-action-btn">{v.button}</div> : null}
     </ArkShell>
   );
@@ -334,7 +333,7 @@ function GenericCard({
         {small ? (
           <div className="weq-ark-body-compact">
             <div className="weq-ark-desc">{values.desc || values.summary || ''}</div>
-            <img className="weq-ark-preview-small" src={arkImg(small)} alt="" loading="lazy" />
+            <CardPreviewImage className="weq-ark-preview-small" src={small} />
           </div>
         ) : (
           <>
@@ -343,9 +342,7 @@ function GenericCard({
                 {values.desc || values.summary}
               </div>
             ) : null}
-            {big ? (
-              <img className="weq-ark-preview-big" src={arkImg(big)} alt="" loading="lazy" />
-            ) : null}
+            {big ? <CardPreviewImage className="weq-ark-preview-big" src={big} /> : null}
           </>
         )}
         {values.button ? <div className="weq-ark-action-btn">{values.button}</div> : null}
@@ -637,9 +634,7 @@ function ArkSinglePic({ p, prompt }: { p: ArkPayload; prompt: string }): ReactEl
 
   return (
     <ArkShell jump={bannerUrl}>
-      {banner ? (
-        <img className="weq-ark-preview-big" src={arkImg(banner)} alt="" loading="lazy" />
-      ) : null}
+      {banner ? <CardPreviewImage className="weq-ark-preview-big" src={banner} /> : null}
       {labels.length > 0 ? (
         <div style={{ marginTop: banner ? 8 : 0 }}>
           {labels.map((label) => (
@@ -821,9 +816,7 @@ function ArkActivity({ p }: { p: ArkPayload }): ReactElement {
     <ArkShell jump={jumpUrl} footer={<ArkFooter source={tag} icon={tagIcon} />}>
       {title ? <div className="weq-ark-title">{title}</div> : null}
       {desc ? <div className="weq-ark-desc weq-ark-activity-desc">{desc}</div> : null}
-      {cover ? (
-        <img className="weq-ark-activity-cover" src={arkImg(cover)} alt="" loading="lazy" />
-      ) : null}
+      {cover ? <CardPreviewImage className="weq-ark-activity-cover" src={cover} /> : null}
       <div className="weq-ark-activity-meta">
         {statusLabel ? <span className="weq-ark-activity-badge">{statusLabel}</span> : null}
         {joinLabel ? <span className="weq-ark-activity-badge">{joinLabel}</span> : null}
@@ -895,7 +888,7 @@ function ArkLocation({
   address: string;
   jump?: string;
 }): ReactElement {
-  const mapSrc = lat && lng ? cachedAvatarUrl(qqStaticMapUrl(lat, lng)) : null;
+  const mapSrc = lat && lng ? qqStaticMapUrl(lat, lng) : null;
   const onOpen = openHandler(jump);
   return (
     <div
@@ -916,14 +909,11 @@ function ArkLocation({
         ) : null}
         <div className="weq-ark-map-view">
           {mapSrc ? (
-            <img
+            <CardPreviewImage
               className="weq-ark-map-img"
               src={mapSrc}
-              alt=""
-              loading="lazy"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
+              label="加载地图"
+              hideUnavailable
             />
           ) : null}
           <MapPin className="weq-ark-map-pin" size={28} strokeWidth={2.2} />
@@ -983,9 +973,7 @@ function HeuristicCard({ p, prompt }: { p: ArkPayload; prompt: string }): ReactE
       {isCompactLayout ? (
         <div className="weq-ark-body-compact">
           <div className="weq-ark-desc">{desc}</div>
-          {mainImg ? (
-            <img className="weq-ark-preview-small" src={arkImg(mainImg)} alt="" loading="lazy" />
-          ) : null}
+          {mainImg ? <CardPreviewImage className="weq-ark-preview-small" src={mainImg} /> : null}
         </div>
       ) : (
         <>
@@ -995,7 +983,7 @@ function HeuristicCard({ p, prompt }: { p: ArkPayload; prompt: string }): ReactE
             </div>
           ) : null}
           {isBlockLayout && mainImg ? (
-            <img className="weq-ark-preview-big" src={arkImg(mainImg)} alt="" loading="lazy" />
+            <CardPreviewImage className="weq-ark-preview-big" src={mainImg} />
           ) : null}
         </>
       )}

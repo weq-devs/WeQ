@@ -66,7 +66,7 @@ export function DeletedMessagesModal({
   error: string | null;
   onRetry: () => void;
   /** Restore one message; resolves once the DB row is un-hidden. */
-  onRestore: (msgId: string) => Promise<void>;
+  onRestore?: (msgId: string) => Promise<void>;
   onLocate: (seq: string, messageId: string) => void;
   onClose: () => void;
 }): ReactElement {
@@ -132,7 +132,7 @@ export function DeletedMessagesModal({
   };
 
   async function restore(message: Message): Promise<void> {
-    if (restoringId) return;
+    if (!onRestore || restoringId) return;
     setRestoringId(message.id);
     setRestoreError('');
     try {
@@ -265,7 +265,7 @@ export function DeletedMessagesModal({
                   : undefined
               }
               action={
-                row.restorable ? (
+                onRestore && row.restorable ? (
                   <button
                     type="button"
                     className="icon-button"

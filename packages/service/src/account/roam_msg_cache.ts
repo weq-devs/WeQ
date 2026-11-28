@@ -19,6 +19,7 @@ import type { GapFetchedMessage } from './gap_history';
 import { nativeHistoryElements } from './native_history_projection';
 import type { ProtocolHistoryObservation } from './sso_history_window';
 import type { UnreadSequenceRange } from './unread_info';
+import { verifiedTimelineIdentity } from '../common/roaming_timeline';
 
 const TABLE = 'gap_msg';
 const NATIVE_TABLE = 'native_gap_msg';
@@ -131,15 +132,27 @@ function combineCache(
     ),
     ...native,
   ];
-  const remoteKeys = new Set([...legacy, ...enriched].filter((row) => !row.localSent).map(key));
+  const identity = (row: GapFetchedMessage) => verifiedTimelineIdentity(row.kind, row);
+  const sentKeys = new Set(protocol.filter((row) => row.localSent).map(identity));
+  const remoteKeys = new Set(
+    [...legacy, ...enriched]
+      .filter((row) => !row.localSent)
+      .map(identity)
+      .filter(Boolean),
+  );
   const exact = new Set(
     enriched.filter((row) => !row.localSent && row.msgRandom && row.msgRandom !== '0').map(key),
   );
   return [
     ...protectedRows,
     ...legacy.filter((row) => !exact.has(key(row))),
-    ...enriched.filter((row) => !row.localSent || !remoteKeys.has(key(row))),
-  ];
+    ...enriched.filter((row) => !row.localSent || !remoteKeys.has(identity(row))),
+  ].map((row): GapFetchedMessage => {
+    const sentKey = identity(row);
+    return !row.localSent && !row.sentFromWeq && sentKey !== null && sentKeys.has(sentKey)
+      ? { ...row, sentFromWeq: true }
+      : row;
+  });
 }
 
 export class RoamMsgCacheDb {
@@ -331,10 +344,25 @@ export class RoamMsgCacheDb {
     const order = (time: string) =>
       `ORDER BY msg_seq ${direction},CAST(${time} AS INTEGER) ${direction},${sign} ${direction},${negative} ${direction},length(msg_id) ${direction},msg_id ${direction}`;
     // 各来源先独立限额，再沿用原有去重；不能在 UNION 上提前 LIMIT，重复来源会挤掉消息。
-    const projection = (format: string) =>
-      metadataOnly
-        ? `json_object('kind',kind,'conv',conv,'msgId',msg_id,'msgSeq',CAST(msg_seq AS TEXT),'sendTime',json_extract(payload,'$.sendTime'),'msgRandom',json_extract(payload,'$.msgRandom'),'senderUid',json_extract(payload,'$.senderUid'),'senderUin',json_extract(payload,'$.senderUin'),'localSent',json_extract(payload,'$.localSent'),'ntSeqVerified',json_extract(payload,'$.ntSeqVerified'),'recall',json_extract(payload,'$.recall'),'sourceFormat','${format}','elements',json('[]'))`
-        : 'payload';
+    const sentOrigin = (table: string, random: string, sender: string) => `EXISTS (
+      SELECT 1 FROM ${PROTOCOL_TABLE} AS sent INDEXED BY protocol_sent_preview
+      WHERE sent.kind=${table}.kind AND sent.conv=${table}.conv AND sent.msg_seq=${table}.msg_seq
+        AND ${CONFIRMED_SENT} AND ${random} NOT IN ('','0') AND ${sender} <> ''
+        AND json_extract(sent.payload,'$.msgRandom')=${random}
+        AND json_extract(sent.payload,'$.senderUid')=${sender}
+    )`;
+    // 查同序号的发送索引，发送快照排在另一页时也能识别云端副本。
+    const projection = (format: 'native' | 'protocol', table: string) => {
+      if (metadataOnly)
+        return `json_object('kind',kind,'conv',conv,'msgId',msg_id,'msgSeq',CAST(msg_seq AS TEXT),'sendTime',json_extract(payload,'$.sendTime'),'msgRandom',json_extract(payload,'$.msgRandom'),'senderUid',json_extract(payload,'$.senderUid'),'senderUin',json_extract(payload,'$.senderUin'),'localSent',json_extract(payload,'$.localSent'),'ntSeqVerified',json_extract(payload,'$.ntSeqVerified'),'recall',json_extract(payload,'$.recall'),'sourceFormat','${format}','elements',json('[]'))`;
+      return `CASE WHEN json_extract(payload,'$.localSent') IS NOT 1
+        AND (kind='group' OR json_extract(payload,'$.ntSeqVerified')=1)
+        AND ${sentOrigin(table, `json_extract(${table}.payload,'$.msgRandom')`, `json_extract(${table}.payload,'$.senderUid')`)}
+        THEN json_set(payload,'$.sentFromWeq',json('true')) ELSE payload END`;
+    };
+    const legacySent = metadataOnly
+      ? '0'
+      : `kind='c2c' AND nt_seq_verified=1 AND ${sentOrigin('page', 'page.msg_id', 'page.sender_uid')}`;
     const read = metadataOnly
       ? (sql: string, values: SqlValue[]) =>
           new QqDb(this.nt as NtHelperBinding, { dbPath: this.dbPath }).query(sql, values)
@@ -345,7 +373,7 @@ export class RoamMsgCacheDb {
             this.nt,
           );
     const rows = await read(
-      `SELECT 0, NULL, page.* FROM (SELECT kind, conv, msg_id, msg_seq, sender_uid, sender_uin, send_time, ${metadataOnly ? "'[]' AS elements,NULL AS decoration" : 'elements, decoration'}, nt_seq_verified
+      `SELECT 0, ${legacySent}, page.* FROM (SELECT kind, conv, msg_id, msg_seq, sender_uid, sender_uin, send_time, ${metadataOnly ? "'[]' AS elements,NULL AS decoration" : 'elements, decoration'}, nt_seq_verified
          FROM ${TABLE}
         WHERE kind = ? AND conv = ? AND msg_seq BETWEEN ? AND ?
           ${verifiedOnly ? 'AND nt_seq_verified = 1' : ''}
@@ -355,14 +383,14 @@ export class RoamMsgCacheDb {
         ${order('send_time')} LIMIT ?) AS page
        UNION ALL
        SELECT 1, payload, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM (
-       SELECT ${projection('native')} AS payload FROM ${NATIVE_TABLE} WHERE kind = ? AND conv = ? AND accepted = 1 AND msg_seq BETWEEN ? AND ?
+       SELECT ${projection('native', NATIVE_TABLE)} AS payload FROM ${NATIVE_TABLE} WHERE kind = ? AND conv = ? AND accepted = 1 AND msg_seq BETWEEN ? AND ?
        AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
        ${timeFilter("json_extract(payload,'$.sendTime')")}
        ${keyset("json_extract(payload,'$.sendTime')")}
        ${order("json_extract(payload,'$.sendTime')")} LIMIT ?)
        UNION ALL
        SELECT 2, payload, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM (
-       SELECT ${projection('protocol')} AS payload FROM ${PROTOCOL_TABLE} WHERE kind=? AND conv=? AND msg_seq BETWEEN ? AND ?
+       SELECT ${projection('protocol', PROTOCOL_TABLE)} AS payload FROM ${PROTOCOL_TABLE} WHERE kind=? AND conv=? AND msg_seq BETWEEN ? AND ?
        AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
        ${timeFilter("json_extract(payload,'$.sendTime')")}
        ${nativeOverride}
@@ -371,11 +399,17 @@ export class RoamMsgCacheDb {
     );
     const legacy = rows
       .filter((row) => Number(row[0]) === 0)
-      .map((row) => rowToMessage(row.slice(2)));
+      .map((row) => ({
+        ...rowToMessage(row.slice(2)),
+        ...(row[1] ? { sentFromWeq: true as const } : {}),
+      }));
     const native = rows.filter((row) => Number(row[0]) === 1).map((row) => nativeRow([row[1]!]));
     const protocol = rows
       .filter((row) => Number(row[0]) === 2)
       .map((row) => parseProtocolMessage(row[1]!));
+    if (metadataOnly)
+      for (const message of [...native, ...protocol])
+        message.ntSeqVerified = Number(message.ntSeqVerified) === 1;
     // 特殊消息按正文命中：在来源去重前筛选，以免原生纯文本盖住同一条协议正文。
     const resolve = (messages: GapFetchedMessage[]) =>
       project ? messages.map(project).filter((row) => row !== undefined) : messages;
@@ -385,10 +419,6 @@ export class RoamMsgCacheDb {
         return descending ? -order : order;
       })
       .slice(0, Math.max(1, Math.min(2000, limit)));
-    if (metadataOnly)
-      for (const message of messages)
-        message.ntSeqVerified =
-          message.ntSeqVerified === true || Number(message.ntSeqVerified) === 1;
     return descending ? messages.reverse() : messages;
   }
 
@@ -664,6 +694,26 @@ export class RoamMsgCacheDb {
 
   private async storeProtocol(messages: GapFetchedMessage[]): Promise<void> {
     await this.ensureSchema();
+    const previous = `${PROTOCOL_TABLE}.payload`;
+    const incoming = 'excluded.payload';
+    const previousSent = `json_extract(${previous},'$.localSent')`;
+    const incomingSent = `json_extract(${incoming},'$.localSent')`;
+    const sameSentMessage = `(${previousSent}=1 OR ${incomingSent}=1)
+      AND excluded.msg_seq>0
+      AND (excluded.kind='group' OR (${PROTOCOL_TABLE}.nt_seq_verified=1 AND excluded.nt_seq_verified=1))
+      AND json_extract(${incoming},'$.msgRandom') NOT IN ('','0')
+      AND json_extract(${incoming},'$.msgRandom')=json_extract(${previous},'$.msgRandom')
+      AND json_extract(${incoming},'$.senderUid')<>''
+      AND json_extract(${incoming},'$.senderUid')=json_extract(${previous},'$.senderUid')`;
+    // 同 ID 的正式正文覆盖发送快照，空回填和重放的快照保留已取得的正文。
+    const keepPrevious = `json_type(${incoming},'$.recall') IS NULL
+      AND json_array_length(${previous},'$.elements')>0 AND (
+        json_array_length(${incoming},'$.elements')=0 OR (${incomingSent}=1 AND (
+          ${previousSent} IS NOT 1 OR json_extract(${previous},'$.sentFromWeq')=1
+        ))
+      )`;
+    const withSentOrigin = (payload: string) => `CASE WHEN json_extract(${payload},'$.localSent')=1
+      THEN ${payload} ELSE json_set(${payload},'$.localSent',json('true'),'$.sentFromWeq',json('true')) END`;
     const run = async () => {
       try {
         for (let i = 0; i < messages.length; i += 500) {
@@ -683,8 +733,13 @@ export class RoamMsgCacheDb {
             `INSERT INTO ${PROTOCOL_TABLE}(kind,conv,msg_seq,msg_id,nt_seq_verified,payload)
              VALUES ${batch.map(() => '(?,?,?,?,?,?)').join(',')}
              ON CONFLICT(kind,conv,msg_seq,msg_id) DO UPDATE SET
-               nt_seq_verified=excluded.nt_seq_verified, payload=excluded.payload
-             WHERE json_type(${PROTOCOL_TABLE}.payload,'$.recall') IS NULL`,
+               nt_seq_verified=excluded.nt_seq_verified,
+               payload=CASE WHEN ${sameSentMessage} THEN
+                 CASE WHEN ${keepPrevious} THEN ${withSentOrigin(previous)} ELSE ${withSentOrigin(incoming)} END
+                 ELSE ${incoming} END
+             WHERE json_type(${previous},'$.recall') IS NULL
+               AND NOT (${previousSent} IS 1 AND excluded.kind='c2c'
+                 AND ${PROTOCOL_TABLE}.nt_seq_verified=1 AND excluded.nt_seq_verified=0)`,
             params,
           );
         }

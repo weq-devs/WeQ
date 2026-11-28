@@ -1,3 +1,4 @@
+import { withQqFileWrite } from '@weq/db';
 import { statfs } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { TRPCError } from '@trpc/server';
@@ -432,7 +433,7 @@ export const mailRouter = router({
       const space = await statfs(dirname(target.path));
       if (space.bavail * space.bsize < attachment.size + 64 * 1024 * 1024)
         throw new MailFailure('business', '目标磁盘空间不足。');
-      await mail.download(input.id, target.path, signal);
+      await withQqFileWrite(target.path, () => mail.download(input.id, target.path, signal));
       return { downloadId: target.downloadId };
     }),
   ),

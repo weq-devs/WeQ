@@ -1,3 +1,4 @@
+import { beginQqFileWrite, withQqFileWrite } from '@weq/db';
 import { app, dialog } from 'electron';
 import { fork, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
@@ -18,19 +19,23 @@ let pending = false;
 export const storageCleanupResult = () => readStorageCleanupResult(reportPath());
 
 export function clearStorageNow(targets: StorageUsageItem[], busyPaths: string[]) {
-  return executeStorageCleanup({
-    targets,
-    protectedPaths: [app.getAppPath(), process.execPath],
-    reportPath: reportPath(),
-    busyPaths: [
-      ...busyPaths,
-      ...[...STORAGE_RUNTIME_DATA_NAMES, 'remote-network'].flatMap((name) =>
-        [...new Set([app.getPath('userData'), app.getPath('sessionData')])].map((root) =>
-          join(root, name),
-        ),
-      ),
-    ],
-  });
+  return withQqFileWrite(
+    targets.map(({ path }) => ({ path, tree: true })),
+    () =>
+      executeStorageCleanup({
+        targets,
+        protectedPaths: [app.getAppPath(), process.execPath],
+        reportPath: reportPath(),
+        busyPaths: [
+          ...busyPaths,
+          ...[...STORAGE_RUNTIME_DATA_NAMES, 'remote-network'].flatMap((name) =>
+            [...new Set([app.getPath('userData'), app.getPath('sessionData')])].map((root) =>
+              join(root, name),
+            ),
+          ),
+        ],
+      }),
+  );
 }
 
 export function guardStorageCleanupStartup(): void {
@@ -85,6 +90,7 @@ export async function clearStorageAfterExit(targets: StorageUsageItem[]): Promis
     rendererUrl: process.env.ELECTRON_RENDERER_URL,
     nodePath: process.env.npm_node_execpath,
   });
+  const finishWrite = beginQqFileWrite(targets.map(({ path }) => ({ path, tree: true })));
   pending = true;
   let child: ChildProcess | undefined;
   try {
@@ -152,10 +158,17 @@ export async function clearStorageAfterExit(targets: StorageUsageItem[]): Promis
     const temporary = `${lockPath()}.tmp`;
     await writeFile(temporary, JSON.stringify({ pid: child.pid, worker }), { mode: 0o600 });
     await rename(temporary, lockPath());
+    if (!child.connected || child.exitCode !== null || child.signalCode !== null) {
+      throw new Error('清除助手已退出，未退出应用');
+    }
   } catch (error) {
     pending = false;
     child?.kill();
-    await rm(lockPath(), { force: true });
+    try {
+      await rm(lockPath(), { force: true });
+    } finally {
+      finishWrite();
+    }
     throw error;
   }
   const helper = child;
@@ -168,6 +181,7 @@ export async function clearStorageAfterExit(targets: StorageUsageItem[]): Promis
       if (error) {
         pending = false;
         app.removeListener('will-quit', commit);
+        if (helper.connected) helper.disconnect();
         dialog.showErrorBox('未执行存储清除', '清除助手连接失败，应用没有退出，数据未清除。');
         return;
       }
@@ -179,6 +193,7 @@ export async function clearStorageAfterExit(targets: StorageUsageItem[]): Promis
   };
   app.on('will-quit', commit);
   helper.once('exit', () => {
+    finishWrite();
     pending = false;
     app.removeListener('will-quit', commit);
   });

@@ -109,6 +109,10 @@ export function useQzoneBlogIndex({
     success: query.isSuccess,
     hasNextPage: query.hasNextPage,
     next: () => void fetchNextPage({ cancelRefetch: false }),
+    async reload() {
+      const { data } = await refetch({ throwOnError: true });
+      return blogItems(data?.pages ?? []);
+    },
     retry: () => {
       if (!configId) void config.refetch();
       else if (query.error && query.hasNextPage) void fetchNextPage();

@@ -1,5 +1,7 @@
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BootstrapShell, BootstrapView } from '../../src/renderer/src/views/BootstrapView';
+import { BootstrapSettingsWindow } from '../../src/renderer/src/App';
 import { ToastHost } from '../../src/renderer/src/components/Toast';
 import { useToast } from '../../src/renderer/src/components/Toast.shared';
 import { useRestrictedMode } from '../../src/renderer/src/state/restrictedMode';
@@ -38,9 +40,13 @@ createRoot(document.getElementById('root')!).render(
       <BootstrapShell>
         <div />
       </BootstrapShell>
+    ) : surface === 'settings' ? (
+      <QueryClientProvider client={new QueryClient()}>
+        <BootstrapSettingsWindow />
+      </QueryClientProvider>
     ) : (
       <BootstrapView />
     )}
-    <ToastHost />
+    {surface !== 'settings' && <ToastHost />}
   </>,
 );

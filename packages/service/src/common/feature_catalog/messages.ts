@@ -221,7 +221,7 @@ export const MESSAGE_FEATURES = [
       tools: ['list_recalled_messages', 'get_anti_recall_status'],
     },
   ),
-  messageFeature('local-edit', '修改本地记录', '从消息菜单打开原始元素编辑器。', {
+  messageFeature('local-edit', '编辑本地记录', '从消息详情的正文中分段编辑本地消息。', {
     navigation: 'context',
   }),
   messageFeature(

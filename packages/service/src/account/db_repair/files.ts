@@ -1,3 +1,4 @@
+import { assertQqFileWriteAllowed, beginQqFileWrite, withQqFileWrite } from '@weq/db';
 /**
  * 修复链路的文件工具：一次读算 sha256、按块拷贝、静默删除、可用空间。
  *
@@ -37,7 +38,11 @@ export async function fingerprintFile(
   onProgress: (completed: number, total: number) => void,
   dest?: string,
 ): Promise<FileFingerprint> {
-  const input = await open(src, 'r');
+  const finishWrite = dest ? beginQqFileWrite(dest) : undefined;
+  const input = await open(src, 'r').catch((error: unknown) => {
+    finishWrite?.();
+    throw error;
+  });
   let output: Awaited<ReturnType<typeof open>> | undefined;
   let created = false;
   const hash = createHash('sha256');
@@ -77,12 +82,24 @@ export async function fingerprintFile(
     if (created) removeQuietly(dest);
     throw error;
   } finally {
-    await input.close();
-    await output?.close();
+    try {
+      await input.close();
+      await output?.close();
+    } finally {
+      finishWrite?.();
+    }
   }
 }
 
 export async function backupFileAndHash(
+  src: string,
+  dest: string,
+  onProgress: (completed: number, total: number) => void,
+): Promise<FileFingerprint> {
+  return withQqFileWrite(dest, () => cloneBackupFileAndHash(src, dest, onProgress));
+}
+
+async function cloneBackupFileAndHash(
   src: string,
   dest: string,
   onProgress: (completed: number, total: number) => void,
@@ -131,6 +148,7 @@ export function hashFileSync(path: string): FileFingerprint {
  * 返回的指纹描述的是**源文件**（备份场景下就是修复前那一份）。
  */
 export function copyFileAndHashSync(src: string, dest: string, exclusive = false): FileFingerprint {
+  assertQqFileWriteAllowed(dest);
   mkdirSync(dirname(dest), { recursive: true });
   const inFd = openSync(src, 'r');
   let outFd: number | null = null;
@@ -167,6 +185,7 @@ export function copyFileAndHashSync(src: string, dest: string, exclusive = false
 
 /** 优先独立 CoW 克隆，不支持时退回分块复制；绝不使用会联动原库的硬链接。 */
 export function backupFileAndHashSync(src: string, dest: string): FileFingerprint {
+  assertQqFileWriteAllowed(dest);
   mkdirSync(dirname(dest), { recursive: true });
   try {
     copyFileSync(src, dest, constants.COPYFILE_FICLONE_FORCE | constants.COPYFILE_EXCL);
@@ -291,6 +310,7 @@ export function removeSqliteSidecars(
 
 /** 原子替换：同目录 `rename`（Windows 的复用语义与 `writeFileAtomicSync` 一致）。 */
 export function replaceFileSync(from: string, to: string): void {
+  assertQqFileWriteAllowed([from, to]);
   renameSync(from, to);
 }
 

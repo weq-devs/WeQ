@@ -104,13 +104,14 @@ export interface RenderPicElement {
     uploadTimestamp: number;
     /** File TTL in seconds; CDN expiry ≈ uploadTimestamp + fileTTL. */
     fileTTL: number;
-    // thumbnailUrl: string;
+    thumbnailUrl?: string;
     // previewUrl: string;
     /** CDN path for the original image; used for digit-token (rkey-less) downloads. */
     originalUrl: string;
     summary: string[];
     // cdnHost: string;
     filePath?: string;
+    localPath?: string;
     /**
      * 闪照（阅后即焚图）。
      *
@@ -346,10 +347,16 @@ export interface RenderGrayTipGroupElement {
 
 export interface RenderGrayTipXmlElement {
   type: 'grayTipXml';
-  data: BaseRenderData & {
-    grayTipXmlContent?: string;
-    tipJson?: string;
-  };
+  data: BaseRenderData &
+    Pick<
+      GrayTipXmlElement,
+      | 'detailId'
+      | 'grayTipXmlContent'
+      | 'tipJson'
+      | 'actionInitiator'
+      | 'actionTarget'
+      | 'actionAttributes'
+    >;
 }
 
 export interface RenderArkElement {
@@ -739,7 +746,7 @@ function mapPic(el: PicElement): RenderPicElement {
       uploadTime: el.uploadTime,
       uploadTimestamp: el.uploadTimestamp,
       fileTTL: el.fileTTL,
-      // thumbnailUrl: el.thumbnailUrl,
+      ...(el.thumbnailUrl ? { thumbnailUrl: el.thumbnailUrl } : {}),
       // previewUrl: el.previewUrl,
       originalUrl: el.originalUrl,
       summary: el.summary,
@@ -748,6 +755,7 @@ function mapPic(el: PicElement): RenderPicElement {
       isSender: el.isSender,
       subType: el.subType,
       filePath: el.filePath,
+      ...(el.localPath ? { localPath: el.localPath } : {}),
       // 闪照标记：只有协议拉取（serviceType=3）解出来的 pic 才有。
       ...((el as { isFlash?: boolean }).isFlash === true ? { isFlash: true } : {}),
       // picTransferState: el.picTransferState,
@@ -996,8 +1004,12 @@ function mapGrayTipXml(el: GrayTipXmlElement): RenderGrayTipXmlElement {
   return {
     type: 'grayTipXml',
     data: {
+      detailId: el.detailId,
       grayTipXmlContent: el.grayTipXmlContent,
       tipJson: el.tipJson,
+      actionInitiator: el.actionInitiator,
+      actionTarget: el.actionTarget,
+      actionAttributes: el.actionAttributes,
       elementId: el.elementId,
       isSender: el.isSender,
       subType: el.subType,

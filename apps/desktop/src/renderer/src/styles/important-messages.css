@@ -11,10 +11,6 @@
 .chat-pane.with-message-history .weq-chat-jump-stack {
   right: calc(var(--weq-message-history-width) + 24px);
 }
-.chat-pane.with-message-history > .weq-panel-loading {
-  grid-column: 2;
-  grid-row: 2 / -1;
-}
 .weq-message-history-panel {
   grid-column: 2;
   grid-row: 2 / -1;
@@ -52,8 +48,10 @@
     translate: 100% 0;
   }
 
+  /* 删除和撤回记录的占位与正式侧栏原位切换，避免更换内容时重播滑入。 */
   @starting-style {
-    .chat-pane > .weq-message-history-panel:not([hidden]) {
+    .chat-pane
+      > .weq-message-history-panel:not([hidden], .weq-deleted-messages, .weq-recalled-messages) {
       translate: 100% 0;
     }
   }
@@ -274,9 +272,6 @@ button.weq-history-summary:hover {
 }
 :where(html[data-weq-layout='single']) .chat-pane.with-message-history {
   grid-template-columns: minmax(0, 1fr);
-}
-:where(html[data-weq-layout='single']) .chat-pane.with-message-history > .weq-panel-loading {
-  display: none;
 }
 :where(html[data-weq-layout='single']) .chat-pane.with-message-history .weq-chat-jump-stack {
   right: 12px;

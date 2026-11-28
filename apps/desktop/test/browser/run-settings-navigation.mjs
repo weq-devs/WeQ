@@ -140,7 +140,6 @@ try {
       assert.equal(await page.locator('.weq-settings-dialog > .weq-settings-close').count(), 0);
       if (width <= 760) await page.getByRole('button', { name: '返回设置', exact: true }).click();
       assert.deepEqual(await nav.getByRole('heading', { level: 3 }).allTextContents(), [
-        '能力',
         '通用',
         '外观',
         '聊天',
@@ -151,7 +150,6 @@ try {
         '关于',
       ]);
       for (const [group, labels] of [
-        ['能力', ['QQ 在线能力']],
         ['聊天', ['通话与录音', '识别与转写']],
         ['外观', ['主题与布局', '主页', '主导航', '消息', '联系人', '联系人名片']],
         ['关于', ['版本与更新', '常见问题', '反馈']],
@@ -160,6 +158,20 @@ try {
         for (const name of labels) {
           assert.equal(await list.getByRole('button', { name, exact: true }).count(), 1);
         }
+      }
+      const qqItems = nav.getByRole('list', { name: 'QQ', exact: true }).getByRole('button');
+      assert.equal(await qqItems.first().textContent(), '能力档位');
+      assert.deepEqual(
+        (
+          await nav
+            .getByRole('list', { name: '应用', exact: true })
+            .getByRole('button')
+            .allTextContents()
+        ).slice(0, 2),
+        ['增强包', '长期授权'],
+      );
+      for (const name of ['QQ 空间', 'QQ 邮箱']) {
+        assert.equal(await nav.getByRole('button', { name, exact: true }).count(), 0);
       }
       if (width <= 760) await openSetting(page, 'OneBot');
       if (width > 760) {
@@ -220,7 +232,7 @@ try {
       assert.equal(await page.locator('.weq-message-modal').count(), 0);
       await openSetting(page, '反馈');
       assert((await feedbackBody.inputValue()).includes('## 错误的功能描述'));
-      await openSetting(page, 'QQ 数据库管理');
+      await openSetting(page, '数据库管理');
       await page.locator('.weq-settings-body [data-setting-id="database-manager"]').waitFor();
       assert.equal(
         await page.getByRole('spinbutton', { name: '数据库读取并发上限', exact: true }).count(),
@@ -231,7 +243,7 @@ try {
         await page.locator('.weq-settings-nav-item').getByText('性能监视', { exact: true }).count(),
         0,
       );
-      await openSetting(page, 'QQ 高级工具');
+      await openSetting(page, '高级工具');
       await page
         .locator('.weq-settings-body')
         .getByText('Protobuf / JCE 逆向', { exact: true })
@@ -242,7 +254,7 @@ try {
       );
       if (output)
         await page.screenshot({ path: resolve(output, `advanced-tools-${width}-${theme}.png`) });
-      await openSetting(page, 'QQ 登录管理');
+      await openSetting(page, '登录管理');
       const loginRecords = page.locator('.weq-settings-body [data-setting-id="qq-accounts"]');
       await loginRecords.scrollIntoViewIfNeeded();
       await loginRecords.getByText('合成登录账号', { exact: true }).waitFor();
@@ -346,12 +358,12 @@ try {
       .locator('.weq-settings-nav-label')
       .allTextContents();
     assert(!remoteLabels.includes('长期授权'));
-    assert(!remoteLabels.includes('QQ 登录管理'));
+    assert(!remoteLabels.includes('登录管理'));
     assert(remoteLabels.includes('WeQ 账号管理'));
     await openSetting(remotePage, '资源加载');
     assert.equal(await remotePage.locator('[data-setting-id="external-chatpic"]').count(), 0);
     assert.equal(await remotePage.locator('[data-setting-id="linked-resources"]').count(), 0);
-    await openSetting(remotePage, 'QQ 高级工具');
+    await openSetting(remotePage, '高级工具');
     assert.equal(await remotePage.locator('[data-setting-id="qq-accounts"]').count(), 0);
     assert.equal(await remotePage.locator('[data-setting-id="reverse-tool"]').count(), 1);
   }

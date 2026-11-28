@@ -79,7 +79,7 @@ function mount(component: typeof AssistantSection | typeof StartupSection, label
 }
 describe('助手与系统自启的双向提醒', () => {
   it.each([true, false])('启用助手后由用户选择是否同时开启自启：%s', async (agree) => {
-    const view = mount(AssistantSection, '启用 QQ 公众号推送');
+    const view = mount(AssistantSection, '启用公众号本地推送');
     try {
       await view.click();
       expect(fixture.assistant.enabled).toBe(true);
@@ -101,7 +101,7 @@ describe('助手与系统自启的双向提醒', () => {
       fixture.startup.enabled = state === 'enabled';
       fixture.startup.requiresApproval = state === 'approval';
       fixture.startup.supported = state !== 'unsupported';
-      const view = mount(AssistantSection, '启用 QQ 公众号推送');
+      const view = mount(AssistantSection, '启用公众号本地推送');
       try {
         await view.click();
         expect(useDialog.getState().current).toBeNull();
@@ -118,7 +118,7 @@ describe('助手与系统自启的双向提醒', () => {
     try {
       await view.click();
       const dialog = useDialog.getState().current;
-      expect(dialog?.title).toBe('QQ 公众号推送仍处于启用状态');
+      expect(dialog?.title).toBe('公众号本地推送仍处于启用状态');
       expect(dialog?.message).toContain('推文卡片需要手动启动 WeQ');
       expect(fixture.mutate).not.toHaveBeenCalled();
       await act(async () => dialog!.confirm!.resolve(keep));
@@ -129,7 +129,7 @@ describe('助手与系统自启的双向提醒', () => {
     }
   });
   it('提醒未结束时不能重复切换或覆盖当前确认框', async () => {
-    const view = mount(AssistantSection, '启用 QQ 公众号推送');
+    const view = mount(AssistantSection, '启用公众号本地推送');
     try {
       await view.click();
       const id = useDialog.getState().current?.id;

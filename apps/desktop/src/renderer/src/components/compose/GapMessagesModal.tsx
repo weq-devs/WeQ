@@ -21,6 +21,7 @@
  *     本组件只负责渲染。
  */
 
+import { GAP_MESSAGES_WIDTH } from './GapMessagesModal.shared';
 import { NumericText } from '../NumericText';
 import {
   Fragment,
@@ -398,7 +399,7 @@ export function GapMessagesModal({
     <Modal
       presentation="floating"
       onClose={onClose}
-      width={520}
+      width={GAP_MESSAGES_WIDTH}
       labelledBy="weq-gap-messages-title"
     >
       {content}

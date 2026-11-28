@@ -57,12 +57,15 @@ export async function handleAvatarRequest(request: Request): Promise<Response> {
   }
   const cache = ctx.bootstrap.avatarCache;
   const restricted = await hostDataSaver(url.searchParams.get('ds') === '1');
+  const kind = url.searchParams.get('resource');
+  const resource =
+    kind === 'inline-image' || kind === 'link-preview' || kind === 'emoji' ? kind : 'avatar';
   const get = (ttl?: number) =>
     networkScope.run(
       {
         restricted,
         intent: url.searchParams.get('intent') === 'interactive' ? 'interactive' : 'prefetch',
-        resource: 'avatar',
+        resource,
       },
       () => cache.get(src, 'avatar', ttl),
     );

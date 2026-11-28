@@ -500,6 +500,8 @@ export interface AgentLabGroupMember {
   kind: AgentLabMemberKind;
   /** 群内显示名（克隆体名 / 「我」）。 */
   displayName: string;
+  /** 独立克隆资料缺失时仍可用于显示的头像 QQ 号。 */
+  avatarUin?: string;
   joinedAt: number;
 }
 

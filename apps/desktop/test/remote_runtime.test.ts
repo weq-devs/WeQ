@@ -233,9 +233,18 @@ describe('远程服务的故障关闭', () => {
       await expect(
         runtime.invite({ authKey: 'tskey-api-invalid', singleUseConfirmed: true }),
       ).rejects.toThrow();
-      const bootstrap = await runtime.invite({ authKey, singleUseConfirmed: true });
+      const local = new URL((await runtime.invite({ mode: 'lan' })).pairingURL);
+      expect(local.searchParams.getAll('endpoint')).toEqual(['https://192.168.1.8:7691']);
+      const existing = new URL((await runtime.invite({ mode: 'existing' })).pairingURL);
+      expect(existing.searchParams.getAll('endpoint')).toEqual([
+        'http://100.64.0.10:7691',
+        'https://100.64.0.10:7692',
+      ]);
+      expect(existing.searchParams.has('authKey')).toBe(false);
+      const bootstrap = await runtime.invite({ mode: 'tailscale', authKey });
       const bootstrapURL = new URL(bootstrap.pairingURL);
       expect(bootstrapURL.searchParams.get('v')).toBe('4');
+      expect(bootstrapURL.searchParams.getAll('endpoint')).toEqual(['http://100.64.0.10:7691']);
       expect(bootstrapURL.searchParams.get('authKey')).toBe(authKey);
       expect(bootstrapURL.searchParams.get('expiresAt')).toBe(String(bootstrap.expiresAt));
       expect(JSON.stringify(runtime.status())).not.toContain(authKey);

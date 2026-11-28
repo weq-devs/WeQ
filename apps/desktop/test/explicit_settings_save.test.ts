@@ -97,7 +97,7 @@ function mount(element: ReactElement) {
 describe('显式保存设置不以未变化禁用', () => {
   it('公众号推送端口重读不覆盖草稿，未编辑时跟随实际端口，保存仍提交输入值', async () => {
     const f = mount(createElement(AssistantSection));
-    const input = f.host.querySelector<HTMLInputElement>('[aria-label="QQ 公众号推送端口"]')!;
+    const input = f.host.querySelector<HTMLInputElement>('[aria-label="公众号本地推送端口"]')!;
     expect(input.value).toBe('27182');
     state.data['bootstrap.getWeqAssistantStatus'] = { enabled: false, port: 28000, url: '' };
     f.render();

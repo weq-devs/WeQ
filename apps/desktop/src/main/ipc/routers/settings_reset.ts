@@ -22,7 +22,6 @@ import { procedure, router, type RpcContext } from '../trpc';
 import { getAppContext } from '../../context/app_context';
 import { bootstrapRouter } from './bootstrap';
 import { remoteRouter } from './remote';
-import { isQqSyncProxyEnabled } from '../../qq_sync/runtime';
 import { disableNativeDebugLog, nativeDebugLogStatus } from './help';
 import { updateRouter } from './update';
 import {
@@ -144,7 +143,13 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     qzonePublicRefreshCooldownMinutes: () =>
       b.setQzonePublicRefreshCooldown({ minutes: defaults.qzonePublicRefreshCooldownMinutes }),
     realtimeEnabled: () => b.setRealtimeEnabled({ enabled: defaults.realtimeEnabled }),
-    autoAttachQq: () => b.setAutoAttachQq({ enabled: defaults.autoAttachQq }),
+    qqCapabilityMode: async () => {
+      const result = await b.setQqCapabilityMode({
+        mode: defaults.qqCapabilityMode,
+        disconnectProxy: true,
+      });
+      if (result.status === 'saved' && result.proxyError) throw new Error(result.proxyError);
+    },
     qqStatusIndicatorEnabled: () =>
       b.setQqStatusIndicatorEnabled({ enabled: defaults.qqStatusIndicatorEnabled }),
     preferCdn: () => b.setPreferCdn({ enabled: defaults.preferCdn }),
@@ -229,21 +234,6 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   bind('qq-status-reminders:runtime', current.notificationEvents.runtime, runtimeNotification, () =>
     b.setNotificationEvents({ events: ['runtime'], channels: runtimeNotification }),
   );
-  if (selected.has('qq-client-sync')) {
-    bind('qq-client-sync:proxy', isQqSyncProxyEnabled(boot.qqSyncRoot), false, () =>
-      b.setQqProxyEnabled({ enabled: false }),
-    );
-    if (context.services && !context.accountIsStatic) {
-      const { qqClientSyncEnabled, qqLiveMessagesEnabled } = await b.getSettings();
-      bind('qq-client-sync:enabled', qqClientSyncEnabled, defaults.qqClientSyncEnabled, () =>
-        b.setQqClientSyncEnabled({ enabled: defaults.qqClientSyncEnabled }),
-      );
-      bind('qq-client-sync:live', qqLiveMessagesEnabled, defaults.qqLiveMessagesEnabled, () =>
-        b.setQqLiveMessagesEnabled({ enabled: defaults.qqLiveMessagesEnabled }),
-      );
-    }
-  }
-
   for (const kind of TOAST_TIMED_KINDS) {
     const key = `${kind}Seconds` as const;
     bind(`${'toast'}:${key}`, current.toastDurations[key], defaults.toastDurations[key], () =>
@@ -374,6 +364,11 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     );
   }
   for (const kind of ['voice', 'ocr'] as const) {
+    const currentRecognition = kind === 'voice' ? current.voiceTranscribe : current.ocr;
+    const defaultRecognition = kind === 'voice' ? defaults.voiceTranscribe : defaults.ocr;
+    bind(`${kind}-online:priority`, currentRecognition.priority, defaultRecognition.priority, () =>
+      b.setRecognitionPriority({ kind, priority: defaultRecognition.priority }),
+    );
     const concurrency =
       kind === 'voice' ? current.voiceTranscribe.onlineConcurrency : current.ocr.onlineConcurrency;
     const value =
@@ -604,7 +599,6 @@ async function preview(ctx: RpcContext, input: SettingsResetTarget) {
     'recall-notifications',
     'typing',
     'notification-scopes',
-    'qq-client-sync',
     'onebot',
   ]);
   const selected = new Set(

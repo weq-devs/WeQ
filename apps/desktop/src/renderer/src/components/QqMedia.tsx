@@ -22,6 +22,7 @@ import {
   Download,
   Maximize,
   FileText,
+  Image as ImageIcon,
   ImageOff,
   Loader2,
   Pause,
@@ -34,7 +35,6 @@ import {
 } from 'lucide-react';
 import { fileIconUrl, localFileUrl, localVoiceFileUrl, mediaUrl } from '@renderer/lib/resourceUrl';
 import { useDataSaver } from '@renderer/lib/dataSaver';
-import { IS_WEB } from '../lib/target.shared';
 import { cn } from '@renderer/lib/utils';
 import { client, trpc } from '@renderer/trpc/client';
 import { openMediaPreview } from './mediaPreviewStore.shared';
@@ -79,8 +79,9 @@ import { MediaLoadingRing, MediaTransferBadge, TransferRing } from './TransferRi
 import { transferLabel } from '../lib/transferPresentation';
 import { useVideoBuffering } from '../hooks/useVideoBuffering';
 import { useMediaLoadAction } from '../hooks/useMediaLoadAction';
-import { watchMediaCache } from '../lib/mediaCacheArrival';
+import { notifyMediaCached, watchMediaCache } from '../lib/mediaCacheArrival';
 import { intrinsicMediaSize, messageMediaSize, type MediaSize } from '../lib/chatMediaSize';
+import { cleanNtPath } from './mergeForward/model';
 import '../styles/media-preview.css';
 
 type Data = Record<string, unknown>;
@@ -163,34 +164,41 @@ function useMediaPreviewSize(kind: 'pic' | 'video', data: Data, key: string) {
   };
 }
 
-/**
- * Gray placeholder shown when a media file can't be found on disk or via CDN.
- * 尺寸尽量保持原媒体占地；图形占位不露出文字，原因保留在悬停与无障碍标签中。
- */
+/** 尺寸保持原媒体占地；紧凑时用图形，详细操作保留在悬停与无障碍标签中。 */
 function QqMediaMissing({
   label,
   style,
   onRetry,
   hint,
+  state,
 }: {
   label: string;
   style?: CSSProperties;
   onRetry?: () => void;
   hint?: string;
+  state?: 'deferred' | 'failed';
 }) {
   const Control = onRetry ? 'button' : 'span';
+  const Icon = state === 'deferred' ? ImageIcon : ImageOff;
+  const description =
+    state === 'deferred'
+      ? `${label}未自动加载`
+      : state === 'failed'
+        ? `${label}加载失败`
+        : `未找到${label}`;
   return (
     <Control
       type={onRetry ? 'button' : undefined}
       className={cn('qq-media-missing', onRetry && 'qq-media-action')}
       style={style}
       role={onRetry || hint ? undefined : 'img'}
-      aria-label={onRetry ? hint?.replace(/^点击/, '') : (hint ?? `未找到${label}`)}
-      title={hint ?? `未找到${label}`}
+      aria-hidden={!onRetry && hint ? true : undefined}
+      aria-label={onRetry ? hint?.replace(/^点击/, '') : hint ? undefined : description}
+      title={hint ?? description}
       onClick={onRetry}
       onKeyDown={onRetry ? mediaKeyDown : undefined}
     >
-      <ImageOff className="qq-media-missing-icon" strokeWidth={1.5} aria-hidden />
+      <Icon className="qq-media-missing-icon" strokeWidth={1.5} aria-hidden />
       {hint ? <span className="qq-media-missing-text">{hint}</span> : null}
     </Control>
   );
@@ -206,6 +214,7 @@ export function QqImage({
   fwd,
   interactive = true,
   gridTile = false,
+  preferLocal = false,
 }: {
   data: Data;
   sendTimeMs: number;
@@ -214,6 +223,7 @@ export function QqImage({
   fwd?: ForwardRef;
   interactive?: boolean;
   gridTile?: boolean;
+  preferLocal?: boolean;
 }) {
   const limited = useDataSaver((state) => state.enabled);
   const behavior = useDataSaver((state) => state.behavior);
@@ -224,7 +234,7 @@ export function QqImage({
   const previewKey = useContext(MediaItemKeyContext);
   const webScope = useContext(WebAvatarScope);
   const cacheScope = webScope && sharedAccountScope(webScope);
-  const [broken, setBroken] = useState(false);
+  const [unavailable, setUnavailable] = useState<'deferred' | 'failed'>();
   const [attempt, setAttempt] = useState(0);
   const [cacheRevision, setCacheRevision] = useState(0);
   const [loadedSource, setLoadedSource] = useState<string>();
@@ -249,6 +259,7 @@ export function QqImage({
   if (md5) params.md5 = md5;
   const wantThumbnail =
     !isAnimatedEmoji && !(limited && behavior.dataSaverImageLoading === 'original');
+  const cacheOnlyEmoji = isAnimatedEmoji && limited && !behavior.dataSaverEmoji && !loadMedia;
   const originalProxySrc = mediaUrl('pic', { ...params, intent: 'interactive' });
   const proxySrc = mediaUrl('pic', {
     ...params,
@@ -260,14 +271,8 @@ export function QqImage({
   // 「优先使用 CDN」开着且拼得出直链时先试它（浏览器直连，服务端零流量）；rkey 过期 /
   // 老图片 / CDN 抽风都会 onError 落回上面这条代理路径，再失败才是「未找到」占位。
   const cdn = useCdn();
-  // 合并转发编辑器里拼的图片带 `localPath`（本机绝对路径）—— 它还没上传、不在
-  // Pic 缓存里，按发送时间 / 文件名找图会 404，直接从本机文件流出来预览。
-  // 乐观渲染的图片还会带 `localPreviewUrl`（blob: 地址，剪贴板截图没有落盘路径）。
-  // 真实消息的渲染元素不带这两个字段，所以主时间线行为不变。
-  //
-  // 已有 Blob 预览优先：文件选择器拿到的路径可能尚未被主进程信任，上传也可能未完成。
-  // 本地路径、CDN 与缓存依次兜底；灯箱沿用这条回退链，不依赖气泡先加载成功。
-  const localPath = str(data, 'localPath');
+  // 发送中的 Blob 和 QQ 回读带回的本地路径都优先复用，文件仍由主进程校验后读取。
+  const localPath = cleanNtPath(str(data, 'localPath') || str(data, 'filePath'));
   const localPreviewUrl = str(data, 'localPreviewUrl');
   const previewSize = useMediaPreviewSize(
     'pic',
@@ -291,7 +296,12 @@ export function QqImage({
       : remoteChatThumbnailUrl(cdn, str(data, 'thumbnailUrl'), token, conv !== '');
   const candidates: string[] = [];
   if (localPreviewUrl) candidates.push(localPreviewUrl);
-  if (localPath && (!limited || !IS_WEB || loadMedia)) candidates.push(localFileUrl(localPath));
+  const localSrc = localPath ? localFileUrl(localPath) : '';
+  if (localSrc && localSrc !== localPreviewUrl) candidates.push(localSrc);
+  if (preferLocal && !localPreviewUrl && !localSrc && (cdnSrc || directThumbnail))
+    candidates.push(
+      mediaUrl('pic', { ...params, localOnly: 1, ...(wantThumbnail ? { v: 'thumb' } : {}) }),
+    );
   if (cdnSrc) candidates.push(cdnSrc);
   if (!candidates.includes(proxySrc)) candidates.push(proxySrc);
   if ((!limited || loadMedia) && !isAnimatedEmoji)
@@ -300,31 +310,35 @@ export function QqImage({
   const source = candidates[Math.min(srcIndex, candidates.length - 1)] ?? proxySrc;
   const usingLocalPreview = source === localPreviewUrl;
   const src = mediaRetryUrl(source, attempt + cacheRevision);
+  const ready = !unavailable && loadedSource === src;
   const retry = () => {
     setRequested(true);
     setSrcIndex(0);
     setAttempt((value) => value + 1);
-    setBroken(false);
+    setUnavailable(undefined);
   };
-  const tryNextImage = () => {
-    if (srcIndex < candidates.length - 1) setSrcIndex((index) => index + 1);
-    else setBroken(true);
+  const tryNextImage = (state: 'deferred' | 'failed') => {
+    if (state === 'deferred' || srcIndex >= candidates.length - 1) setUnavailable(state);
+    else setSrcIndex((index) => index + 1);
   };
 
   useEffect(() => {
     setSrcIndex(0);
-    setBroken(false);
+    setUnavailable(undefined);
   }, [localPath, localPreviewUrl, originalProxySrc, cdnSrc, limited, proxySrc]);
   useEffect(() => {
-    if (!broken) return;
+    if (ready || (!unavailable && !isAnimatedEmoji)) return;
     return watchMediaCache(ownerDocument, proxySrc, () => {
       setRequested(false);
       setAttempt(0);
       setSrcIndex(0);
-      setBroken(false);
+      setUnavailable(undefined);
       setCacheRevision((value) => value + 1);
     });
-  }, [broken, ownerDocument, proxySrc]);
+  }, [isAnimatedEmoji, ownerDocument, proxySrc, ready, unavailable]);
+  useEffect(() => {
+    if (isAnimatedEmoji && ready && source === proxySrc) notifyMediaCached(ownerDocument, proxySrc);
+  }, [isAnimatedEmoji, ownerDocument, proxySrc, ready, source]);
 
   const openable = interactive;
   /** 服务端副本的到期时刻（ms），元素没带 TTL 时为 undefined。 */
@@ -382,17 +396,16 @@ export function QqImage({
     );
   }
   const ImageControl = openable ? 'button' : 'span';
-  const previewSrc = broken || source === proxySrc ? originalProxySrc : source;
+  const previewSrc = source === proxySrc ? originalProxySrc : source;
   const kindLabel = isAnimatedEmoji ? '表情' : '图片';
-  const ready = !broken && loadedSource === src;
-  const loading = attempt > 0 && !ready && !broken;
-  const deferred =
-    limited && !loadMedia && (isAnimatedEmoji ? !behavior.dataSaverEmoji : wantThumbnail);
+  const loading = attempt > 0 && !ready && !unavailable;
+  const description =
+    unavailable === 'deferred' ? `${kindLabel}未自动加载` : `${kindLabel}加载失败`;
   const actionLabel = ready
     ? `查看${kindLabel}${name ? `：${name}` : ''}`
     : loading
       ? `正在加载${kindLabel}`
-      : broken && !deferred
+      : unavailable === 'failed'
         ? `重试加载${kindLabel}`
         : `加载${kindLabel}`;
   return (
@@ -402,8 +415,11 @@ export function QqImage({
         type={openable ? 'button' : undefined}
         onKeyDown={openable ? mediaKeyDown : undefined}
         aria-label={openable ? actionLabel : undefined}
+        aria-description={openable && unavailable ? description : undefined}
         aria-busy={loading || undefined}
-        title={openable ? actionLabel : undefined}
+        title={
+          openable ? (unavailable ? `${description}，${actionLabel}` : actionLabel) : undefined
+        }
         data-load-action={openable && !ready ? true : undefined}
         className={cn('qq-media-wrap qq-media-action', isAnimatedEmoji && 'qq-media-wrap-emoji')}
         data-favorite-emoji-source={originalProxySrc}
@@ -414,7 +430,8 @@ export function QqImage({
                   if (!loading) retry();
                   return;
                 }
-                const preview = isAnimatedEmoji ? undefined : chatImagePreviewSources(data, params);
+                const preview =
+                  isAnimatedEmoji || localPath ? undefined : chatImagePreviewSources(data, params);
                 if (
                   galleryOpen?.(previewKey, event.currentTarget.ownerDocument, {
                     src: preview?.src ?? previewSrc,
@@ -454,17 +471,24 @@ export function QqImage({
             : undefined
         }
       >
-        {broken ? (
+        {unavailable ? (
           <QqMediaMissing
-            label={`该${kindLabel}`}
-            hint={openable ? (deferred ? '点击加载' : '点击重试加载') : undefined}
+            label={kindLabel}
+            state={unavailable}
+            hint={
+              openable
+                ? unavailable === 'deferred'
+                  ? '点击加载'
+                  : '加载失败，点击重试'
+                : undefined
+            }
             style={gridTile ? undefined : { ...style, minWidth: 0, minHeight: 0, padding: 0 }}
           />
         ) : (
           <ShimmerImage
             suspendOffscreen
             remoteImageSrc={source === proxySrc ? directThumbnail : null}
-            abortableThumbnail={source === proxySrc && wantThumbnail && !flash}
+            abortableThumbnail={source === proxySrc && (wantThumbnail || cacheOnlyEmoji)}
             onThumbnailError={tryNextImage}
             reuseRemoteCache
             mediaLoading={loading || (!isAnimatedEmoji && !usingLocalPreview)}
@@ -482,7 +506,7 @@ export function QqImage({
               const { naturalWidth, naturalHeight } = event.currentTarget;
               if (!w || !h) previewSize.remember(naturalWidth, naturalHeight);
             }}
-            onError={tryNextImage}
+            onError={() => tryNextImage('failed')}
           />
         )}
       </ImageControl>
@@ -622,7 +646,7 @@ export function QqVideo({
     ),
     attempt,
   );
-  const buffering = useVideoBuffering(videoSrc, tabActive && playing);
+  const buffering = useVideoBuffering(videoSrc, tabActive && bubble && playing);
 
   // bubble mode: auto-play muted loop, no controls, fill the circle container.
   if (bubble) {
@@ -692,9 +716,7 @@ export function QqVideo({
     );
   }
 
-  // Click → play inline. The media protocol locates the original on disk or
-  // completes it via OIDB (msgId + conv let the host resolve the download URL);
-  // a spinner covers the gap until the <video> can render its first frame.
+  // 普通原位播放由原生控件显示缓冲提示；无控件的圆形视频使用上方的缓冲圈。
   if (playing) {
     return (
       <div className="weq-video-preview-wrap">
@@ -707,22 +729,16 @@ export function QqVideo({
             src={videoSrc}
             controls
             autoPlay
-            {...buffering.events}
-            onCanPlay={() => {
-              buffering.events.onCanPlay();
-              setReadyVideo(videoSrc);
-            }}
+            onCanPlay={() => setReadyVideo(videoSrc)}
             onLoadedMetadata={(event) => {
               const { videoWidth, videoHeight } = event.currentTarget;
               if (!w || !h) previewSize.remember(videoWidth, videoHeight);
             }}
             onError={() => {
-              buffering.events.onError();
               setVideoBroken(true);
               setPlaying(false);
             }}
           />
-          {buffering.waiting && <MediaLoadingRing label="正在缓冲视频" />}
         </div>
         <MediaTransferBadge target={progressTarget} />
         {expandButton}
@@ -1227,6 +1243,12 @@ export function QqVoice({
   const transcribeError =
     (storedTranscript ? null : transcribe.error) ??
     (result && !result.success ? (result.error ?? '识别失败') : null);
+  const method =
+    result?.success && !result.automatic && result.source
+      ? result.source === 'qq'
+        ? 'QQ 在线'
+        : '本地模型'
+      : null;
   const emotion = result?.emotion ?? null;
   const events = (result?.events ?? []).map(
     (event) => `${event.emoji ? `${event.emoji} ` : ''}${event.label}`,
@@ -1390,8 +1412,9 @@ export function QqVoice({
             error={Boolean(transcribeError)}
             onCollapse={() => transcribe.setCollapsed(true)}
           >
-            {!transcribeError && (emotion || events.length > 0) ? (
+            {!transcribeError && (method || emotion || events.length > 0) ? (
               <div className="qq-voice-tone">
+                {method ? <span className="qq-voice-tone-chip">{method}</span> : null}
                 {emotion ? (
                   <span className="qq-voice-tone-chip is-emotion">
                     {emotion.emoji ? `${emotion.emoji} ` : ''}
@@ -1426,7 +1449,7 @@ export function QqMarketFace({ data, interactive = true }: { data: Data; interac
   const pack = num(data, 'emojiPackId');
   const hash = str(data, 'marketEmoticonIdHex');
   const source = mediaUrl('mface', { pack, hash, ...(browse ? { intent: 'interactive' } : {}) });
-  const media = useMediaLoadAction(source, '表情', deferred && !browse);
+  const media = useMediaLoadAction(source, '表情', deferred && !browse, true);
   const style = messageMediaSize('mface', data);
   if (!pack || !hash) {
     return <QqMediaMissing label="该表情" style={{ ...style, minWidth: 0, minHeight: 0 }} />;

@@ -10,7 +10,7 @@ import {
 } from './chatTimelineModel';
 import type { ConversationInteraction } from '../../../../shared/conversation_interaction';
 import { PICKED_BROWSER_FILE_MAX_BYTES } from '../../../../shared/browser_file_upload';
-import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
+import { accountBinding, preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import {
   searchSlashEmojis,
   type SlashEmojiFace,
@@ -31,6 +31,7 @@ import {
   conversationExportSelection,
   conversationAnalysisTarget,
   conversationSourceLabel,
+  readonlyConversationKind,
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import {
@@ -67,7 +68,11 @@ import { IS_WEB } from '../../lib/target.shared';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
 import '../../styles/unified-conversation.css';
-import { GroupProfileDialog, CloneMemberProfileCard } from '../../components/lazyMainPanels';
+import {
+  GroupProfileDialog,
+  CloneMemberProfileCard,
+  MessageDetails,
+} from '../../components/lazyMainPanels';
 import { activateProfile } from '../../lib/profileClick';
 import { ConversationMessageActions } from '../../components/ConversationMessageActions';
 import { QQMessageEssenceAction } from '../../components/QQMessageEssenceAction';
@@ -327,7 +332,8 @@ import { AvatarContextMenu, type AvatarContextMenuState } from './avatarContextM
 import { useGroupMemberUnmute } from '../../hooks/useGroupMemberUnmute';
 import { ReactionPicker } from './reactionPicker';
 import { useReactionFeedback } from '../../hooks/useReactionFeedback';
-import type { MessageContextMenuState } from './messageContextMenu';
+import type { MessageContextMenuState, MessageDetailsSelection } from './messageContextMenu';
+import type { MessageRecordEdited } from '../../components/MessageDetails';
 import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
 import { canRepeatMessage, repeatTarget } from '../../lib/messageRepeat';
@@ -377,7 +383,6 @@ import { dockStopTone, unreadDockKind, type UnreadDockKind } from './unreadDock'
 import { UnreadDockJumpButton, type ChatJumpStop } from './unreadDockButton';
 import { displayGroupName, displayUserName } from './user';
 import { OnlineStatus } from '../../components/OnlineStatus';
-import { MessageDecorationCard } from '../../components/MessageDecorationCard';
 import { client, trpc } from '../../trpc/client';
 import { useToast } from '../../components/Toast.shared';
 
@@ -386,6 +391,7 @@ import {
   composerHeightDefault,
   composerHeightMin,
   composerHeightMax,
+  composerPanelHeightMin,
 } from './composerLayout';
 const groupInfoCollapsedStorageKey = 'chat-template.layout.groupInfoCollapsed';
 const composerCollapsedStorageKey = 'chat-template.layout.composerCollapsed';
@@ -662,7 +668,7 @@ export type ChatPaneProps = {
   onDraftClear: (conversationId: string) => void;
   onSentSpeechDraft?: (conversationId: string, text: string) => void;
   onBack: () => void;
-  onEditRaw?: (message: Message) => void;
+  onMessageRecordEdited?: MessageRecordEdited;
   onDeleteMessage?: (
     message: Message,
     conversation: Conversation,
@@ -848,7 +854,7 @@ function ChatPaneContent({
   onDraftClear,
   onSentSpeechDraft,
   onBack,
-  onEditRaw,
+  onMessageRecordEdited,
   onDeleteMessage,
   onDismissUnsentMessage,
   onStartOutgoingMessage,
@@ -1379,9 +1385,11 @@ function ChatPaneContent({
       requestExport({ ...scope, scope: { type: 'items', ids: [...ids] } });
     setContextMenu(null);
   };
-  const [decorationCard, setDecorationCard] = useState<{
-    decoration: { fontId: number; bubbleId: number; widgetId: number } | null;
-    anchor: { x: number; y: number };
+  const messageDetailsScope = JSON.stringify([user.id, conversation?.id, accountBinding()]);
+  const [messageDetails, setMessageDetails] = useState<{
+    scope: string;
+    selection: MessageDetailsSelection;
+    target?: Parameters<typeof client.account.messageRecordDetails.query>[0];
   } | null>(null);
   // Local "清空聊天记录" hide set (localStorage). Per-message delete no longer
   // touches this — deleted messages stay visible under an overlay; this set
@@ -5499,7 +5507,7 @@ function ChatPaneContent({
   function enterSelection(message: Message) {
     if (message.generatedPending) return;
     setContextMenu(null);
-    setDecorationCard(null);
+    setMessageDetails(null);
     window.getSelection()?.removeAllRanges();
     setSelectionMode(true);
     selection.messageCache.set(message.id, message);
@@ -6063,7 +6071,7 @@ function ChatPaneContent({
       return;
     }
     setContextMenu(null);
-    setDecorationCard(null);
+    setMessageDetails(null);
     const hidden = await confirmMessageDeletion(1);
     if (hidden === null || actionScopeRef.current !== actionScope) return;
     if (canDiscardFailedMessage(message) && selectedIds.has(message.id)) {
@@ -6080,18 +6088,44 @@ function ChatPaneContent({
     }
   }
 
-  function viewDecoration(message: Message) {
-    setContextMenu(null);
-    const decoration = (message as any).decoration;
-    setDecorationCard({ decoration, anchor: { x: 0, y: 0 } });
-  }
-
-  function editMessageRaw(message: Message) {
-    if (isLocalOutgoingMessage(message)) return;
-    // Close the menu before the editor lightbox opens so it doesn't linger
-    // on top of / behind the modal.
-    setContextMenu(null);
-    onEditRaw?.(message);
+  function openMessageDetails(selection: MessageDetailsSelection) {
+    const { message } = selection;
+    const binding = accountBinding() ?? recallBinding;
+    const msgId = message.msgId ?? message.id;
+    const source = readonlyConversationKind(conversation);
+    let target: Parameters<typeof client.account.messageRecordDetails.query>[0] | undefined;
+    if (
+      binding?.expectedAccountUin === user.identityValue &&
+      conversation &&
+      !conversation.generated &&
+      !conversation.id.startsWith('virtual:') &&
+      source !== 'guild' &&
+      !message.forwardSnapshot &&
+      !isLocalOutgoingMessage(message) &&
+      /^-?\d{1,20}$/.test(msgId)
+    ) {
+      if (conversation.type === 'group') {
+        target = { ...binding, kind: 'group', conv: conversation.group.identityValue, msgId };
+      } else if (conversation.type === 'direct') {
+        const conv =
+          source === 'service'
+            ? conversation.id.replace(/^service:/, '')
+            : conversation.otherUser.id;
+        target = { ...binding, kind: source ?? 'c2c', conv, msgId };
+      }
+    }
+    if (target && (message.source === 'roaming' || message.recall?.retained)) {
+      if (target.kind === 'c2c' || target.kind === 'group') {
+        target.cache = {
+          format: message.sourceFormat,
+          retained: Boolean(message.recall?.retained),
+          seq: message.msgSeq && /^-?\d{1,20}$/.test(message.msgSeq) ? message.msgSeq : undefined,
+        };
+      } else {
+        target = undefined;
+      }
+    }
+    setMessageDetails({ scope: messageDetailsScope, selection, target });
   }
 
   function _requestClearConversationMessages() {
@@ -6279,19 +6313,23 @@ function ChatPaneContent({
       setLocationCardOpen(false);
     },
   };
-  // 输入区高度固定：语音条内联时就装在正文那一行里，不再临时抬高（避免开录音时
-  // 整个聊天区往下跳）。面板内容装不下时它自己在内部滚动。
-  //
+  // 引用和附件至少留下同样的一行正文，替换正文的面板则有独立的最小高度。
+  const composerPanelReplacesEditor =
+    pendingSuperEmoji !== null || voicePanelActive || flashPanelInline;
+  const composerContentMinHeight = composerPanelReplacesEditor
+    ? composerPanelHeightMin
+    : composerHeightMin + (mediaAttachments.length > 0 ? 76 : hasQuote ? 38 : 0);
+  const desktopComposerHeight = Math.max(
+    composerContentMinHeight,
+    Math.min(composerHeight, composerPaneHeight ? composerPaneHeight * 0.35 : composerHeight),
+  );
   // 收起时只清空网格占位，保留输入区原高用于退出过渡。把手和新消息提示随占位移动。
   // 多选时输入区让位给操作条 —— 只留一条矮栏（即使输入区本来是收起的也要露出来）。
   const expandedComposerHeight = selectionMode
     ? 64
     : !composerVisible
       ? 0
-      : Math.min(
-          composerHeight,
-          composerPaneHeight ? Math.max(96, composerPaneHeight * 0.35) : composerHeight,
-        ) + composerExtensionsHeight;
+      : desktopComposerHeight + composerExtensionsHeight;
   const paneStyle = {
     '--composer-height': `${composerCollapsed && !selectionMode ? 0 : expandedComposerHeight}px`,
     '--desktop-composer-height': `${expandedComposerHeight}px`,
@@ -6574,15 +6612,23 @@ function ChatPaneContent({
                 <Sparkles size={12} />
               </small>
             ) : null}
-            {conversation.type === 'group' && conversation.group.luckyChar ? (
+            {conversation.type === 'group' &&
+            !conversation.generated &&
+            conversation.group.luckyChar ? (
               <img
-                className={cn('lucky-char-badge')}
+                className="lucky-char-badge"
                 src={dressUrl(
                   `https://tianquan.gtimg.cn/groupluckyword/item/${conversation.group.luckyChar.id}/pic-${conversation.group.luckyChar.litCount}.png`,
                 )}
                 alt=""
                 title={`幸运字符 · 已点亮 ${conversation.group.luckyChar.litCount} 人`}
                 referrerPolicy="no-referrer"
+                onError={(event) => {
+                  event.currentTarget.hidden = true;
+                }}
+                onLoad={(event) => {
+                  event.currentTarget.hidden = false;
+                }}
               />
             ) : null}
           </>
@@ -7293,6 +7339,9 @@ function ChatPaneContent({
           inert={composerCollapsed && !selectionMode && !compactHeader}
           className={cn(
             'composer',
+            !composerPanelReplacesEditor &&
+              desktopComposerHeight === composerContentMinHeight &&
+              'single-line-editor',
             hasComposerExtensions && !selectionMode && 'has-extensions',
             pendingSuperEmoji && 'has-single-send',
             mediaAttachments.length > 0 && 'has-media-attachments',
@@ -7553,8 +7602,8 @@ function ChatPaneContent({
             />
           ) : null}
           <ComposerResizeHandle
-            height={composerHeight}
-            minHeight={composerHeightMin}
+            height={desktopComposerHeight}
+            minHeight={composerContentMinHeight}
             maxHeight={composerHeightMax}
             onHeightChange={updateComposerHeight}
           />
@@ -7970,10 +8019,7 @@ function ChatPaneContent({
           ) : null}
           <div
             ref={composerEditorRef}
-            className={cn(
-              'composer-editor',
-              (pendingSuperEmoji || voicePanelActive || flashPanelInline) && 'composer-row-hidden',
-            )}
+            className={cn('composer-editor', composerPanelReplacesEditor && 'composer-row-hidden')}
             role="textbox"
             aria-multiline="true"
             aria-label="消息"
@@ -8398,14 +8444,7 @@ function ChatPaneContent({
               : undefined
           }
           deleteLabel={canDiscardFailedMessage(contextMenu.message) ? '移除失败消息' : '本地删除'}
-          onEditRaw={
-            onEditRaw &&
-            contextMenu.message.source !== 'roaming' &&
-            !isLocalOutgoingMessage(contextMenu.message)
-              ? editMessageRaw
-              : undefined
-          }
-          onViewDecoration={viewDecoration}
+          onViewDetails={openMessageDetails}
           onReply={restrictedSource ? undefined : startQuote}
           // 系统消息 / 缺少会话内序号不给引：菜单里那枚「引用」直接置灰并说明原因。
           replyBlockedReason={
@@ -8579,10 +8618,19 @@ function ChatPaneContent({
           onClose={() => setReactionPicker(null)}
         />
       ) : null}
-      {decorationCard ? (
-        <MessageDecorationCard
-          decoration={decorationCard.decoration}
-          onClose={() => setDecorationCard(null)}
+      {messageDetails && messageDetails.scope === messageDetailsScope ? (
+        <MessageDetails
+          key={messageDetails.selection.message.id}
+          selection={messageDetails.selection}
+          conversation={conversation ?? undefined}
+          user={user}
+          target={messageDetails.target}
+          onEdited={onMessageRecordEdited}
+          isSender={isSelfIdentity(
+            new Set(selfIdentityValues(user)),
+            messageDetails.selection.message.senderId,
+          )}
+          onClose={() => setMessageDetails(null)}
         />
       ) : null}
     </section>

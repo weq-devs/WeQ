@@ -7,7 +7,9 @@ import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSe
 import { ConversationDirectoryContext } from '../../src/renderer/src/lib/conversationDirectory';
 import { PROJECT_GROUP_IDS } from '../../src/shared/project_groups';
 import { ChatHeader } from '../../src/renderer/src/components/ChatHeader';
+import { TitleBar } from '../../src/renderer/src/im-template/template/TitleBar';
 import { MobileWebNavigation } from '../../src/renderer/src/components/MobileWebNavigation';
+import { rpcFixture } from './trpc.stub';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
 import '../../src/renderer/src/styles/workspace-tools.css';
@@ -17,11 +19,23 @@ const noop = () => {};
 const calls: string[] = [];
 const record = (name: string) => () => calls.push(name);
 window.weqRemoteShell = { openMenu: record('连接菜单') };
+
+function FixtureStatus({ ready }: { ready: boolean }) {
+  return ready ? (
+    <span className="weq-online-status">
+      <CloudSun size={16} aria-hidden />
+      <span className="weq-online-status-text">在线 - 今日天气</span>
+    </span>
+  ) : null;
+}
+
 function Fixture() {
   const [home, setHome] = useState(false);
   const [kind, setKind] = useState<'direct' | 'group'>('direct');
   const [active, setActive] = useState(true);
   const [alignment, setAlignment] = useState(false);
+  const [statusReady, setStatusReady] = useState(true);
+  const [showLuckyChar, setShowLuckyChar] = useState(false);
   const source = demo.conversations.find((row) => row.type === kind)!;
   const conversation =
     source.type === 'group'
@@ -32,7 +46,7 @@ function Fixture() {
             ...source.group,
             id: PROJECT_GROUP_IDS[0]!,
             name: '用于验证标题截断的合成群聊名称与更多工具',
-            luckyChar: undefined,
+            luckyChar: showLuckyChar ? { id: 1, litCount: 2 } : undefined,
           },
         }
       : source.type === 'direct'
@@ -53,25 +67,28 @@ function Fixture() {
       active: setActive,
       alignment: setAlignment,
       home: setHome,
+      statusReady: setStatusReady,
+      showLuckyChar: setShowLuckyChar,
     },
   });
   if (alignment) {
-    const status = (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-        <CloudSun size={16} aria-hidden />
-        <span>在线 - 今日天气</span>
-      </span>
-    );
+    const status = <FixtureStatus ready={statusReady} />;
+    rpcFixture.set('account.getOnlineStatus.useQuery', () => ({
+      data: statusReady ? { type: 10, typeName: '在线', displayStatus: '在线' } : undefined,
+    }));
     return (
-      <section className="chat-pane">
-        <ChatHeader
-          title={<span className="chat-title-text">测试联系人</span>}
-          status={status}
-          mobileStatus={status}
-          actions={null}
-          onBack={noop}
-        />
-      </section>
+      <div className="weq-web-shell">
+        <TitleBar user={{ ...demo.user, uid: 'u_fixture_self', signature: '测试签名' }} />
+        <section className="chat-pane">
+          <ChatHeader
+            title={<span className="chat-title-text">用于验证标题截断的合成联系人名称</span>}
+            status={status}
+            mobileStatus={status}
+            actions={null}
+            onBack={noop}
+          />
+        </section>
+      </div>
     );
   }
   return (

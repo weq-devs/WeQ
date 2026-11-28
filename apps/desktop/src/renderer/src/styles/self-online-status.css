@@ -16,7 +16,12 @@
   min-width: 0;
 }
 .weq-contact-self-status-row {
+  display: flex;
+  align-items: flex-start;
   padding: 0 12px 8px 78px;
+}
+.weq-contact-self-status-row:empty {
+  display: none;
 }
 html[data-density='compact'] .weq-contact-self-status-row {
   padding-left: 60px;

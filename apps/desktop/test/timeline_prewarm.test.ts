@@ -52,3 +52,20 @@ it('媒体行按估算开销缩小单批挂载数量', () => {
     advanceTimelinePrewarm({ ...options, direction: -1, current: [], bytesAt: () => 2 * UNIT }),
   ).toEqual(['8', '7']);
 });
+
+it('滚动时每批最多补两条，只准备正常缓冲前方的近端消息', () => {
+  const nearby = { ...options, direction: -1 as const, aheadPixels: 250 };
+  const first = advanceTimelinePrewarm({ ...nearby, current: [] })!;
+  expect(first).toEqual(['8', '7']);
+  const second = advanceTimelinePrewarm({ ...nearby, current: first })!;
+  expect(second).toEqual(['8', '7', '6']);
+  expect(advanceTimelinePrewarm({ ...nearby, current: second })).toBeUndefined();
+});
+
+it('反向时保留仍装得下的旧行，预算满后让位给新方向', () => {
+  const nearby = { ...options, direction: 1 as const, aheadPixels: 150, budget: 3 * UNIT };
+  const first = advanceTimelinePrewarm({ ...nearby, current: ['8', '7'] })!;
+  expect(first).toEqual(['8', '7', '14']);
+  const second = advanceTimelinePrewarm({ ...nearby, current: first })!;
+  expect(second).toEqual(['8', '14', '15']);
+});

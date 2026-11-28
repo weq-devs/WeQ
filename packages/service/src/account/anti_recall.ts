@@ -11,6 +11,10 @@ import {
   withDatabasePriority,
   withDatabaseReadBudget,
   assertDatabaseWritable,
+  assertQqDatabaseWriteAllowed,
+  qqDatabaseReadOnly,
+  waitForDatabaseWritable,
+  withQqDatabaseWrite,
   type AntiRecallTarget,
   type AntiRecallTriggerInfo,
   type RecallBaseline,
@@ -70,6 +74,7 @@ export interface AntiRecallStatus extends AntiRecallConfig {
   error?: string;
   applying?: boolean;
   restartSuggested?: boolean;
+  databaseReadOnly?: boolean;
 }
 
 /** One intercepted recall handed to the injected notifier. */
@@ -253,8 +258,22 @@ export class AntiRecallService {
     this.proxyConnected = connected;
     this.proxyError = error;
   }
+  private assertProtectionWritable(method = this.config.method ?? 'database'): void {
+    if (qqDatabaseReadOnly()) {
+      if (method === 'database' || this.protection().method === 'database' || this.installed.length)
+        assertQqDatabaseWriteAllowed();
+      return;
+    }
+    if (!this.opts.readOnly) assertDatabaseWritable(this.session.msgDbPath);
+  }
+
   async setMethod(method: 'off' | AntiRecallMethod): Promise<AntiRecallStatus> {
     const prior = this.config.enabled ? (this.config.method ?? 'database') : 'off';
+    if (
+      qqDatabaseReadOnly() &&
+      (prior === 'database' || method === 'database' || this.installed.length)
+    )
+      assertQqDatabaseWriteAllowed();
     if (prior !== method && (prior === 'database' || method === 'database') && this.isQqRunning())
       this.restartSuggested = true;
     this.config = {
@@ -290,6 +309,7 @@ export class AntiRecallService {
       notifyEnabled: this.notificationsEnabled(this.config),
       settingsRevision: this.opts.preferences?.revision?.(),
       installed,
+      databaseReadOnly: qqDatabaseReadOnly(),
       proxyConnected: this.proxyConnected,
       error: this.error || (this.protection().method === 'database' ? '' : this.proxyError),
       applying: this.applying,
@@ -353,7 +373,7 @@ export class AntiRecallService {
 
   /** Flip the master switch, then reconcile triggers to match. Persists. */
   async setEnabled(enabled: boolean): Promise<AntiRecallStatus> {
-    if (!this.opts.readOnly) assertDatabaseWritable(this.session.msgDbPath);
+    this.assertProtectionWritable();
     this.config = { ...this.config, enabled };
     // (重新)开启保护时重建通知基线：历史记录不该在新一轮里弹出来。
     this.resetRecallBaseline();
@@ -368,7 +388,7 @@ export class AntiRecallService {
    * 自动启用。UI 只调用这一个入口，MCP 的 setEnabled/setMode 仍保留兼容。
    */
   async setScope(scope: 'off' | 'selected' | 'all'): Promise<AntiRecallStatus> {
-    if (!this.opts.readOnly) assertDatabaseWritable(this.session.msgDbPath);
+    this.assertProtectionWritable();
     const enabled = scope !== 'off';
     const wasEnabled = this.config.enabled;
     this.config = { ...this.config, enabled, ...(scope === 'off' ? {} : { mode: scope }) };
@@ -382,7 +402,7 @@ export class AntiRecallService {
    * every conversation with no session filter (`'all'`, 永久全选). Persists.
    */
   async setMode(mode: 'selected' | 'all'): Promise<AntiRecallStatus> {
-    if (!this.opts.readOnly) assertDatabaseWritable(this.session.msgDbPath);
+    this.assertProtectionWritable();
     this.config = { ...this.config, mode };
     this.reconcileInBackground();
     return this.optimisticStatus();
@@ -390,7 +410,7 @@ export class AntiRecallService {
 
   /** Replace the protected-conversation set, then reconcile. Persists. */
   async setTargets(targets: AntiRecallTarget[]): Promise<AntiRecallStatus> {
-    if (!this.opts.readOnly) assertDatabaseWritable(this.session.msgDbPath);
+    this.assertProtectionWritable();
     // Normalize (u_ ids can't be group codes), drop empty ids, de-dup by (kind,id)
     // so the trigger's IN-list is clean and every id lands in the right column.
     const seen = new Set<string>();
@@ -622,17 +642,21 @@ export class AntiRecallService {
    * callers surface `qqRunning` as a heads-up.
    */
   async applyTriggers(): Promise<void> {
-    if (this.opts.readOnly) return;
-    const db = this.openDb();
-    try {
-      const enabled = this.config.enabled && (this.config.method ?? 'database') === 'database';
-      const allConversations = enabled && this.config.mode === 'all';
-      const active = enabled ? this.config.targets : [];
-      await db.reconcile(active, allConversations);
-      this.installed = await db.status();
-    } finally {
-      db.close();
-    }
+    if (this.opts.readOnly || qqDatabaseReadOnly()) return;
+    await waitForDatabaseWritable(this.session.msgDbPath, this.reconcileAbort.signal);
+    if (qqDatabaseReadOnly()) return;
+    await withQqDatabaseWrite(async () => {
+      const db = this.openDb();
+      try {
+        const enabled = this.config.enabled && (this.config.method ?? 'database') === 'database';
+        const allConversations = enabled && this.config.mode === 'all';
+        const active = enabled ? this.config.targets : [];
+        await db.reconcile(active, allConversations);
+        this.installed = await db.status();
+      } finally {
+        db.close();
+      }
+    });
   }
 
   /**
@@ -640,8 +664,12 @@ export class AntiRecallService {
    * settings writes should feel instant even though the trigger DDL is a real
    * (SQLCipher) write. Failures are logged; a later `getStatus` shows reality.
    */
+  reconcileTriggersWhenWritable(): void {
+    this.reconcileInBackground();
+  }
+
   private reconcileInBackground(): void {
-    if (this.opts.readOnly) return;
+    if (this.opts.readOnly || qqDatabaseReadOnly()) return;
     this.applying = true;
     const revision = ++this.reconcileRevision;
     this.reconcileQueue = this.reconcileQueue
@@ -668,6 +696,7 @@ export class AntiRecallService {
       notifyEnabled: this.notificationsEnabled(this.config),
       settingsRevision: this.opts.preferences?.revision?.(),
       installed: this.installed,
+      databaseReadOnly: qqDatabaseReadOnly(),
       proxyConnected: this.proxyConnected,
       error: this.error || (this.protection().method === 'database' ? '' : this.proxyError),
       applying: this.applying,

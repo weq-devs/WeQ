@@ -64,6 +64,7 @@ import type { TokenUsageStore } from './agentlab_usage';
 import type { ConversationStore, ConversationTurn } from './agentlab_conversation';
 import { sessionTitleFromText } from './agentlab_session';
 import { JsonStore } from '../common/json_store';
+import { automaticAiRestricted, watchTransferPolicy } from '../common/transfer_policy';
 import type { PreferencePersistence } from '../common/shared_preferences';
 import { assistantCapabilityGuidance } from './assistant_capabilities';
 import { AssistantToolTimeoutError, withAssistantToolDeadline } from './assistant_tool_deadline';
@@ -1443,8 +1444,16 @@ export class AssistantService {
       this.pendingTitles.has(id)
     )
       return;
+    if (automaticAiRestricted()) {
+      session.titlePending = false;
+      this.persistSessions();
+      return;
+    }
     const controller = new AbortController();
     this.pendingTitles.set(id, controller);
+    const unwatch = watchTransferPolicy(() => {
+      if (automaticAiRestricted()) controller.abort();
+    });
     void this.generateTitle(text, reply, controller.signal)
       .then((title) => {
         if (!title || controller.signal.aborted) return;
@@ -1457,6 +1466,7 @@ export class AssistantService {
         /* 标题失败时保留临时标题，不影响回答。 */
       })
       .finally(() => {
+        unwatch();
         if (this.pendingTitles.get(id) === controller) this.pendingTitles.delete(id);
       });
   }

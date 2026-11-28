@@ -20,12 +20,13 @@ import { bounded, networkFetch } from '@weq/network';
 
 import { createHash } from 'node:crypto';
 import { mkdir, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs } from './user_config';
 import { getLogger, logErrorContext } from '../common/logger';
 import { scopedNetworkAllowed } from '../common/network_scope';
+import { SentMediaCache } from './sent_media_cache';
 import {
   ManagedDownload,
   TransferDeferredError,
@@ -54,6 +55,7 @@ const GROUP_RKEY_TYPES = new Set([
 ]);
 
 export interface DownloadOptions {
+  localOnly?: boolean;
   /** Extension for the cached file, e.g. `.jpg` / `.mp4` / `.silk`. */
   ext?: string;
   /** rkey types allowed for this download. Defaults to image types (10/20). */
@@ -162,7 +164,9 @@ process.once('exit', flushMediaDownloadLogs);
 export class MediaDownloadService {
   private readonly downloadingThumbnails = new Map<string, Transfer>();
   private readonly downloading = new Map<string, Transfer>();
+  private readonly chatStickers = new Map<string, string>();
   private readonly logger = getLogger().child({ scope: 'media-download' });
+  private outgoing?: { accountId: string; cache: SentMediaCache };
 
   constructor(
     private readonly accountConfig: AccountConfigService,
@@ -171,10 +175,42 @@ export class MediaDownloadService {
     private readonly allowOnline: () => boolean = () => true,
   ) {}
 
+  get sentMedia(): SentMediaCache | undefined {
+    const accountId = this.accountConfig.getConfigId?.();
+    if (!accountId) return undefined;
+    if (this.outgoing?.accountId !== accountId)
+      this.outgoing = { accountId, cache: new SentMediaCache(this.cacheDir, accountId) };
+    return this.outgoing.cache;
+  }
+
   cachedFile(fileToken: string, ext = ''): string | null {
     if (!fileToken) return null;
     const path = join(this.cacheDir, `${hashToken(fileToken)}${ext}`);
-    return existsSync(path) ? path : null;
+    if (existsSync(path)) return path;
+    const kind = ext === '.silk' ? 'ptt' : ext === '.mp4' ? 'video' : ext === '' ? 'pic' : null;
+    return kind ? (this.sentMedia?.find(kind, fileToken) ?? null) : null;
+  }
+
+  cachedChatSticker(md5: string): string | null {
+    const path = this.chatStickers.get(md5);
+    if (path && existsSync(path)) return path;
+    this.chatStickers.delete(md5);
+    return null;
+  }
+
+  /** 复用本账号已下载的原文件；只有实际内容吻合才跨下载凭据共享。 */
+  async rememberChatSticker(md5: string, path: string, signal?: AbortSignal): Promise<void> {
+    if (this.cachedChatSticker(md5)) return;
+    try {
+      const digest = createHash('md5');
+      for await (const chunk of createReadStream(path, { signal })) digest.update(chunk);
+      if (digest.digest('hex') !== md5) return;
+      this.chatStickers.set(md5, path);
+      if (this.chatStickers.size > 512)
+        this.chatStickers.delete(this.chatStickers.keys().next().value!);
+    } catch {
+      // 缓存验证失败仍保留原凭据对应的显示来源。
+    }
   }
 
   /** 仅使用消息真实携带的小图地址，不将 spec=0 原图地址变造为缩图。 */
@@ -203,28 +239,61 @@ export class MediaDownloadService {
       writeMedia(path, transferSignal, async () => {
         transferSignal.throwIfAborted();
         if (existsSync(path)) return path;
-        if (!this.allowOnline()) return null;
-        try {
-          await mkdir(this.cacheDir, { recursive: true });
-          await new ManagedDownload({
-            signal: transferSignal,
-            maxBytes: 512 * 1024,
-            validate: async (_path, response, size) => {
-              transferSignal.throwIfAborted();
-              if (
-                !this.allowOnline() ||
-                !size ||
-                !(response.headers.get('content-type') ?? '').startsWith('image/')
-              )
-                throw new Error('缩略图不可用');
-            },
-          }).file(url.href, path);
-          return this.allowOnline() ? path : null;
-        } catch {
-          return null;
-        }
+        return this.downloadThumbnail(url, path, transferSignal);
       }),
     );
+  }
+
+  private async downloadThumbnail(url: URL, path: string, signal: AbortSignal) {
+    const tried = new Set<string>();
+    const fetchCandidate = async (candidate: URL) => {
+      signal.throwIfAborted();
+      if (!this.allowOnline() || tried.has(candidate.href)) return false;
+      tried.add(candidate.href);
+      try {
+        await mkdir(this.cacheDir, { recursive: true });
+        await new ManagedDownload({
+          signal,
+          maxBytes: 512 * 1024,
+          validate: async (_path, response, size) => {
+            signal.throwIfAborted();
+            if (
+              !this.allowOnline() ||
+              !size ||
+              !(response.headers.get('content-type') ?? '').startsWith('image/')
+            )
+              throw new Error('缩略图不可用');
+          },
+        }).file(candidate.href, path);
+        return this.allowOnline();
+      } catch {
+        signal.throwIfAborted();
+        return false;
+      }
+    };
+    const type = thumbnailRkeyType(url);
+    if (type === undefined) return (await fetchCandidate(url)) ? path : null;
+
+    const fetchWithRkeys = async (keys: DownloadRkey[]) => {
+      for (const key of keys) {
+        const value = new URLSearchParams(key.rkey).get('rkey');
+        if (!value) continue;
+        const signed = new URL(url);
+        signed.searchParams.set('rkey', value);
+        if (await fetchCandidate(signed)) return true;
+      }
+      return false;
+    };
+    if (await fetchWithRkeys(this.validRkeys([type]))) return path;
+    if (url.searchParams.get('rkey') && (await fetchCandidate(url))) return path;
+    if (!this.externalRkey || !this.allowOnline()) return null;
+    try {
+      const keys = await bounded(this.externalRkey.resolveRkeys([type], signal), signal);
+      return (await fetchWithRkeys(keys)) ? path : null;
+    } catch {
+      signal.throwIfAborted();
+      return null;
+    }
   }
 
   /**
@@ -239,14 +308,15 @@ export class MediaDownloadService {
     opts.signal?.throwIfAborted();
     if (!fileToken) return null;
     const path = join(this.cacheDir, `${hashToken(fileToken)}${opts.ext ?? ''}`);
-    if (existsSync(path)) {
+    const cached = this.cachedFile(fileToken, opts.ext);
+    if (cached) {
       this.logger.debug('media cache hit', {
         event: 'media-cache-hit',
         mediaId: hashToken(fileToken).slice(0, 16),
       });
-      return path;
+      return cached;
     }
-    if (!this.allowOnline() || !scopedNetworkAllowed()) return null;
+    if (opts.localOnly || !this.allowOnline() || !scopedNetworkAllowed()) return null;
     return this.consume(
       this.downloading,
       path,
@@ -458,6 +528,21 @@ export class MediaDownloadService {
 
 function isAllDigits(s: string): boolean {
   return /^\d+$/.test(s);
+}
+
+/** QQ 消息里的小图常只有相对路径。补同场景票据时保留原 fileid 和 spec。 */
+function thumbnailRkeyType(url: URL): number | undefined {
+  if (
+    url.origin !== MEDIA_HOST ||
+    url.pathname !== '/download' ||
+    !url.searchParams.get('fileid') ||
+    !/^(?:198|720)$/.test(url.searchParams.get('spec') ?? '')
+  )
+    return undefined;
+  const appid = url.searchParams.get('appid');
+  if (appid === '1406') return PRIVATE_IMAGE_RKEY_TYPE;
+  if (appid === '1407') return GROUP_IMAGE_RKEY_TYPE;
+  return undefined;
 }
 
 /** `originalUrl` is usually a host-relative path; join it onto the media host. */

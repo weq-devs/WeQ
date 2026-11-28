@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'rea
 import { z } from 'zod/v3';
 import { captureReadingPosition, restoreReadingPosition } from '../lib/conversationReadingPosition';
 import { pageSnapshots } from '../lib/pageSnapshots';
+import { TIMELINE_MESSAGE_LOCATED } from '../lib/timelineViewport';
 import { usePageSnapshotKey } from './PageSnapshots.shared';
 
 const reading = z.object({
@@ -149,6 +150,16 @@ export function PageScrollSnapshot({
     const onPageHide = () => {
       if (scrolled.size) save();
     };
+    const onMessageLocated = (event: Event) => {
+      const scroll = event.target;
+      if (!(scroll instanceof HTMLElement) || scroll.closest('[data-page-snapshot]') !== container)
+        return;
+      // 定位接管聊天视口，该页其他滚动区继续恢复。
+      for (const item of pending) {
+        if (find(item) === scroll) pending.delete(item);
+      }
+      if (!pending.size) finish();
+    };
     const restore = () => {
       frame = 0;
       for (const item of pending) {
@@ -208,6 +219,7 @@ export function PageScrollSnapshot({
     container.addEventListener('pointerdown', finish);
     container.addEventListener('keydown', finish);
     container.addEventListener('weq-page-navigation', finish);
+    container.addEventListener(TIMELINE_MESSAGE_LOCATED, onMessageLocated);
     container.addEventListener('load', schedule, true);
     container.addEventListener('scroll', onScroll, { capture: true, passive: true });
     owner.addEventListener('pagehide', onPageHide);
@@ -238,6 +250,7 @@ export function PageScrollSnapshot({
       container.removeEventListener('pointerdown', finish);
       container.removeEventListener('keydown', finish);
       container.removeEventListener('weq-page-navigation', finish);
+      container.removeEventListener(TIMELINE_MESSAGE_LOCATED, onMessageLocated);
       container.removeEventListener('load', schedule, true);
       container.removeEventListener('scroll', onScroll, true);
       owner.removeEventListener('pagehide', onPageHide);

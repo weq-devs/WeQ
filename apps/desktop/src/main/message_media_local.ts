@@ -48,8 +48,18 @@ export async function resolveRecordedChatFile(
   options: { exact?: boolean } = {},
 ) {
   if (!source.fwdKind && !source.fwdMsgId && !source.fwdResId && /^\d+$/.test(source.msgId)) {
-    const sent = await services.fileResource.resolveSentFile(source.token ?? '', source.name ?? '');
-    if (sent) return { path: sent, name: source.name };
+    const sent = services.mediaDownload?.sentMedia?.find(
+      'file',
+      source.token ?? '',
+      '',
+      source.name,
+    );
+    if (sent) return { path: sent, name: source.name, cached: true };
+    const original = await services.fileResource.resolveSentFile(
+      source.token ?? '',
+      source.name ?? '',
+    );
+    if (original) return { path: original, name: source.name };
     // File Assistant may fall back to a neighboring row, not the selected element.
     const info = options.exact
       ? null
@@ -183,13 +193,15 @@ export async function messageMediaLocations(
     return locations;
   }
   if (target.kind === 'file') {
-    const path = (await resolveRecordedChatFile(services, { ...target, kind: 'chat-file' }))?.path;
-    if (path) {
+    const resolved = await resolveRecordedChatFile(services, { ...target, kind: 'chat-file' });
+    if (resolved) {
+      const path = resolved.path;
       const record = services.accountConfig.getRecord();
       const root = record?.uin ? context.platform?.fileDir(record.uin) : null;
       const sub = root ? relative(root, path) : null;
       const cached =
-        sub !== null && sub !== '..' && !sub.startsWith(`..${sep}`) && !isAbsolute(sub);
+        resolved.cached ||
+        (sub !== null && sub !== '..' && !sub.startsWith(`..${sep}`) && !isAbsolute(sub));
       add(cached ? 'cache' : 'local', path);
     }
     // 按文件名找到的缓存可定位核对，但不能直接当成该消息的文件打开。
@@ -212,6 +224,9 @@ export async function messageMediaLocations(
       found.source,
       // emoji 的 thumb 实际是可显示的完整表情；file 的 thumb 只是通用图标。
       target.kind === 'emoji' ? found.thumb : null,
+      target.kind === 'pic' || target.kind === 'emoji'
+        ? services.mediaDownload.sentMedia?.find('pic', target.token, target.md5)
+        : null,
       services.mediaDownload.cachedFile(target.token, ext),
       ...(media && ext && target.token
         ? [

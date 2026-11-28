@@ -163,6 +163,11 @@ export interface AgentRuntimeDeps {
   /** 表情资产保障（缺省则只发 localPath 已在盘上的表情，缺失的直接丢弃）。 */
   ensureSticker?: StickerAssetPort;
   logger?: RuntimeLogger;
+  deferLearning?: (
+    key: string,
+    personaId: string,
+    run: (signal: AbortSignal) => Promise<void>,
+  ) => boolean;
 }
 
 const MEMORY_DISTILL_EVERY = 6;
@@ -189,6 +194,7 @@ export class AgentRuntime {
   private readonly tts?: TtsPort;
   private readonly ensureSticker?: StickerAssetPort;
   private readonly logger?: RuntimeLogger;
+  private readonly deferLearning?: AgentRuntimeDeps['deferLearning'];
 
   constructor(deps: AgentRuntimeDeps) {
     this.images = deps.images;
@@ -205,6 +211,7 @@ export class AgentRuntime {
     this.tts = deps.tts;
     this.ensureSticker = deps.ensureSticker;
     this.logger = deps.logger;
+    this.deferLearning = deps.deferLearning;
   }
 
   async close(): Promise<void> {
@@ -691,7 +698,7 @@ export class AgentRuntime {
       input.personaId,
     );
     this.startBackground(
-      this.maybeReflect(dataKey, record.persona.name, chatEndpoint),
+      this.maybeReflect(dataKey, record.persona.name, chatEndpoint, input.personaId),
       input.personaId,
     );
 
@@ -705,11 +712,32 @@ export class AgentRuntime {
     chatEndpoint: AgentLabEndpoint,
     dataKey = personaId,
     privatePeerId?: string,
+    due = false,
   ): Promise<void> {
     try {
       const conv = this.allConversations(dataKey);
       const userTurns = conv.filter((t) => t.role === 'user').length;
-      if (userTurns === 0 || userTurns % MEMORY_DISTILL_EVERY !== 0) return;
+      if (userTurns === 0 || (!due && userTurns % MEMORY_DISTILL_EVERY !== 0)) return;
+      if (
+        this.deferLearning?.(`memory:${dataKey}`, personaId, async (signal) => {
+          const model = this.store.getPersona(personaId)?.persona.models.chat;
+          if (!model) return;
+          const endpoint = this.resolveWithUsage(model, 'chat', {
+            personaId,
+            scope: 'chat',
+            signal,
+          });
+          await this.maybeDistillMemories(
+            personaId,
+            peerName,
+            endpoint,
+            dataKey,
+            privatePeerId,
+            true,
+          );
+        })
+      )
+        return;
       const known = this.memories
         .get(dataKey)
         .map((m) => m.text)
@@ -757,17 +785,32 @@ export class AgentRuntime {
    * 提炼出的 corrections（必须遵守）/ summary（episode）写入 NotesSink；后台失败通过日志端口报告。
    */
   private async maybeReflect(
-    personaId: string,
+    dataKey: string,
     peerName: string,
     chatEndpoint: AgentLabEndpoint,
+    personaId: string,
+    due = false,
   ): Promise<void> {
     try {
-      const conv = this.allConversations(personaId);
+      const conv = this.allConversations(dataKey);
       const userTurns = conv.filter((t) => t.role === 'user').length;
-      if (userTurns === 0 || userTurns % REFLECT_EVERY !== 0) return;
-      const reflected = this.notes.getReflectedCount(personaId);
+      if (userTurns === 0 || (!due && userTurns % REFLECT_EVERY !== 0)) return;
+      const reflected = this.notes.getReflectedCount(dataKey);
       const unreflected = conv.slice(reflected);
       if (unreflected.length < MIN_UNREFLECTED) return;
+      if (
+        this.deferLearning?.(`reflection:${dataKey}`, personaId, async (signal) => {
+          const model = this.store.getPersona(personaId)?.persona.models.chat;
+          if (!model) return;
+          const endpoint = this.resolveWithUsage(model, 'chat', {
+            personaId,
+            scope: 'chat',
+            signal,
+          });
+          await this.maybeReflect(dataKey, peerName, endpoint, personaId, true);
+        })
+      )
+        return;
       const result = await reflectConversation(
         chatEndpoint,
         peerName,
@@ -775,10 +818,10 @@ export class AgentRuntime {
       );
       chatEndpoint.signal?.throwIfAborted();
       if (result.corrections.length > 0 || result.summary) {
-        this.notes.add(personaId, result.corrections, result.summary);
+        this.notes.add(dataKey, result.corrections, result.summary);
       }
       // 无论是否提炼出内容都推进水位，避免下次重复反思同一段。
-      this.notes.setReflectedCount(personaId, conv.length);
+      this.notes.setReflectedCount(dataKey, conv.length);
     } catch {
       if (!chatEndpoint.signal?.aborted) this.logger?.error('反思或笔记保存失败，未报告为已保存');
     }

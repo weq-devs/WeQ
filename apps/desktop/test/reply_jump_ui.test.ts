@@ -202,9 +202,12 @@ it('省流量引用图片可点击加载，携带原消息时间与主动加载�
   useDataSaver.setState({ enabled: true });
   vi.stubGlobal('IntersectionObserver', undefined);
   const fetchThumbnail = vi.fn(async (_url: string) => new Response(new Blob(['fixture'])));
+  fetchThumbnail.mockResolvedValueOnce(
+    new Response(null, { status: 409, headers: { 'X-WeQ-Media-State': 'deferred' } }),
+  );
   vi.stubGlobal('fetch', fetchThumbnail);
   const f = mount();
-  failQuotedImage(f.host);
+  await act(async () => {});
   const load = f.host.querySelector<HTMLButtonElement>('button[aria-label="加载图片"]')!;
   expect(load).not.toBeNull();
   expect(load.disabled).toBe(false);

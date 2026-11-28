@@ -20,8 +20,14 @@ import { ArrowRight, KeyRound, Loader2, QrCode, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { Modal } from '../../components/Dialog';
 import { useDialog } from '../../components/Dialog.shared';
-import { Toggle } from '../../components/settings/controls';
-import { IS_MAC } from '../../lib/target.shared';
+import { FormSelect } from '../../components/FormSelect';
+import { QueryError, Toggle } from '../../components/settings/controls';
+import {
+  QQ_CAPABILITY_MODES,
+  QQ_CAPABILITY_MODE_LABELS,
+  type QqCapabilityMode,
+} from '@weq/service/qq-capability-mode';
+import { useQqCapabilityChange } from '../../hooks/useQqCapabilityChange';
 import type { AutoEnterTarget } from '@weq/service';
 import { accountSource } from './AccountSelector.shared';
 import { QqAvatar } from '../../components/QqAvatar';
@@ -31,6 +37,12 @@ import { QrDialog } from './QrDialog';
 import type { UiAccount } from './types';
 
 type Sub = { unsubscribe: () => void };
+const capabilityDetails: Record<QqCapabilityMode, string> = {
+  'read-only': '浏览、搜索和导出，阅读保留未读角标。',
+  local: '浏览本地消息，可编辑记录和更新未读。',
+  online: '可发送消息、拉取漫游消息。',
+  complete: '通过 QQ 代理接收实时更新，同步已发送消息和已读状态。',
+};
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -69,11 +81,8 @@ export function LoginPanel({
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
   const settings = trpc.bootstrap.getSettings.useQuery();
-  const utils = trpc.useUtils();
-  const autoAttach = trpc.bootstrap.setAutoAttachQq.useMutation({
-    onSuccess: () => utils.bootstrap.getSettings.invalidate(),
-    onError: (e) => showError('设置失败', e.message),
-  });
+  const capability = settings.data?.qqCapabilityMode;
+  const capabilityChange = useQqCapabilityChange(capability);
 
   const [key, setKey] = useState('');
   /**
@@ -111,8 +120,8 @@ export function LoginPanel({
     anonymous: boolean;
   } | null>(null);
   const subRef = useRef<Sub | null>(null);
-  const occupied = busy || qr !== null;
-  const working = occupied || disabled || autoAttach.isLoading;
+  const occupied = busy || qr !== null || capabilityChange.changing;
+  const working = occupied || disabled;
   useEffect(() => {
     onBusyChange?.(occupied);
     return () => onBusyChange?.(false);
@@ -398,11 +407,6 @@ export function LoginPanel({
     }
   }
 
-  /** 「启用 QQ 在线能力」的说明：窄/矮窗口里收成 title，不在页面上占行。 */
-  const fullModeHint = IS_MAC
-    ? '开启后自动读取 QQ 进程采集凭证；SIP 开启时改用「QQ 调试副本」。'
-    : '开启后自动读取登录中的 QQ 进程，采集 rKey / ClientKey 等凭证以启用在线能力。';
-
   function onAction(): void {
     if (!working) void enter();
   }
@@ -515,7 +519,6 @@ export function LoginPanel({
             </Modal>
           )}
 
-          {/* 开关复用设置页的 Toggle：启动页是用户第一眼，控件形态与设置页一致。 */}
           <div className="weq-login-options">
             <div className="weq-login-option">
               <span className="weq-login-option-label">下次打开自动进入该账号</span>
@@ -529,18 +532,47 @@ export function LoginPanel({
               />
             </div>
             <div className="weq-login-option">
-              <span className="weq-login-option-label" title={fullModeHint}>
-                启用 QQ 在线能力
-              </span>
-              <Toggle
-                checked={settings.data?.autoAttachQq ?? false}
-                disabled={working || !settings.data || autoAttach.isLoading}
-                onChange={(next) => autoAttach.mutate({ enabled: next })}
-                label="启用 QQ 在线能力"
-              />
+              <span className="weq-login-option-label">QQ 能力档位</span>
+              <FormSelect
+                className="weq-set-input weq-login-capability-select"
+                aria-label="QQ 能力档位"
+                aria-busy={capabilityChange.changing || undefined}
+                value={capability ?? ''}
+                disabled={working || !capability}
+                onChange={(event) => {
+                  const next = QQ_CAPABILITY_MODES.find((option) => option === event.target.value);
+                  if (next) void capabilityChange.select(next);
+                }}
+              >
+                {!capability && (
+                  <option value="">{settings.isError ? '读取失败' : '正在读取…'}</option>
+                )}
+                {QQ_CAPABILITY_MODES.map((option) => (
+                  <option key={option} value={option} data-detail={capabilityDetails[option]}>
+                    {QQ_CAPABILITY_MODE_LABELS[option]}
+                  </option>
+                ))}
+              </FormSelect>
             </div>
+            {!capability && settings.error && (
+              <QueryError
+                message={settings.error.message}
+                retryLabel="重新读取 QQ 能力档位"
+                retrying={settings.isFetching}
+                onRetry={() => void settings.refetch()}
+              />
+            )}
+            {capabilityChange.changing && (
+              <p className="weq-set-note" role="status">
+                正在切换 QQ 能力档位…
+              </p>
+            )}
+            {capabilityChange.error && (
+              <div className="weq-open-error" role="alert">
+                {capabilityChange.error}
+              </div>
+            )}
           </div>
-          <p className="weq-login-options-hint">{fullModeHint}</p>
         </>
       ) : (
         emptyContent

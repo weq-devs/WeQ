@@ -5,10 +5,12 @@ import { AccountBasicsSection } from '../src/renderer/src/components/settings/Ac
 import { QqStatusReminderSettings } from '../src/renderer/src/components/settings/QqStatusReminderSettings';
 import { useRestrictedMode } from '../src/renderer/src/state/restrictedMode';
 import { useViewState } from '../src/renderer/src/state/view';
+import type { QqCapabilityMode } from '@weq/service/qq-capability-mode';
 import type { OnlineAccess } from '../src/renderer/src/lib/restrictedMode';
 import { normalizeNotificationEvents } from '@weq/service/notification-settings';
 
 const ready: OnlineAccess = {
+  source: { expectedAccountUin: '10001', expectedAccountConfigId: '10001' },
   qqOnline: true,
   attachEnabled: true,
   hasA2: true,
@@ -36,14 +38,17 @@ const mock = vi.hoisted(() => ({
   settings: {
     autoAttachQq: true,
     qqStatusIndicatorEnabled: true,
-    qqClientSyncEnabled: false,
+    qqCapabilityMode: 'complete' as QqCapabilityMode,
   },
   proxyStatus: undefined as ReturnType<typeof waitingProxy> | undefined,
   access: undefined as OnlineAccess | undefined,
   failed: false,
   queryOptions: vi.fn(),
   save: vi.fn(),
-  saveProxyEnabled: vi.fn(),
+  saveMode: vi.fn(),
+  platform: 'linux',
+  sip: false,
+  hasQqExe: true,
   error: vi.fn(),
 }));
 vi.mock('../src/renderer/src/components/settings/LongTermAuthorizationSection', () => ({
@@ -53,6 +58,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (path: string[] = []): unknown =>
     new Proxy(() => proxy(path), {
       get: (_target, key) => {
+        if (key === 'invalidate') return async () => {};
         if (key === 'useQuery')
           return (_input: unknown, options: unknown) => {
             const method = path.at(-1);
@@ -65,7 +71,13 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                     ? mock.access
                     : method === 'getQqClientSyncStatus'
                       ? mock.proxyStatus
-                      : undefined,
+                      : method === 'systemInfo'
+                        ? { platformKind: mock.platform }
+                        : method === 'sipEnabled'
+                          ? mock.sip
+                          : method === 'describeInstall'
+                            ? { hasQqExe: mock.hasQqExe }
+                            : undefined,
               isError: method === 'getGroupAlbumAccessState' && mock.failed,
               isLoading: false,
               refetch: async () => ({ data: mock.settings }),
@@ -73,13 +85,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           };
         if (key === 'useMutation')
           return (options?: { onSuccess?: () => unknown; onSettled?: () => unknown }) => ({
-            mutateAsync: mock.save,
+            mutateAsync: path.at(-1) === 'setQqCapabilityMode' ? mock.saveMode : mock.save,
             reset: () => {},
-            mutate: (input?: { enabled: boolean } | { newInstance: boolean }) => {
-              const method = path.at(-1);
-              if (input && 'enabled' in input) {
-                if (method === 'setQqProxyEnabled') mock.saveProxyEnabled(input);
-              }
+            mutate: () => {
               void options?.onSuccess?.();
               void options?.onSettled?.();
             },
@@ -103,7 +111,7 @@ beforeEach(() => {
   mock.settings = {
     autoAttachQq: true,
     qqStatusIndicatorEnabled: true,
-    qqClientSyncEnabled: false,
+    qqCapabilityMode: 'complete' as QqCapabilityMode,
   };
   mock.proxyStatus = undefined;
   mock.access = { ...ready };
@@ -113,9 +121,13 @@ beforeEach(() => {
     mock.settings = { ...mock.settings, qqStatusIndicatorEnabled: enabled };
   });
   mock.error.mockClear();
-  mock.saveProxyEnabled.mockReset().mockImplementation(({ enabled }) => {
-    mock.proxyStatus = { ...waitingProxy(), enabled, running: enabled };
+  mock.saveMode.mockReset().mockImplementation(async ({ mode }: { mode: QqCapabilityMode }) => {
+    mock.settings = { ...mock.settings, qqCapabilityMode: mode };
+    return { status: 'saved', mode };
   });
+  mock.platform = 'linux';
+  mock.sip = false;
+  mock.hasQqExe = true;
   useViewState.setState({ view: 'main', openedUin: '10001' });
   useRestrictedMode.setState({
     requests: [],
@@ -148,111 +160,65 @@ function mount(page: 'account' | 'reminders' = 'account') {
     host.remove();
   };
   render();
-  return {
-    host,
-    render,
-    badge: () =>
-      host.querySelector<HTMLElement>(
-        '[data-setting-id="full-features"] .weq-set-card-head :is([role="status"], button[aria-label^="QQ 在线能力："])',
-      )!,
-  };
+  return { host, render };
 }
-it('关闭统一提示后，代理设置仍可打开共用详情并查看待同步任务', async () => {
+
+it('完整模式等待连接保留选择，待同步任务在连接卡片上显示', async () => {
   mock.settings.qqStatusIndicatorEnabled = false;
-  mock.settings.qqClientSyncEnabled = true;
   mock.proxyStatus = waitingProxy();
-  mock.access = { ...ready, qqOnline: false };
-  const f = mount();
-  const card = f.host.querySelector<HTMLElement>('[data-setting-id="qq-proxy-connection"]')!;
-  const syncCard = f.host
-    .querySelector('[data-setting-id="qq-client-sync"]')!
-    .closest('.weq-set-card')!;
-  const badge = () => card.querySelector<HTMLButtonElement>('button[aria-label^="QQ 代理连接："]')!;
-  expect(badge().textContent).toBe('未连接');
+  const { host, render } = mount();
+  const card = host.querySelector('[data-setting-id="qq-proxy-connection"]')!;
+  expect(card.textContent).toContain('正在等待 QQ 代理连接');
+  expect(card.textContent).toContain('待同步 7 项');
   mock.access = {
     ...ready,
     source: { expectedAccountUin: '10001', expectedAccountConfigId: 'other' },
   };
-  f.render();
-  expect(badge().textContent).toBe('未连接');
-
-  mock.access = {
-    ...ready,
-    source: { expectedAccountUin: '10001', expectedAccountConfigId: '10001' },
-  };
-  f.render();
-  expect(badge().textContent).toBe('正在等待 QQ 代理连接');
-  expect(badge().getAttribute('aria-busy')).toBe('true');
-  expect(syncCard.textContent).toContain('待同步 7 项');
-  act(() => badge().click());
-  expect(useRestrictedMode.getState().settingsSection).toBe('proxy');
-  act(() => badge().click());
-  expect(useRestrictedMode.getState().open).toBe(false);
-
-  mock.proxyStatus = { ...waitingProxy(), connecting: true };
-  f.render();
-  expect(badge().textContent).toBe('正在确认连接');
-  expect(syncCard.textContent).toContain('待同步 7 项');
+  render();
+  expect(card.textContent).toContain('未连接');
+  mock.access = ready;
   mock.proxyStatus = { ...waitingProxy(), connected: true };
-  f.render();
-  expect(badge().textContent).toBe('已连接');
-  mock.settings.autoAttachQq = false;
-  f.render();
-  expect(badge().textContent).toBe('等待在线能力');
+  render();
+  expect(card.textContent).toContain('已连接');
+  expect(host.querySelector('[role="radio"][value="complete"]')?.getAttribute('aria-checked')).toBe(
+    'true',
+  );
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[role="radio"][value="local"]')!.click(),
+  );
+  render();
+  expect(mock.saveMode).toHaveBeenCalledWith({ mode: 'local' });
+  expect(host.querySelector('[data-setting-id="qq-proxy-connection"]')).toBeNull();
+});
 
-  const master = card.querySelector<HTMLButtonElement>(
-    '[role="switch"][aria-label="启用 QQ 代理"]',
-  )!;
-  await act(async () => master.click());
-  f.render();
-  expect(mock.saveProxyEnabled).toHaveBeenCalledWith({ enabled: false });
-  expect(master.getAttribute('aria-checked')).toBe('false');
-  expect(badge().textContent).toBe('已关闭');
-  expect(syncCard.textContent).toContain('待同步 7 项');
-  expect(mock.settings.qqClientSyncEnabled).toBe(true);
-});
-it.each([
-  [ready, false, '已就绪'],
-  [{ ...ready, attachEnabled: false }, false, '已关闭'],
-  [{ ...ready, qqOnline: false }, false, '在线能力受限'],
-  [{ ...ready, hasD2Key: false }, false, '在线能力受限'],
-  [{ ...ready, hasUid: false }, false, '在线能力受限'],
-  [{ ...ready, ssoReady: false }, false, '在线能力受限'],
-  [undefined, false, '检查中'],
-  [
-    { ...ready, source: { expectedAccountUin: '20002', expectedAccountConfigId: 'old' } },
-    false,
-    '检查中',
-  ],
-  [ready, true, '状态待确认'],
-] as const)('标题标签依据真实能力而非自动启用偏好：%j / %s', (access, failed, label) => {
-  mock.access = access;
-  mock.failed = failed;
-  const f = mount();
-  expect(f.badge().textContent).toBe(label);
-  expect(f.badge().parentElement?.querySelector('.weq-set-card-title')?.textContent).toBe(
-    '在线能力',
+it('选择在线档后按实际安装、登录及凭据要求显示操作', () => {
+  mock.settings.qqCapabilityMode = 'online';
+  mock.access = { ...ready, qqOnline: false };
+  mock.hasQqExe = false;
+  const { host, render } = mount();
+  expect(host.querySelector('[data-setting-id="full-feature-routes"]')?.textContent).toContain(
+    '未检测到 QQ 安装',
   );
+  mock.hasQqExe = true;
+  render();
+  expect(host.textContent).toContain('登录当前账号');
+  mock.access = { ...ready, hasD2Key: false, credentialsPending: true };
+  render();
+  expect(host.textContent).toContain('正在准备 QQ 在线能力');
+  mock.access = ready;
+  render();
+  expect(host.textContent).toContain('当前账号的 QQ 在线能力已就绪');
 });
-it('等待授权与启用中优先显示，待授权时可打开状态详情', () => {
-  const f = mount();
-  act(() => useRestrictedMode.getState().beginEntering());
-  expect(f.badge().textContent).toBe('正在启用');
-  act(() =>
-    useRestrictedMode
-      .getState()
-      .request({ kind: 'password', token: 1, title: '授权', message: '' }),
-  );
-  expect(f.badge().textContent).toBe('等待授权');
-  act(() => f.badge().click());
-  expect(useRestrictedMode.getState().open).toBe(true);
+
+it('SIP 已关闭时让 macOS 用户选择原版或副本', () => {
+  mock.platform = 'darwin';
+  mock.access = { ...ready, qqOnline: false };
+  const { host } = mount();
+  const prepare = host.querySelector('[data-setting-id="full-feature-routes"]');
+  expect(prepare?.textContent).toContain('使用原版 QQ');
+  expect(prepare?.textContent).toContain('使用调试副本');
 });
-it('未打开账号时显示原因，也不发起账号能力查询', () => {
-  useViewState.setState({ openedUin: null });
-  const f = mount();
-  expect(f.badge().textContent).toBe('未打开账号');
-  expect(mock.queryOptions).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
-});
+
 it('状态提醒页一个开关同时控制窗口提示，保存失败还原', async () => {
   const f = mount('reminders');
   const toggle = () =>

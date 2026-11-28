@@ -1,3 +1,4 @@
+import { assertQqDatabaseWriteAllowed } from '@weq/db';
 /**
  * Local resource cleanup for the current QQ account (本地资源整理 → 清理释放).
  *
@@ -346,6 +347,7 @@ export class ResourceCleanupService {
       after?(result: CleanupTargetResult): void;
     },
   ): Promise<CleanupResult> {
+    assertQqDatabaseWriteAllowed();
     const perTarget: CleanupTargetResult[] = [];
     let freedBytes = 0;
     const seen = new Set<string>();

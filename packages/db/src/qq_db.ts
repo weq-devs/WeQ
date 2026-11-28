@@ -27,8 +27,11 @@ import { queryDiagnosticSource } from './query_diagnostics';
 import { executeNativeRead } from './native_read';
 import {
   assertDatabaseWritable,
+  assertQqDatabaseWriteAllowed,
   databaseUnderMaintenance,
   waitForDatabaseWritable,
+  withQqDatabaseWrite,
+  qqDatabaseReadOnly,
 } from './maintenance';
 import {
   iterateSalvageWindows,
@@ -376,33 +379,36 @@ export class QqDb {
   async write(sql: string, params?: SqlValue[]): Promise<number> {
     const background = databaseRequestPriority() === 'background';
     for (;;) {
+      assertQqDatabaseWriteAllowed();
       if (background) await waitForDatabaseWritable(this.dbPath, databaseRequestSignal());
       assertDatabaseWritable(this.dbPath);
       try {
         return await scheduleDatabase(
           this.dbPath,
-          async () => {
-            assertDatabaseWritable(this.dbPath);
-            try {
-              if (this.encrypted) {
-                return await this.nt.executeSqlWriteWithKey(
-                  this.dbPath,
-                  sql,
-                  this.key!,
-                  this.algo!,
-                  params ?? null,
-                );
+          () =>
+            withQqDatabaseWrite(async () => {
+              assertDatabaseWritable(this.dbPath);
+              try {
+                if (this.encrypted) {
+                  return await this.nt.executeSqlWriteWithKey(
+                    this.dbPath,
+                    sql,
+                    this.key!,
+                    this.algo!,
+                    params ?? null,
+                  );
+                }
+                return await this.nt.executeSqlWrite(this.dbPath, sql, params ?? null);
+              } finally {
+                this.nt.closeDb(this.dbPath);
               }
-              return await this.nt.executeSqlWrite(this.dbPath, sql, params ?? null);
-            } finally {
-              this.nt.closeDb(this.dbPath);
-            }
-          },
+            }),
           this.nt,
           queryDiagnosticSource(sql),
         );
       } catch (error) {
-        if (!background || !databaseUnderMaintenance(this.dbPath)) throw error;
+        if (!background || qqDatabaseReadOnly() || !databaseUnderMaintenance(this.dbPath))
+          throw error;
       }
     }
   }

@@ -23,7 +23,7 @@ interface MessageDecorationCardProps {
     bubbleId: number;
     widgetId: number;
   } | null;
-  onClose: () => void;
+  onClose?: () => void;
 }
 
 function getLocalUrl(type: 'font' | 'bubble' | 'widget', id: number): string {
@@ -249,16 +249,18 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
     );
   }
 
-  return (
-    <OverlayLayer presentation="popover" className="weq-profile-layer" onClose={onClose}>
-      <section
-        ref={cardRef}
-        className="weq-profile-dialog weq-decoration-card weq-anim-pop"
-        data-decoration-count={items.length}
-        role="dialog"
-        aria-label="消息装扮"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+  const content = (
+    <section
+      ref={cardRef}
+      className={
+        onClose ? 'weq-profile-dialog weq-decoration-card weq-anim-pop' : 'weq-decoration-card'
+      }
+      data-decoration-count={items.length}
+      role={onClose ? 'dialog' : undefined}
+      aria-label={onClose ? '消息装扮' : undefined}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {onClose ? (
         <button
           className="weq-profile-close"
           type="button"
@@ -268,62 +270,74 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
         >
           <X size={15} />
         </button>
+      ) : null}
 
-        <div className="weq-decoration-card-titlebar">
+      <div className="weq-decoration-card-titlebar">
+        {onClose ? (
           <div className="weq-decoration-card-title">
             <FEATURE_ICONS.dressup size={20} strokeWidth={2} aria-hidden />
             <span>消息装扮</span>
           </div>
-          {hasDecoration ? (
-            <DecorationSaveControls
-              className="weq-decoration-card-save-all"
-              title="保存这条消息用到的全部装扮资源"
-              label="保存全部"
-              busy={save.savingKey === 'all'}
-              disabled={save.disabled}
-              onSave={(intent, browser) => {
-                if (decoration) void save.run(decoration, 'all', intent, browser);
-              }}
-            />
-          ) : null}
-        </div>
+        ) : null}
+        {hasDecoration ? (
+          <DecorationSaveControls
+            className="weq-decoration-card-save-all"
+            title="保存这条消息用到的全部装扮资源"
+            label="保存全部"
+            busy={save.savingKey === 'all'}
+            disabled={save.disabled}
+            onSave={(intent, browser) => {
+              if (decoration) void save.run(decoration, 'all', intent, browser);
+            }}
+          />
+        ) : null}
+      </div>
 
-        {!hasDecoration ? (
-          <div className="weq-decoration-card-empty-state">
-            <FEATURE_ICONS.dressup size={48} strokeWidth={1.5} opacity={0.3} aria-hidden />
-            <span>此消息未使用装扮</span>
-          </div>
-        ) : (
-          <div className="weq-decoration-card-grid">
-            {items.map((item) => (
-              <div className="weq-decoration-card-slot" key={`${item.type}:${item.id}`}>
-                <DecorationItem type={item.type} id={item.id} label={item.label} icon={item.icon} />
-                {dressTools ? (
-                  <div className="weq-decoration-card-actions">
-                    {renderAddButton(item)}
-                    <DecorationSaveControls
-                      className="weq-decoration-card-save"
-                      title={`保存${item.label}资源`}
-                      busy={save.savingKey === item.type}
-                      disabled={save.disabled}
-                      onSave={(intent, browser) => {
-                        if (decoration)
-                          void save.run(
-                            { ...decoration, kind: item.type },
-                            item.type,
-                            intent,
-                            browser,
-                          );
-                      }}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+      {!hasDecoration ? (
+        <div className="weq-decoration-card-empty-state">
+          <FEATURE_ICONS.dressup size={48} strokeWidth={1.5} opacity={0.3} aria-hidden />
+          <span>此消息未使用装扮</span>
+        </div>
+      ) : (
+        <div className="weq-decoration-card-grid">
+          {items.map((item) => (
+            <div className="weq-decoration-card-slot" key={`${item.type}:${item.id}`}>
+              <DecorationItem type={item.type} id={item.id} label={item.label} icon={item.icon} />
+              {dressTools ? (
+                <div className="weq-decoration-card-actions">
+                  {renderAddButton(item)}
+                  <DecorationSaveControls
+                    className="weq-decoration-card-save"
+                    title={`保存${item.label}资源`}
+                    busy={save.savingKey === item.type}
+                    disabled={save.disabled}
+                    onSave={(intent, browser) => {
+                      if (decoration)
+                        void save.run(
+                          { ...decoration, kind: item.type },
+                          item.type,
+                          intent,
+                          browser,
+                        );
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+  return onClose ? (
+    <OverlayLayer presentation="popover" className="weq-profile-layer" onClose={onClose}>
+      {content}
       {save.prompt}
     </OverlayLayer>
+  ) : (
+    <>
+      {content}
+      {save.prompt}
+    </>
   );
 }

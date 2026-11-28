@@ -96,7 +96,7 @@ export function restrictionReasons(input: {
     reasons.push({
       code: 'disabled',
       title: 'QQ 在线能力已关闭',
-      guidance: '可在此开启「启用 QQ 在线能力」，也可随时在设置中关闭。',
+      guidance: '在「QQ 能力档位」选择在线模式或完整模式后可用。',
     });
   const sessionReady =
     access.hasA2 && access.hasD2 && access.hasD2Key && access.needsMemoryRead !== true;

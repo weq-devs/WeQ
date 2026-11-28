@@ -1,3 +1,4 @@
+import { withQqFileWrite } from '@weq/db';
 /**
  * `account.dressup.*` —— 个性装扮(气泡 / 字体 / 头像挂件 / 聊天背景 / 浮屏挂件)。
  *
@@ -862,7 +863,9 @@ export const dressupRouter = router({
         });
         if (!target) return { mode: 'cancelled' as const };
         current();
-        await writeFile(target.path, exportFile.bytes, { flag: 'wx' });
+        await withQqFileWrite(target.path, () =>
+          writeFile(target.path, exportFile.bytes, { flag: 'wx' }),
+        );
         current();
         return {
           mode: 'browser' as const,

@@ -49,7 +49,11 @@ function readOptions(children: ReactNode) {
   let current: OptionGroup | undefined;
   function visit(nodes: ReactNode, group?: OptionGroup, disabled = false) {
     Children.forEach(nodes, (node) => {
-      if (!isValidElement<ComponentProps<'option'> & { 'data-placeholder'?: boolean }>(node))
+      if (
+        !isValidElement<
+          ComponentProps<'option'> & { 'data-placeholder'?: boolean; 'data-detail'?: string }
+        >(node)
+      )
         return;
       const props = node.props;
       if (node.type === 'optgroup') {
@@ -67,6 +71,7 @@ function readOptions(children: ReactNode) {
         target?.options.push({
           value: String(props.value ?? text),
           label: props.label ?? text,
+          detail: props['data-detail'],
           title: props.title,
           disabled: disabled || props.disabled,
           placeholder: props['data-placeholder'],

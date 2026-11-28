@@ -364,10 +364,14 @@ export const intentSenseFeatureProcedures = {
         peerUid: z.string().min(1),
         revision: z.number().int().nonnegative().optional(),
         cachedOnly: z.boolean().optional(),
+        manual: z.boolean().optional(),
       }),
     )
     .query(({ input }) =>
-      requireServices().intentSense.getProfile(input.peerUid, { cachedOnly: input.cachedOnly }),
+      requireServices().intentSense.getProfile(input.peerUid, {
+        cachedOnly: input.cachedOnly,
+        manual: input.manual,
+      }),
     ),
 
   /** 读取本会话逐轮回复历史及实际输入末条的定位信息。 */

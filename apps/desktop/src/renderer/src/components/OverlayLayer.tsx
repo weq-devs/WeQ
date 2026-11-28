@@ -179,9 +179,8 @@ function OpenOverlayLayer({
     100,
     scope,
   );
-  const trigger = profileCard
-    ? (profileTrigger ?? (anchor && 'element' in anchor ? anchor.element : (anchor ?? undefined)))
-    : undefined;
+  const anchorElement = anchor && 'element' in anchor ? anchor.element : anchor;
+  const trigger = profileCard ? (profileTrigger ?? anchorElement ?? undefined) : undefined;
   const ignoreProfilePress = useCallback(
     (event: PointerEvent, target: Node) => !!trigger && isProfileTrigger(trigger, target, event),
     [trigger],

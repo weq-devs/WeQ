@@ -2,7 +2,7 @@
  * 好感度胶囊 —— 私聊会话头部右上角常驻（chat-actions 首位）。
  *
  * 数据走 intentSense.getProfile（与画像 Dialog 同源），档位变化时图标与配色
- * 一起切换并重放 bump 动画（key=tier 触发 remount）。点击直达联系人页的互动画像
+ * 一起切换并重放 bump 动画。点击直达联系人页的互动画像
  * 分区，复用详情导航。群聊 / 功能未开启时由挂载方（chatPane）负责不渲染。
  */
 
@@ -11,6 +11,7 @@ import { useContext, useEffect, useRef, useState } from 'react';
 import { Heart, Sparkles, Star, Zap, Flame } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useIntentSenseStatus } from './context.shared';
+import { useAutomaticAiRestricted } from '../../lib/dataSaver';
 import {
   ContactWorkspaceNavigationContext,
   contactPortraitTarget,
@@ -36,12 +37,16 @@ export function AffinityPill({
   const openWorkspace = useContext(ContactWorkspaceNavigationContext);
   const status = useIntentSenseStatus();
   const statusData = status.data;
+  const restricted = useAutomaticAiRestricted();
   const active = !!statusData?.profileEnabled;
   const profile = trpc.account.intentSense.getProfile.useQuery(
     {
       peerUid,
       revision: statusData?.profileRevision,
-      ...(statusData?.profileMode === 'manual' ? { cachedOnly: true } : {}),
+      ...(statusData?.profileMode === 'manual' ||
+      (restricted && statusData?.profileEngine === 'api')
+        ? { cachedOnly: true }
+        : {}),
     },
     {
       enabled: active,
@@ -71,7 +76,6 @@ export function AffinityPill({
   return (
     <button
       type="button"
-      key={tier}
       className={`weq-affinity-pill tier-${tier ?? 'unrated'}${profile.isLoading ? ' weq-int-pill-loading' : ''}${bumped ? ' is-bumped' : ''}`}
       title={
         tier === null

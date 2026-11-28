@@ -2,11 +2,13 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Storage } from 'happy-dom';
+import { DEFAULT_APP_SETTINGS } from '@weq/service';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsDialog, type SectionId } from '../src/renderer/src/components/SettingsDialog';
 import { HelpSection } from '../src/renderer/src/components/settings/HelpSection';
 import type { SettingsSearchTarget } from '../src/renderer/src/components/settings/searchTarget';
 import { useUpdateStore } from '../src/renderer/src/state/update';
+import type { QqCapabilityMode } from '@weq/service/qq-capability-mode';
 import { useViewState } from '../src/renderer/src/state/view';
 import { SETTINGS_ITEM_TARGETS } from '../src/renderer/src/components/settings/navigation';
 import { SETTINGS_RESET_CARDS } from '../src/shared/settings_reset';
@@ -19,13 +21,17 @@ const conditional = vi.hoisted(() => ({
       }
     | undefined,
   save: vi.fn(),
+  mode: undefined as QqCapabilityMode | undefined,
   platform: 'linux',
   sip: true as boolean | null,
 }));
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const queryData = (name: string) => {
-    if (name === 'getSettings') return conditional.settings;
+    if (name === 'getSettings')
+      return conditional.mode === undefined
+        ? conditional.settings
+        : { ...DEFAULT_APP_SETTINGS, ...conditional.settings, qqCapabilityMode: conditional.mode };
     if (name === 'systemInfo') return { platformKind: conditional.platform };
     if (name === 'sipEnabled') return conditional.sip;
     if (name === 'getAccountConfig')
@@ -77,6 +83,7 @@ afterEach(() => {
   conditional.settings = undefined;
   conditional.save.mockReset();
   conditional.platform = 'linux';
+  conditional.mode = undefined;
   conditional.sip = true;
   vi.unstubAllGlobals();
 });
@@ -195,7 +202,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().querySelector('[data-setting-id="linked-resources"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="external-chatpic"]')).not.toBeNull();
       f.render('diagnostics');
-      expect(f.body().querySelector('h3')?.textContent).toBe('QQ 高级工具');
+      expect(f.body().querySelector('h3')?.textContent).toBe('高级工具');
       expect(f.body().querySelector('[data-setting-id="qq-accounts"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="performance-monitor"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="qqnt-capture"]')).not.toBeNull();
@@ -209,82 +216,27 @@ describe('设置归位后的实际页面', () => {
       f.close();
     }
   });
-  it('QQ 在线能力页包含代理、同步和状态提醒，长期授权单列', () => {
-    conditional.platform = 'darwin';
+  it('档位页默认展示四档与状态提醒，完整档提供连接卡片，长期授权和数据库管理单列', () => {
+    conditional.mode = 'local';
     const f = mount('account');
     const titles = () =>
       [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent);
     try {
-      expect(titles()).toEqual(['在线能力', '代理连接', '同步与实时更新', '状态提醒']);
-      expect(f.body().querySelector('h3')?.textContent).toBe('QQ 在线能力');
-      const overview = f.body().querySelector('[data-setting-id="full-features"]')!;
-      const routes = f.body().querySelector('[data-setting-id="full-feature-routes"]')!;
-      expect(overview).not.toBeNull();
-      expect(overview.classList.contains('weq-set-card')).toBe(true);
-      expect(overview.textContent).not.toContain('自动启用与提醒');
-      expect(overview.querySelector('.weq-set-card-title .weq-set-card-icon svg')).not.toBeNull();
-      expect(routes.closest('.weq-set-card')).toBe(overview);
-      expect(
-        f.body().querySelector('[data-setting-id="auto-full-mode"]')?.closest('.weq-set-card'),
-      ).toBe(overview);
-      expect(overview.querySelector('[data-setting-id="long-term-authorization"]')).toBeNull();
-      for (const label of ['QQ 调试副本路线', '原版 QQ 路线'])
-        expect(routes.querySelector(`section[aria-label="${label}"]`)).not.toBeNull();
-      expect(overview.textContent).toContain('发送消息');
-      expect(routes.textContent).toContain('QQ 调试副本');
-      expect(routes.textContent).toContain('原版 QQ');
-      expect(routes.textContent).toContain('无需关闭 SIP');
-      expect(routes.textContent).toContain('需关闭 SIP');
-      expect(routes.textContent).toContain('启用方式（macOS）');
-      expect(routes.textContent).not.toContain('当前系统');
-      expect(routes.querySelector('[data-setting-id="long-term-authorization"]')).toBeNull();
-      expect(f.body().textContent).not.toContain('完整模式');
-      expect(f.body().querySelector('.weq-set-card .weq-set-card')).toBeNull();
-      const ordered = ['full-features', 'auto-full-mode', 'full-feature-routes'];
-      const nodes = ordered.map((id) => f.body().querySelector(`[data-setting-id="${id}"]`)!);
-      for (let i = 1; i < nodes.length; i++)
-        expect(
-          nodes[i - 1]!.compareDocumentPosition(nodes[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
-        ).not.toBe(0);
+      expect(titles()).toEqual(['QQ 能力档位', '状态提醒']);
+      expect(f.body().querySelectorAll('[role="radio"]')).toHaveLength(4);
+      conditional.mode = 'complete';
+      f.render('account');
+      expect(titles()).toContain('连接本机 QQ');
       expect(f.body().querySelector('[data-setting-id="qq-status-indicator"]')).not.toBeNull();
-      expect(f.body().querySelector('[data-setting-id="database-read-concurrency"]')).toBeNull();
-      expect(f.body().querySelector('[aria-label="启用 QQ 代理"]')).not.toBeNull();
-      expect(f.body().textContent).toContain('在线能力受限时通知');
       f.render('long-term-authorization');
       expect(titles()).toEqual(['长期授权']);
       expect(f.body().querySelector('[aria-label="恢复本页默认设置"]')).toBeNull();
       f.render('database-management');
-      expect(f.body().querySelector('h3')?.textContent).toBe('QQ 数据库管理');
+      expect(f.body().querySelector('h3')?.textContent).toBe('数据库管理');
       expect(
         f.body().querySelector('[data-setting-id="database-read-concurrency"]'),
       ).not.toBeNull();
       expect(titles()).toEqual(['数据库浏览', '监听与读取', '数据库检查与修复']);
-      conditional.platform = 'linux';
-      f.render('account');
-      expect(titles()).toEqual(['在线能力', '代理连接', '同步与实时更新', '状态提醒']);
-      expect(f.body().querySelector('[data-setting-id="qq-debug-copy"]')).toBeNull();
-      expect(f.body().textContent).not.toContain('SIP');
-      expect(f.body().querySelector('[data-setting-id="full-features"]')).not.toBeNull();
-      expect(f.body().querySelector('[aria-label="启用 QQ 在线能力"]')).not.toBeNull();
-    } finally {
-      f.close();
-    }
-  });
-  it.each([true, false, null])('按 SIP 检测结果标明适用于本机的路线：%s', (sip) => {
-    conditional.platform = 'darwin';
-    conditional.sip = sip;
-    const f = mount('account');
-    try {
-      const current = f.body().querySelectorAll('[data-applicable="true"]');
-      expect(current).toHaveLength(sip === null ? 0 : 1);
-      if (sip !== null) {
-        expect(current[0]?.getAttribute('aria-label')).toBe(
-          sip ? 'QQ 调试副本路线' : '原版 QQ 路线',
-        );
-        expect(current[0]?.textContent).toContain(
-          sip ? '无需关闭 SIP（适用于本机）' : '需关闭 SIP（适用于本机）',
-        );
-      }
     } finally {
       f.close();
     }
@@ -295,13 +247,14 @@ describe('设置归位后的实际页面', () => {
     ['qq-debug-copy', 'account'],
     ['long-term-authorization', 'long-term-authorization'],
     ['qq-proxy-connection', 'account'],
-    ['qq-client-sync', 'account'],
+    ['qq-client-sync', 'account', 'qq-proxy-connection'],
     ['auto-full-mode', 'account'],
     ['restricted-mode-indicator', 'account', 'qq-status-indicator'],
     ['qq-proxy-indicator', 'account', 'qq-status-indicator'],
     ['restricted-mode-banner', 'global'],
   ])('旧在线能力与授权入口 %s 定位到 %s', async (settingId, page, id = settingId) => {
     conditional.platform = 'darwin';
+    conditional.mode = 'complete';
     const f = mount('account');
     try {
       await act(async () => f.render('account', { section: 'account', settingId, revision: 1 }));
@@ -424,9 +377,9 @@ describe('设置归位后的实际页面', () => {
     const f = mount('remote');
     try {
       expect(f.body().querySelector('[data-setting-id="prefer-cdn"]')).toBeNull();
-      expect(f.body().textContent).not.toContain('QQ 公众号推送');
+      expect(f.body().textContent).not.toContain('公众号本地推送');
       const remote = f.body().querySelector('.weq-remote')!;
-      const toggle = remote.querySelector('[aria-label="允许远程连接"]')!;
+      const toggle = remote.querySelector('[aria-label="允许 Remote 连接"]')!;
       const addresses = remote.querySelector('.weq-remote-addresses')!;
       expect(toggle.compareDocumentPosition(addresses) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
         0,
@@ -437,9 +390,9 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().textContent).toContain('桌面端与 Web 共用');
       f.render('assistant');
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-        'QQ 公众号推送',
+        '公众号本地推送',
       );
-      expect(f.body().textContent).toContain('启用 QQ 公众号推送');
+      expect(f.body().textContent).toContain('启用公众号本地推送');
       expect(f.body().textContent).not.toContain('WeQ 助手');
     } finally {
       f.close();
@@ -451,7 +404,7 @@ describe('设置归位后的实际页面', () => {
       const entries = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')];
       const current = entries.findIndex((entry) => entry.getAttribute('aria-current') === 'page');
       const loginEntry = entries[current + 1];
-      expect(loginEntry?.textContent).toBe('QQ 登录管理');
+      expect(loginEntry?.textContent).toBe('登录管理');
       act(() => loginEntry?.click());
       expect(f.body().getAttribute('data-settings-page')).toBe('qq-accounts');
       const panel = f.body().querySelector('[data-setting-id="qq-accounts"] .weq-login-acc')!;
@@ -626,22 +579,22 @@ describe('设置归位后的实际页面', () => {
     ['global', '默认发送正在输入状态', 'typing-status', '消息发送'],
     ['storage', '优先使用 CDN', 'prefer-cdn', '资源加载'],
     ['media', '允许使用外部安卓图片缓存', 'external-chatpic', '资源加载'],
-    ['diagnostics', 'QQ 登录记录管理', 'qq-accounts', 'QQ 登录管理'],
-    ['logs', '数据库读取并发上限', 'database-read-concurrency', 'QQ 数据库管理'],
+    ['diagnostics', 'QQ 登录记录管理', 'qq-accounts', '登录管理'],
+    ['logs', '数据库读取并发上限', 'database-read-concurrency', '数据库管理'],
     ['rkey', '外部 RKEY', 'external-rkey', '资源加载'],
     ['resource-loading', '省流量模式', 'data-saver', '省流量模式'],
-    ['credentials', '签名器（wrapper.node）', 'signer-status', 'QQ 高级工具'],
-    ['call-recording', '通话抓包', 'call-udp-trace', 'QQ 高级工具'],
+    ['credentials', '签名器（wrapper.node）', 'signer-status', '高级工具'],
+    ['call-recording', '通话抓包', 'call-udp-trace', '高级工具'],
     ['applock', '隐私模式', 'privacy-mode', '隐私'],
     ['applock', '启用应用锁', 'app-lock', '隐私'],
     ['applock', '解锁方式', 'unlock-method', '隐私'],
     ['applock', '无操作自动上锁', 'auto-lock', '隐私'],
     ['anti-recall', '防撤回', 'anti-recall', '防撤回'],
-    ['maintenance', '本地缓存', 'resource-viewer', 'QQ 资源管理'],
-    ['maintenance', '存储占用', 'qq-storage-analysis', 'QQ 资源管理'],
-    ['maintenance', '清理缓存', 'qq-storage-cleanup', 'QQ 资源管理'],
-    ['maintenance', '数据库修复', 'database-repair', 'QQ 数据库管理'],
-    ['maintenance', '导出明文数据库', 'database-export', 'QQ 数据库管理'],
+    ['maintenance', '本地缓存', 'resource-viewer', '资源管理'],
+    ['maintenance', '存储占用', 'qq-storage-analysis', '资源管理'],
+    ['maintenance', '清理缓存', 'qq-storage-cleanup', '资源管理'],
+    ['maintenance', '数据库修复', 'database-repair', '数据库管理'],
+    ['maintenance', '导出明文数据库', 'database-export', '数据库管理'],
     ['maintenance', '密钥扫描', 'key-scan', '凭据管理'],
     ['maintenance', '其它设备密钥', 'other-device-key', '凭据管理'],
     ['message-display', '显示消息汇总红点', 'message-unread-badge', '主导航'],
@@ -672,11 +625,11 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('未指定入口时默认打开 QQ 在线能力，普通页面导航不自动执行工具', () => {
+  it('未指定入口时默认打开能力档位，普通页面导航不自动执行工具', () => {
     const f = mount();
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-        'QQ 在线能力',
+        '能力档位',
       );
       expect(f.onOpenMaintenance).not.toHaveBeenCalled();
     } finally {
@@ -870,7 +823,7 @@ describe('设置归位后的实际页面', () => {
   it('普通账号页无凭据，凭据页默认掩码，离开后不保留展开状态', () => {
     const f = mount('account');
     try {
-      expect(f.body().textContent).toContain('QQ 在线能力');
+      expect(f.body().textContent).toContain('能力档位');
       expect(f.body().querySelector('[data-setting-id="realtime-enabled"]')).toBeNull();
       expect(f.body().textContent).not.toContain('会话密钥');
       f.render('credentials');
@@ -910,7 +863,7 @@ describe('设置归位后的实际页面', () => {
         'builtin-components',
       );
       f.render('assistant');
-      expect(f.body().textContent).toContain('启用 QQ 公众号推送');
+      expect(f.body().textContent).toContain('启用公众号本地推送');
       expect(f.body().textContent).not.toContain('后台服务状态');
       expect(f.body().textContent).not.toContain('开机自动启动');
       f.render('updates');
@@ -1025,14 +978,19 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('Web 与 Remote 保留 remote 深链', () => {
+  it('两项服务各有独立设置页，Remote 保留旧深链', () => {
     const f = mount('remote');
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toContain(
-        'Web 与 Remote',
+        'Remote 服务器',
       );
       expect(f.body().querySelector('.weq-remote-settings')).not.toBeNull();
-      expect(f.body().querySelector('.weq-set-title')?.textContent).toBe('Web 与 Remote');
+      expect(f.body().querySelector('.weq-set-title')?.textContent).toBe('Remote 服务器');
+      expect(f.body().querySelector('[data-setting-id="web-enabled"]')).toBeNull();
+      f.render('browser-access');
+      expect(f.body().querySelector('.weq-set-title')?.textContent).toBe('浏览器访问');
+      expect(f.body().querySelector('[data-setting-id="web-enabled"]')).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="remote-enabled"]')).toBeNull();
       f.render('sse');
       expect(f.body().querySelector('.weq-set-title')?.textContent).toBe('SSE 推送');
     } finally {

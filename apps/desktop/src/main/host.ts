@@ -5,6 +5,8 @@
  */
 
 import { type AccountRuntime, currentAccountRuntime } from './context/account_runtime';
+import { getAppContext } from './context/app_context';
+import { assertQqFileWriteAllowed } from '@weq/db';
 import { app, dialog, shell, nativeImage, Notification } from 'electron';
 import { makeSolidPng } from '@weqbot/protocol';
 import { applicationBadgeBitmap } from '../shared/message_notifications';
@@ -87,9 +89,8 @@ export function dialogLocations(): DialogLocations {
   return new DialogLocations(join(app.getPath('userData'), 'dialog-locations.json'));
 }
 
-async function defaultSaveDirectory(selected?: string): Promise<string> {
+function defaultSaveDirectory(selected?: string): string {
   if (selected) return selected;
-  const { getAppContext } = await import('./context/app_context');
   return (
     getAppContext().bootstrap?.userConfig.getSettings().defaultExportDir || app.getPath('desktop')
   );
@@ -266,7 +267,7 @@ export const electronHost: HostBridge = {
       title: opts?.title,
       defaultPath:
         dialogLocations().directory(key) ??
-        (opts?.locationKey ? await defaultSaveDirectory(opts.defaultDirectory) : undefined),
+        (opts?.locationKey ? defaultSaveDirectory(opts.defaultDirectory) : undefined),
       properties: ['openDirectory', 'createDirectory'],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
@@ -298,7 +299,7 @@ export const electronHost: HostBridge = {
     const key = `save:${locationKey ?? extension ?? 'default'}`;
     const result = await dialog.showSaveDialog({
       defaultPath: join(
-        dialogLocations().directory(key) ?? (await defaultSaveDirectory(defaultDirectory)),
+        dialogLocations().directory(key) ?? defaultSaveDirectory(defaultDirectory),
         basename(defaultName),
       ),
       filters: extension
@@ -306,6 +307,7 @@ export const electronHost: HostBridge = {
         : undefined,
     });
     if (result.canceled || !result.filePath) return null;
+    assertQqFileWriteAllowed(result.filePath);
     dialogLocations().remember(key, result.filePath);
     return { path: result.filePath, downloadId: null };
   },

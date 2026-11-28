@@ -1,7 +1,10 @@
-import { act, createElement } from 'react';
+import { act, createElement, Fragment } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { RemoteSection } from '../src/renderer/src/components/settings/RemoteSection';
+import {
+  BrowserAccessSection,
+  RemoteSection,
+} from '../src/renderer/src/components/settings/RemoteSection';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 
@@ -97,9 +100,18 @@ afterEach(async () => {
 });
 
 async function enable() {
-  await act(async () => root.render(createElement(RemoteSection)));
   await act(async () =>
-    container.querySelector<HTMLButtonElement>('[aria-label="允许远程连接"]')!.click(),
+    root.render(
+      createElement(
+        Fragment,
+        null,
+        createElement(BrowserAccessSection),
+        createElement(RemoteSection),
+      ),
+    ),
+  );
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>('[aria-label="允许 Remote 连接"]')!.click(),
   );
 }
 it('仅开启远程连接，不启动本机浏览器入口、不修改偏好或弹联动确认', async () => {
@@ -128,7 +140,16 @@ it('本机自动启动已记住但当前关闭时，Remote 不改变当前本机
 it('Remote 运行时关闭本机浏览器入口，不关闭 Remote 或弹确认', async () => {
   f.remoteRunning = true;
   f.webRunning = true;
-  await act(async () => root.render(createElement(RemoteSection)));
+  await act(async () =>
+    root.render(
+      createElement(
+        Fragment,
+        null,
+        createElement(BrowserAccessSection),
+        createElement(RemoteSection),
+      ),
+    ),
+  );
   await act(async () =>
     container.querySelector<HTMLButtonElement>('[aria-label="允许本机浏览器访问"]')!.click(),
   );
@@ -141,7 +162,16 @@ it('Remote 运行时取消本机自动启动，不关闭任何入口或弹确认
   f.remoteRunning = true;
   f.remembered = true;
   f.webRunning = true;
-  await act(async () => root.render(createElement(RemoteSection)));
+  await act(async () =>
+    root.render(
+      createElement(
+        Fragment,
+        null,
+        createElement(BrowserAccessSection),
+        createElement(RemoteSection),
+      ),
+    ),
+  );
   await act(async () =>
     container
       .querySelector<HTMLButtonElement>('[aria-label="启动 WeQ 时自动允许本机浏览器访问"]')!
@@ -173,7 +203,7 @@ it('Remote 启动仍在等待时，本机浏览器可独立操作且只刷新自
   );
   await enable();
   const local = container.querySelector<HTMLButtonElement>('[aria-label="允许本机浏览器访问"]')!;
-  const remote = container.querySelector<HTMLButtonElement>('[aria-label="允许远程连接"]')!;
+  const remote = container.querySelector<HTMLButtonElement>('[aria-label="允许 Remote 连接"]')!;
   expect(remote.disabled).toBe(true);
   expect(local.disabled).toBe(false);
   await act(async () => local.click());
@@ -192,9 +222,18 @@ it('本机浏览器操作仍在等待时，Remote 开关保持可用', async () 
       finish = resolve;
     }),
   );
-  await act(async () => root.render(createElement(RemoteSection)));
+  await act(async () =>
+    root.render(
+      createElement(
+        Fragment,
+        null,
+        createElement(BrowserAccessSection),
+        createElement(RemoteSection),
+      ),
+    ),
+  );
   const local = container.querySelector<HTMLButtonElement>('[aria-label="允许本机浏览器访问"]')!;
-  const remote = container.querySelector<HTMLButtonElement>('[aria-label="允许远程连接"]')!;
+  const remote = container.querySelector<HTMLButtonElement>('[aria-label="允许 Remote 连接"]')!;
   await act(async () => local.click());
   expect(local.disabled).toBe(true);
   expect(remote.disabled).toBe(false);
@@ -207,7 +246,16 @@ it('本机浏览器操作仍在等待时，Remote 开关保持可用', async () 
 
 it('本机入口失败只显示在本机区域，Remote 仍可操作且不会清除该错误', async () => {
   f.webEnabled.mockRejectedValueOnce(new Error('合成本机入口启动失败'));
-  await act(async () => root.render(createElement(RemoteSection)));
+  await act(async () =>
+    root.render(
+      createElement(
+        Fragment,
+        null,
+        createElement(BrowserAccessSection),
+        createElement(RemoteSection),
+      ),
+    ),
+  );
   await act(async () =>
     container.querySelector<HTMLButtonElement>('[aria-label="允许本机浏览器访问"]')!.click(),
   );
@@ -216,7 +264,7 @@ it('本机入口失败只显示在本机区域，Remote 仍可操作且不会清
   );
   expect(container.querySelector('.weq-remote [role="alert"]')).toBeNull();
   await act(async () =>
-    container.querySelector<HTMLButtonElement>('[aria-label="允许远程连接"]')!.click(),
+    container.querySelector<HTMLButtonElement>('[aria-label="允许 Remote 连接"]')!.click(),
   );
   expect(f.enabled).toHaveBeenCalledWith({ enabled: true });
   expect(container.querySelector('.weq-remote-web [role="alert"]')?.textContent).toBe(
@@ -244,7 +292,16 @@ it('访问令牌复制成功后提供明确反馈，不显示令牌内容', asyn
   f.webRunning = true;
   const write = vi.spyOn(window.navigator.clipboard, 'writeText').mockResolvedValue();
   const toast = vi.spyOn(useToast.getState(), 'push');
-  await act(async () => root.render(createElement(RemoteSection)));
+  await act(async () =>
+    root.render(
+      createElement(
+        Fragment,
+        null,
+        createElement(BrowserAccessSection),
+        createElement(RemoteSection),
+      ),
+    ),
+  );
   await act(async () =>
     [...container.querySelectorAll('button')]
       .find((button) => button.textContent?.includes('复制访问令牌'))!
@@ -270,7 +327,16 @@ it('浏览器剪贴板不可用时复用已有回退复制能力', async () => {
     return true;
   });
   Object.defineProperty(document, 'execCommand', { configurable: true, value: exec });
-  await act(async () => root.render(createElement(RemoteSection)));
+  await act(async () =>
+    root.render(
+      createElement(
+        Fragment,
+        null,
+        createElement(BrowserAccessSection),
+        createElement(RemoteSection),
+      ),
+    ),
+  );
   await act(async () =>
     [...container.querySelectorAll('button')]
       .find((button) => button.textContent?.includes('复制访问令牌'))!
@@ -286,7 +352,16 @@ it('复制被拒绝时在 Web 区域显示失败并允许重试，不假报成�
   f.webRunning = true;
   vi.spyOn(window.navigator.clipboard, 'writeText').mockRejectedValue(new Error('NotAllowedError'));
   const toast = vi.spyOn(useToast.getState(), 'push');
-  await act(async () => root.render(createElement(RemoteSection)));
+  await act(async () =>
+    root.render(
+      createElement(
+        Fragment,
+        null,
+        createElement(BrowserAccessSection),
+        createElement(RemoteSection),
+      ),
+    ),
+  );
   const button = [...container.querySelectorAll('button')].find((item) =>
     item.textContent?.includes('复制访问令牌'),
   )!;
@@ -303,7 +378,16 @@ it('读取令牌失败不写剪贴板，重试成功后清除旧错误', async (
   f.webRunning = true;
   f.webToken.mockRejectedValueOnce(new Error('service unavailable'));
   const write = vi.spyOn(window.navigator.clipboard, 'writeText').mockResolvedValue();
-  await act(async () => root.render(createElement(RemoteSection)));
+  await act(async () =>
+    root.render(
+      createElement(
+        Fragment,
+        null,
+        createElement(BrowserAccessSection),
+        createElement(RemoteSection),
+      ),
+    ),
+  );
   const button = container.querySelector<HTMLButtonElement>('.weq-remote-copy-token')!;
   await act(async () => button.click());
   expect(write).not.toHaveBeenCalled();

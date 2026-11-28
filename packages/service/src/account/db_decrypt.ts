@@ -1,3 +1,4 @@
+import { withQqFileWrite } from '@weq/db';
 /**
  * Database decrypt service for the current QQ account.
  *
@@ -111,6 +112,10 @@ export class DbDecryptService {
   }
 
   async decryptDatabases(opts: DbDecryptOptions): Promise<DbDecryptResult[]> {
+    return withQqFileWrite(opts.outputDir, () => this.decryptToDirectory(opts));
+  }
+
+  private async decryptToDirectory(opts: DbDecryptOptions): Promise<DbDecryptResult[]> {
     opts.signal?.throwIfAborted();
     if (opts.items.length === 0) return [];
     mkdirSync(opts.outputDir, { recursive: true });

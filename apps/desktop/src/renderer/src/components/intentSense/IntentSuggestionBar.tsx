@@ -17,6 +17,7 @@ import { ReplySuggestionDetailsPanel } from './ReplySuggestionDetailsPanel';
 import type { ReplySuggestionHistoryEntry } from '@weq/service';
 import { INTENT_TUNING } from '@weq/service/intent-context';
 import { formatSuggestionAge } from '../../lib/suggestionExpiry';
+import { useAutomaticAiRestricted } from '../../lib/dataSaver';
 import '../../styles/intent-sense.css';
 
 export function IntentSuggestionBar({
@@ -48,7 +49,8 @@ export function IntentSuggestionBar({
     null,
   );
   const status = useIntentSenseStatus();
-  const manual = status.data?.suggestionMode === 'manual';
+  const restricted = useAutomaticAiRestricted();
+  const manual = status.data?.suggestionMode === 'manual' || restricted;
   const replyAllowed =
     replyTargetId !== null || (status.data?.suggestAfterSelf === true && !!latestMessageId);
   const overridden = status.data?.conversationOverrides?.[`${kind}:${conv}`];
@@ -104,6 +106,7 @@ export function IntentSuggestionBar({
   const recent =
     latestHistory &&
     (upToDate ||
+      restricted ||
       expiryMinutes === -1 ||
       (expiryMinutes > 0 && entry.current.at - latestHistory.createdAt <= expiryMinutes * 60_000))
       ? latestHistory
@@ -175,11 +178,13 @@ export function IntentSuggestionBar({
   const expiredAge = expiredAt !== undefined ? formatSuggestionAge(Date.now() - expiredAt) : null;
   const emptyText = error
     ? '推荐回复失败，可重试'
-    : expiredAt !== undefined
-      ? `暂无推荐回复（距上次推荐 ${expiredAge}，已过期）`
-      : replyAllowed
-        ? '暂无推荐回复'
-        : '等待对方新消息';
+    : restricted
+      ? '省流量模式已暂停自动推荐'
+      : expiredAt !== undefined
+        ? `暂无推荐回复（距上次推荐 ${expiredAge}，已过期）`
+        : replyAllowed
+          ? '暂无推荐回复'
+          : '等待对方新消息';
   const visible = active;
   const trackRef = useRef<HTMLDivElement>(null);
   useEffect(() => {

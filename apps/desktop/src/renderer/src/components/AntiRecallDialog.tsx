@@ -286,6 +286,8 @@ export function AntiRecallDialog({
   ]);
   const qqRunning = status.data?.qqRunning ?? false;
   const installedCount = status.data?.installed.length ?? 0;
+  const triggersReadOnly =
+    status.data?.databaseReadOnly && (method === 'database' || installedCount > 0);
 
   /** 写操作的返回值（期望状态）直接落进查询缓存：点击即生效。 */
   function applyStatus(next: Awaited<ReturnType<typeof setScope.mutateAsync>>): void {
@@ -411,7 +413,13 @@ export function AntiRecallDialog({
               aria-label={option.title}
               aria-checked={method === option.value}
               className={cn('weq-applock-method', method === option.value && 'is-active')}
-              disabled={busy || !status.data || locked || !active}
+              disabled={
+                busy ||
+                !status.data ||
+                locked ||
+                !active ||
+                (status.data.databaseReadOnly && (triggersReadOnly || option.value === 'database'))
+              }
               onClick={() => void onSetMethod(option.value)}
             >
               <span className="weq-applock-method-icon">
@@ -440,7 +448,7 @@ export function AntiRecallDialog({
               label="防撤回保护范围"
               value={mode}
               options={SCOPE_OPTIONS}
-              disabled={busy || !status.data}
+              disabled={busy || !status.data || triggersReadOnly}
               onChange={(scope) => void onSetScope(scope)}
             />
           }
@@ -448,6 +456,7 @@ export function AntiRecallDialog({
       )}
       <p className="weq-set-desc" role="status">
         {protectionStatusText()}
+        {triggersReadOnly && ' 切换到可写档位后可修改数据库触发器。'}
       </p>
       {status.data?.restartSuggested && method !== 'database' && (
         <p className="weq-set-desc">已更新数据库触发器，QQ 可能需要重启后应用变化。</p>
@@ -697,7 +706,7 @@ export function AntiRecallDialog({
                       <button
                         type="button"
                         className="weq-set-btn"
-                        disabled={unavailable || !hasAccount || isStaticPcOnly}
+                        disabled={unavailable || !hasAccount || isStaticPcOnly || triggersReadOnly}
                         aria-label="编辑启用防撤回的会话"
                         onClick={() => openEditor('protect')}
                       >

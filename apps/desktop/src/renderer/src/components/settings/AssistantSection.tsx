@@ -7,6 +7,7 @@ import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+import { SETTINGS_PAGE_LABELS } from './navigation';
 
 export function AssistantSection() {
   const refresh = useQQAutoRefresh(true);
@@ -51,12 +52,12 @@ export function AssistantSection() {
           pushToast({
             tone: 'info',
             title: '登录自启仍需系统批准',
-            message: '公众号推送已开启，自启是否生效请在开机启动设置中核对。',
+            message: '公众号本地推送已开启，自启是否生效请在开机启动设置中核对。',
           });
         } else if (state?.supported && !state.enabled) {
           const linked = await confirm(
             '同时开启 WeQ 登录自启？',
-            'QQ 公众号推送依赖应用运行。当前未开启登录自启，下次登录系统后需要手动打开 WeQ，QQ 中的推文卡片才能加载本机内容。',
+            '公众号本地推送依赖应用运行。当前未开启登录自启，下次登录系统后需要手动打开 WeQ，QQ 中的推文卡片才能加载本机内容。',
             { okLabel: '同时开启自启', cancelLabel: '仅开启推送', tone: 'info' },
           );
           if (linked) {
@@ -71,7 +72,7 @@ export function AssistantSection() {
       }
     } catch (error) {
       showError(
-        applied && enabled ? '公众号推送已开启，自启设置未完成' : '切换 QQ 公众号推送失败',
+        applied && enabled ? '公众号本地推送已开启，自启设置未完成' : '切换公众号本地推送失败',
         error instanceof Error ? error.message : '服务状态未知',
       );
       await status.refetch();
@@ -92,7 +93,7 @@ export function AssistantSection() {
       pushToast({
         tone: 'success',
         title: result.port === port ? '端口已更新' : '端口已自动调整',
-        message: `QQ 公众号推送资源服务现监听 ${result.port}`,
+        message: `公众号本地推送资源服务现监听 ${result.port}`,
       });
     } catch (error) {
       showError('修改端口失败', error instanceof Error ? error.message : '服务状态未知');
@@ -110,18 +111,18 @@ export function AssistantSection() {
   }
   return (
     <div className="weq-set">
-      <SectionHeader page="assistant" title="QQ 公众号推送" />
+      <SectionHeader page="assistant" title={SETTINGS_PAGE_LABELS.assistant} />
       <Card
         title="推送与资源服务"
         icon={<Activity size={15} strokeWidth={1.8} />}
         settingId="assistant-service"
       >
         <Row
-          label="启用 QQ 公众号推送"
+          label="启用公众号本地推送"
           desc="推文写入当前账号，卡片资源仅在 WeQ 运行期间提供。"
           control={
             <Toggle
-              label="启用 QQ 公众号推送"
+              label="启用公众号本地推送"
               checked={data?.enabled ?? false}
               disabled={busy || status.isLoading || !!status.error}
               onChange={(enabled) => void toggle(enabled)}
@@ -159,7 +160,7 @@ export function AssistantSection() {
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') void savePort();
                 }}
-                aria-label="QQ 公众号推送端口"
+                aria-label="公众号本地推送端口"
               />
               <button
                 type="button"

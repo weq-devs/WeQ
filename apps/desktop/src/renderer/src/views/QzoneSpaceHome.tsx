@@ -36,6 +36,7 @@ import { QzoneMediaGrid, State } from './qzoneShared';
 import { QzonePageContext, type QzoneHomeDestination } from './qzoneShared.shared';
 import { qzoneNickname } from '../lib/qzonePeople';
 import { QzoneVirtualRows } from './QzoneVirtualRows';
+import { useQzoneRefresh } from './qzoneRefresh';
 import { useFeedCardState } from './qzoneCardState';
 
 function FeedContent({ feed, share }: { feed: PublicFeedView; share?: QzoneShare }) {
@@ -429,6 +430,27 @@ export function QzoneSpaceHome({
     [rows, hostUin],
   );
   const configId = binding?.expectedAccountConfigId ?? '';
+  useQzoneRefresh(
+    async () => {
+      const [feeds, blogs, shares] = await Promise.allSettled([
+        available
+          ? query.refetch({ throwOnError: true }).then(({ data }) => data?.pages ?? [])
+          : (query.data?.pages ?? []),
+        blogIndex.configId ? blogIndex.reload() : blogIndex.items,
+        shareIndex.configId ? shareIndex.reload() : shareIndex.items,
+      ]);
+      if (feeds.status === 'rejected') throw feeds.reason;
+      if (blogs.status === 'rejected') throw blogs.reason;
+      if (shares.status === 'rejected') throw shares.reason;
+      const updated = homeRows(feeds.value, blogs.value, shares.value, hostUin, deletedPosts).rows;
+      const previous = new Set(rows.map(([key]) => key));
+      return updated.some(
+        ([key, row]) => !previous.has(key) && row.time >= (rows[0]?.[1].time ?? 0),
+      );
+    },
+    available || Boolean(blogIndex.configId || shareIndex.configId),
+    configId,
+  );
   useEffect(
     () => onPostAlbums({ configId, byPost: postAlbums }),
     [configId, onPostAlbums, postAlbums],
@@ -512,7 +534,7 @@ export function QzoneSpaceHome({
       ) : error ? (
         <State loading={false} error={error} empty="" retry={retry} />
       ) : null}
-      <div {...multi.rootProps}>
+      <div {...multi.rootProps} data-qzone-refresh-start="">
         {rows.length ? (
           <QzoneVirtualRows
             key={`${configId}:${hostUin}`}

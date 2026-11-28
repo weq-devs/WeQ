@@ -1,3 +1,4 @@
+import { isQqCapabilityMode, QQ_CAPABILITY_MODE_LABELS } from '@weq/service/qq-capability-mode';
 import {
   CONTACT_CARD_FIELDS,
   CONTACT_GROUP_FIELDS,
@@ -86,6 +87,8 @@ export function describeLogPruneImpact({ expiredFiles, capacityFiles }: LogPrune
 
 /** 只显示产品用语，不把未知配置序列化后交给用户阅读。 */
 export function formatResetValue(value: unknown, id = ''): string {
+  if (id === 'attach:qqCapabilityMode' && isQqCapabilityMode(value))
+    return QQ_CAPABILITY_MODE_LABELS[value];
   if (id === 'startup-system:autostart' && value === 'requiresApproval') return '等待系统批准';
   if (id === 'app-lock:method') {
     if (value === 'totp') return 'WeQ 验证器';
@@ -260,6 +263,7 @@ export function describeSettingsReset(item: SettingsResetItem): ResetPreviewLine
       dataSaverVideoCovers: '自动加载视频封面',
       dataSaverPrefetch: '预加载屏幕外媒体',
       dataSaverLinkPreviews: '自动获取链接预览',
+      dataSaverPauseAi: '暂停自动联网 AI',
       dataSaverPauseBatch: '暂停联网批量任务',
       dataSaverPauseLarge: '暂停大文件下载',
       dataSaverLargeMiB: '大文件暂停阈值',

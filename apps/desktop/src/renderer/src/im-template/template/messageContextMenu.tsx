@@ -12,13 +12,11 @@ import { createPortal } from 'react-dom';
 import { formatDateTime } from '@weq/time';
 import {
   BookmarkPlus,
-  Braces,
   Copy,
   Download,
   Forward,
+  FileSearch,
   ListChecks,
-  Palette,
-  Pencil,
   Repeat2,
   Reply,
   SmilePlus,
@@ -29,15 +27,13 @@ import { MessageMenuFeedbackContext } from '../../lib/messageMenuFeedback';
 import { NumericText } from '../../components/NumericText';
 import { MessageMenuButton } from '../../components/MessageMenuButton';
 import { MessageMenuContext } from '../../components/MessageMenuButton.shared';
-import { useToastApi } from '../../components/Toast.shared';
 import { MessageSequenceLabel } from '../../components/MessageProvenance';
 import { messageSequence, showsRoamingSource } from '../../components/MessageProvenance.shared';
 import type { Message } from './types';
 import { cn } from './classNames';
-import { copyTextToClipboard } from './clipboard';
 import { canRepeatMessage } from '../../lib/messageRepeat';
 import { forwardContentBlockReason } from '../../lib/sequentialForward';
-import { parseFlashShareCode } from '../../lib/flashShare';
+import { messageCardElements } from './messageContextMenu.shared';
 import { messageMediaTarget } from '../../lib/messageMediaTarget';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
 import { useSurfaceRemovalFade } from '../../hooks/useSurfaceRemovalFade';
@@ -90,8 +86,7 @@ type Props = {
   onAddToComposition?: (message: Message) => void;
   onExport?: (message: Message) => void;
   exportBlockedReason?: string;
-  onViewDecoration?: (message: Message) => void;
-  onEditRaw?: (message: Message) => void;
+  onViewDetails?: (selection: MessageDetailsSelection) => void;
   onDelete?: (message: Message) => void;
   deleteLabel?: string;
   onDownloadImage?: (url: string, message: Message) => void;
@@ -121,68 +116,14 @@ interface MenuAction {
   danger?: boolean;
 }
 
-function messageCardElements(state: MessageContextMenuState) {
-  const elements = state.message.qqElements ?? [];
-  const forwarded = state.forwardTarget && elements[state.forwardTarget.elementIndex];
-  if (forwarded) return [forwarded];
-  const structured = elements.find((element) =>
-    ['ark', 'wallet', 'qqDynamic', 'shareLocation', 'multiMsg', 'structLongMsg'].includes(
-      element.type ?? '',
-    ),
-  );
-  if (structured) return [structured];
-  const flash = elements.find((element) => {
-    const info = element.data?.flashTransferInfo;
-    return (
-      (element.type === 'markdown' &&
-        info &&
-        typeof info === 'object' &&
-        Object.keys(info).length) ||
-      (element.type === 'text' && parseFlashShareCode(String(element.data?.textContent ?? '')))
-    );
-  });
-  if (flash) return [flash];
-  if (elements.some((element) => element.type === 'inlineKeyboard'))
-    return elements.filter(
-      ({ type }) => type === 'inlineKeyboard' || type === 'markdown' || type === 'mface',
-    );
-  if (state.originElement?.querySelector('.weq-link-card'))
-    return elements.filter(({ type }) => type === 'text');
-  const media = state.mediaTarget;
-  const attachment =
-    media?.kind === 'file'
-      ? elements.find(
-          ({ type, data }) =>
-            type === 'file' &&
-            String(data?.fileName ?? '') === media.name &&
-            String(data?.fileToken ?? '') === media.token,
-        )
-      : elements.find(({ type }) => type === 'onlineFile' || type === 'onlineFolder');
-  return attachment ? [attachment] : [];
-}
-
-function cardJson(elements: ReturnType<typeof messageCardElements>): string {
-  const element = elements[0];
-  const ark = element?.type === 'ark' ? element.data?.arkData : null;
-  if (typeof ark === 'string') {
-    try {
-      JSON.parse(ark);
-      return ark;
-    } catch {
-      // 不是有效 JSON 的旧卡片用原元素包裹，保留原始值。
-    }
-  }
-  return JSON.stringify(
-    ark && typeof ark === 'object' ? ark : elements.length === 1 ? element : elements,
-    null,
-    2,
-  );
-}
+export type MessageDetailsSelection = {
+  message: Message;
+  cardElements: NonNullable<Message['qqElements']>;
+};
 
 export function MessageContextMenu(props: Props) {
   const { state, onClose, onCopy, reactions = DEFAULT_REACTIONS } = props;
   const document = useRenderDocument();
-  const toast = useToastApi();
   const window = document.defaultView ?? globalThis.window;
   const tabActive = useTabActive();
   const { layer, scope } = useOverlayLayerScope(tabActive);
@@ -380,24 +321,10 @@ export function MessageContextMenu(props: Props) {
   const media = state.forwardTarget
     ? undefined
     : (state.mediaTarget ?? messageMediaTarget(message));
-  const decoration = message.decoration;
-  const hasDecoration = Boolean(
-    decoration && (decoration.fontId || decoration.bubbleId || decoration.widgetId),
-  );
-  const cards = messageCardElements(state);
-  const copyCard = cards.length
-    ? async () => {
-        try {
-          const copied = copyTextToClipboard(cardJson(cards), document);
-          onClose?.();
-          if (await copied) {
-            toast.push({ tone: 'success', title: '已复制 JSON' });
-            return;
-          }
-        } catch {
-          // 与剪贴板写入失败使用同一反馈。
-        }
-        toast.push({ tone: 'error', title: '复制失败', detail: '无法复制卡片 JSON，请重试。' });
+  const openDetails = props.onViewDetails
+    ? () => {
+        props.onViewDetails?.({ message, cardElements: messageCardElements(state) });
+        onClose?.();
       }
     : undefined;
 
@@ -479,7 +406,6 @@ export function MessageContextMenu(props: Props) {
             >
               {render([
                 action('copy', '复制', <Copy {...icon} />, () => void onCopy(message)),
-                action('copy-card-json', '复制 JSON', <Braces {...icon} />, copyCard),
                 action(
                   'reply',
                   '引用',
@@ -550,27 +476,13 @@ export function MessageContextMenu(props: Props) {
                 ])}
               </div>
               <div className="message-reveal-action">{props.revealAction}</div>
-              {render([
-                action(
-                  'decoration',
-                  '查看装扮',
-                  <Palette {...icon} />,
-                  call(props.onViewDecoration),
-                  null,
-                  hasDecoration && Boolean(props.onViewDecoration),
-                ),
-              ])}
+              {render([action('details', '查看详情', <FileSearch {...icon} />, openDetails)])}
               <div className="message-menu-slot">{props.intentAction}</div>
               <div className="message-menu-slot">{props.translationAction}</div>
             </div>
             <div className="message-menu-group" role="group" aria-label="群操作">
               <div className="message-menu-slot">{props.essenceAction}</div>
               <div className="message-menu-slot">{props.todoAction}</div>
-            </div>
-            <div className="message-menu-group" role="group" aria-label="本地编辑">
-              {render([
-                action('edit', '修改本地记录', <Pencil {...icon} />, call(props.onEditRaw)),
-              ])}
             </div>
             <div className="message-menu-group" role="group" aria-label="撤回与删除">
               {render([

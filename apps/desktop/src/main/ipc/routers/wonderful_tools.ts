@@ -1,3 +1,4 @@
+import { withQqFileWrite } from '@weq/db';
 /**
  * 维护与诊断工具 router — 设置页中各工具入口的后端。
  *
@@ -504,7 +505,7 @@ export const wonderfulToolsRouter = router({
           extension: input.format,
         });
         if (!target) return { saved: false, canceled: true };
-        await writeFile(target.path, bytes);
+        await withQqFileWrite(target.path, () => writeFile(target.path, bytes));
         return {
           saved: true,
           path: target.path,

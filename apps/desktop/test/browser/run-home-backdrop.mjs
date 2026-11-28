@@ -48,6 +48,7 @@ const server = await createServer({
   root,
   plugins: [react(), tailwind()],
   define: { 'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web') },
+  optimizeDeps: { entries: ['test/browser/home-backdrop.html'] },
   resolve: {
     alias: [
       {
@@ -211,6 +212,38 @@ try {
         else assert.equal(showRequests, previousRequests, `${mode} 不应加载 QQ 秀`);
         assert.equal(await page.locator('.weq-chathome-qqshow').count(), 0);
       }
+    }
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/home-backdrop.html?show=ready&delayed`,
+  );
+  const greeting = page.locator('.weq-chathome-greet');
+  const stage = page.locator('.weq-chathome-stage');
+  await greeting.waitFor();
+  const stageBaseline = await stage.boundingBox();
+  let greetingBaseline = await greeting.boundingBox();
+  for (const [phase, populated] of [
+    [1, '.weq-chathome-qqshow'],
+    [2, '.weq-tag'],
+    [3, '.weq-chathome-hitokoto'],
+  ]) {
+    await page.evaluate(
+      (detail) => window.dispatchEvent(new CustomEvent('weq-home-fixture-phase', { detail })),
+      phase,
+    );
+    await page
+      .locator(populated)
+      .first()
+      .waitFor({ state: phase === 2 ? 'attached' : 'visible' });
+    const currentGreeting = await greeting.boundingBox();
+    assert.deepEqual(await stage.boundingBox(), stageBaseline, `首页阶段 ${phase} 移动了舞台`);
+    if (phase === 2) {
+      assert.ok(currentGreeting.y > greetingBaseline.y, '标签出现后问候语应让出标签环所需空间');
+      greetingBaseline = currentGreeting;
+    } else {
+      assert.deepEqual(currentGreeting, greetingBaseline, `首页阶段 ${phase} 移动了问候语`);
     }
   }
   console.log(JSON.stringify({ report, errors }));

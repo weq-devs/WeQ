@@ -92,7 +92,7 @@ import {
   watchTransferPolicy,
 } from '../../common/transfer_policy';
 import { MessageJournal } from './message_journal';
-import { isLikelyCorruptionError, withDatabaseWorkload } from '@weq/db';
+import { beginQqFileWrite, isLikelyCorruptionError, withDatabaseWorkload } from '@weq/db';
 import {
   DatabaseRecoveryGate,
   DatabaseRecoveryStopped,
@@ -356,6 +356,7 @@ export interface MediaExportOptions {
    * 漏包 / 过期的再用本地模型补全。缺省关闭。
    */
   onlineTranscribe?: boolean;
+  voicePriority?: 'local' | 'qq';
   /** 在线转写的并发请求数（默认 5）。 */
   onlineConcurrency?: number;
   /**
@@ -369,6 +370,7 @@ export interface MediaExportOptions {
    * 模型。前提是 QQ 在线且有发包物料；不开启就是纯本地识别。
    */
   onlineOcr?: boolean;
+  ocrPriority?: 'local' | 'qq';
   /** 在线识别的并发请求数（默认 5）。 */
   onlineOcrConcurrency?: number;
   /**
@@ -739,6 +741,7 @@ export interface MediaDeps {
   decodeSilk?: DecodeSilk;
   /** SILK voice → text transcription (native engine; injected from the app). */
   transcribe?: TranscribeVoiceFn;
+  voiceModelReady?: () => boolean;
   /**
    * 在线转写（QQ 服务端 ASR）—— 由 app 注入：native 发包 + 网卡抓 push。
    * 抓包会话需在导出前先 arm；不可用时抛错，转写阶段自动回退本地模型。
@@ -1332,14 +1335,11 @@ export class ExportTaskManager extends EventEmitter {
       ...(previousSavedAt !== undefined ? { savedAt: previousSavedAt } : {}),
     };
     this.saveTasks();
-    const saving = saveExportOutput(
-      task,
-      selectedFile ? { filePath: target, unique } : target,
-      undefined,
-      {
+    const write = () =>
+      saveExportOutput(task, selectedFile ? { filePath: target, unique } : target, undefined, {
         requireExistingDirectory: true,
-      },
-    )
+      });
+    const saving = write()
       .then((path) => {
         task.save = {
           policy: task.save?.policy ?? policy,
@@ -2809,7 +2809,18 @@ export class ExportTaskManager extends EventEmitter {
     const aborted = (): boolean => abort.signal.aborted;
     const paused = (): boolean => this.tasks.get(id)?.status === 'paused';
 
+    let finishWrite: (() => void) | undefined;
     try {
+      const explicitTargets = [
+        task.outputDirectory,
+        task.bundleDir,
+        task.filePath,
+        task.directOutput?.journalDirectory,
+        ...Object.values(task.archiveTargets ?? {}),
+        task.save?.policy.filePath,
+        task.save?.policy.directory,
+      ].filter((path): path is string => Boolean(path));
+      finishWrite = beginQqFileWrite(explicitTargets);
       const sourceStamp = task.guild
         ? this.deps.guildDirect?.exportSourceStamp?.()
         : this.msgs.exportSourceStamp?.(task.kind, task.conv);
@@ -3944,13 +3955,13 @@ export class ExportTaskManager extends EventEmitter {
             this.log(
               id,
               'transcribe',
-              `在线转写已开启（并发 ${task.media?.onlineConcurrency ?? 5}），漏包 / 过期将回退本地模型`,
+              `QQ 在线转写可用（并发 ${task.media?.onlineConcurrency ?? 5}） · ${task.media?.voicePriority === 'local' ? '本地模型' : 'QQ 在线'}优先`,
             );
           }
           const r = await transcribeFoundVoices(
             found,
             outDir,
-            transcribe,
+            this.deps.voiceModelReady?.() === false ? undefined : transcribe,
             (done, total) => {
               if (aborted()) return;
               this.touchStage(task, 'transcribe', {
@@ -3980,6 +3991,7 @@ export class ExportTaskManager extends EventEmitter {
                     })
                     .catch(() => null)
               : undefined,
+            task.media?.voicePriority,
           );
           // 回写：消息文件早在转写跑的时候就落盘了，这里把 `[语音: 名字]` 锚点
           // 换成转写文本。必须等 messageJob 结束（否则可能改写正在写入的文件），
@@ -4089,8 +4101,7 @@ export class ExportTaskManager extends EventEmitter {
             this.log(
               id,
               'ocr',
-              `在线识别已开启（并发 ${task.media?.onlineOcrConcurrency ?? 5}），` +
-                '连续失败 10 张即放弃在线、回退本地模型（单张回包超时不算连败）',
+              `QQ 在线识别可用（并发 ${task.media?.onlineOcrConcurrency ?? 5}） · ${task.media?.ocrPriority === 'local' ? '本地模型' : 'QQ 在线'}优先`,
             );
           }
 
@@ -4103,6 +4114,7 @@ export class ExportTaskManager extends EventEmitter {
               ...(ocrLocal ? { local: ocrLocal } : {}),
               ...(useOnlineOcr && onlineOcr ? { online: onlineOcr } : {}),
               onlineConcurrency: task.media?.onlineOcrConcurrency ?? 5,
+              priority: task.media?.ocrPriority,
               onFilterProgress: (done, total) => {
                 if (aborted()) return;
                 this.touchStage(task, 'ocrfilter', {
@@ -4494,6 +4506,7 @@ export class ExportTaskManager extends EventEmitter {
       }
       this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
+      finishWrite?.();
       if (aborted() && !paused()) task.status = 'cancelled';
       if (paused()) {
         const journal = this.journals.get(id);

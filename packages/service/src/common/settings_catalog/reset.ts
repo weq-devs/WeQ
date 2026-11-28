@@ -71,8 +71,7 @@ export const SETTINGS_RESET_CARDS = [
   ['recognition', 'ocr-online', '图片文字识别'],
   ['enhancement-packs', 'enhancement-updates', '增强包更新设置'],
   ['database-management', 'realtime', '监听与读取'],
-  ['account', 'attach', 'QQ 在线能力'],
-  ['account', 'qq-client-sync', '代理连接'],
+  ['account', 'attach', 'QQ 能力档位'],
   ['account', 'qq-status-reminders', '状态提醒'],
   ['accounts', 'auto-enter', '现有配置'],
   ['resource-loading', 'external-chatpic', '外部安卓图片缓存'],
@@ -82,8 +81,8 @@ export const SETTINGS_RESET_CARDS = [
   ['resource-loading', 'chat-memory', '聊天内存预算'],
   ['resource-loading', 'rkey', '外部 rKey 服务器'],
   ['data-saver', 'data-saver', '启用方式与行为'],
-  ['remote', 'web', '本机浏览器访问'],
-  ['remote', 'remote', 'WeQ Remote'],
+  ['browser-access', 'web', '本机浏览器访问'],
+  ['remote', 'remote', 'Remote 服务器'],
   ['mcp', 'mcp', '服务开关'],
   ['onebot', 'onebot', '网络配置'],
   ['sse', 'sse-targets', '已配置的推送目标'],
@@ -139,6 +138,7 @@ export function planSettingsReset<
   );
 }
 const previousResetPages: Partial<Record<SettingsResetCardId, SettingsPageId>> = {
+  web: 'remote',
   home: 'startup',
   'message-content': 'message-display',
   'recall-scope': 'chat-interaction',
@@ -153,7 +153,7 @@ export function resetCards(target: SettingsResetTarget) {
   // 旧的页面恢复入口仍仅恢复当时页面上的设置。
   const previousCard =
     target.page === 'qq-proxy'
-      ? 'qq-client-sync'
+      ? 'attach'
       : target.page === 'qq-status-reminders'
         ? 'qq-status-reminders'
         : undefined;

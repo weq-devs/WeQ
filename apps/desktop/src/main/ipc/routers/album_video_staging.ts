@@ -336,6 +336,17 @@ export class FileUploadStaging {
     }
     return path;
   }
+  /** 只在 QQ 已明确拒绝发送后开放同一暂存的重试。 */
+  async releaseRejected(owner: object, id: string): Promise<void> {
+    const entry = this.uploads.get(id);
+    if (!entry || !this.owns(entry, owner) || !entry.busy || entry.discardRequested)
+      throw new StagedUploadUnavailable(`${this.options.label}暂存会话已失效，请重新选择`);
+    const expires = Date.now() + this.ttlMs;
+    await this.persist(entry, entry.offset, expires);
+    entry.expires = expires;
+    entry.busy = false;
+    this.schedule();
+  }
   /** 供编辑草稿保留的文件；真实操作通过 withPaths 延长租期。 */
   complete(owner: object, id: string) {
     const entry = this.entry(owner, id);
@@ -350,6 +361,11 @@ export class FileUploadStaging {
   }
   hasPath(path: string): boolean {
     return [...this.uploads.values()].some((entry) => entry.path === path);
+  }
+  ownsCompletePath(owner: object, path: string): boolean {
+    return [...this.uploads.values()].some(
+      (entry) => entry.path === path && entry.offset === entry.size && this.owns(entry, owner),
+    );
   }
   whenDiscarded(owner: object, id: string, callback: () => void): void {
     this.entry(owner, id).onDiscard = callback;

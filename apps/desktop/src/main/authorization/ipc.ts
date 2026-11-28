@@ -3,6 +3,7 @@ import { app } from 'electron';
 import { dirname, join } from 'node:path';
 import { resolveNtHelperPath } from '@weq/native';
 import { getMainWindow } from '../main_window';
+import { getBootstrapSettingsWindow } from '../bootstrap_settings_window';
 import { AuthorizationInstaller } from './install';
 import { authorizationHelperPath } from './helper_path';
 
@@ -26,13 +27,13 @@ export function registerLongTermAuthorizationIpc(): void {
   });
   for (const operation of ['status', 'install', 'remove'] as const) {
     accountIpc.handle(`authorization:${operation}`, (event, expectedDevelopment?: unknown) => {
-      const window = getMainWindow();
+      const owner = getMainWindow();
       if (
-        !window ||
-        event.sender !== window.webContents ||
-        event.senderFrame !== window.webContents.mainFrame
+        (event.sender !== owner?.webContents &&
+          event.sender !== getBootstrapSettingsWindow(owner)?.webContents) ||
+        event.senderFrame !== event.sender.mainFrame
       )
-        throw new Error('长期授权只能在本机 WeQ 主窗口管理');
+        throw new Error('长期授权只能在本机 WeQ 设置中管理');
       if (expectedDevelopment !== undefined && typeof expectedDevelopment !== 'boolean')
         throw new Error('权限助手通道参数无效');
       return operation === 'status'

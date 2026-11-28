@@ -1,3 +1,4 @@
+import { assertQqDatabaseWriteAllowed } from '@weq/db';
 /**
  * MsgService — fetch the messages of one conversation by seq cursor.
  *
@@ -13,6 +14,7 @@
  * composite index; a missing mapping falls back to an unindexed uid scan.
  */
 
+import { createHash } from 'node:crypto';
 import type { AccountSession } from '@weq/account';
 import { decodeBody, measureMessageWork, recordMessagePartition, recordMessageWork } from '@weq/db';
 import type {
@@ -65,6 +67,12 @@ import { mergeRoamingTimeline } from '../common/roaming_timeline';
 import { RecordSearchIndex } from './record_search_index';
 
 const bodyCodec = new ProtoMsg(MsgBody);
+type MessageRecordKind = 'group' | 'c2c' | 'official' | 'service';
+type MessageRecordTarget = { kind: MessageRecordKind; conv: string; msgId: string };
+
+function messageBodyRevision(body: Uint8Array): string {
+  return createHash('sha256').update(body).digest('hex');
+}
 
 /**
  * QQ's own recall/delete rewrites a message's type columns to `(1,1)`, leaving
@@ -235,8 +243,62 @@ export class MsgService {
           : this.c2cDbFor(conv).sourcePath,
     );
   }
+  private privateRecordDatabase(kind: MessageRecordKind, conv: string) {
+    return kind === 'service'
+      ? { db: this.session.serviceAssistantMsgs, partition: { appId: BigInt(conv) } }
+      : { db: this.c2cDbFor(conv), partition: this.c2cPartition(conv) };
+  }
+
+  private async findMessageRecord({ kind, conv, msgId }: MessageRecordTarget, full = true) {
+    if (kind === 'group') {
+      const db = this.session.groupMsgs;
+      const [row] = await db.exportSourceRows(conv, [msgId], full);
+      return row ? { db, row } : null;
+    }
+    const { db, partition } = this.privateRecordDatabase(kind, conv);
+    const [row] = await db.exportSourceRows(partition, [msgId], full);
+    return row ? { db, row } : null;
+  }
+
+  async messageRecordDetails(target: MessageRecordTarget) {
+    const found = await this.findMessageRecord(target);
+    if (!found) return null;
+    const { columns, table, rowId, message } = found.row;
+    const body = columns['40800'];
+    return {
+      table,
+      rowId,
+      columns,
+      elements: message.elements,
+      decoration: message.decoration,
+      reactions: 'setEmojiList' in message ? message.setEmojiList : undefined,
+      cache: decodeMsgCacheColumn(columns['40900']),
+      revision: body instanceof Uint8Array ? messageBodyRevision(body) : null,
+    };
+  }
+
+  async editMessageRecord(
+    target: MessageRecordTarget,
+    revision: string,
+    elements: Element[],
+    beforeWrite: () => void,
+  ) {
+    const found = await this.findMessageRecord(target, false);
+    const before = found?.row.columns['40800'];
+    if (!found || !(before instanceof Uint8Array) || messageBodyRevision(before) !== revision)
+      return null;
+    const body = bodyCodec.encode({ elements: elements.map(encodeElement) });
+    beforeWrite();
+    const count = await found.db.updateMsgBody(BigInt(target.msgId), body, {
+      body: before,
+      rowId: BigInt(found.row.rowId),
+    });
+    if (!count) return null;
+    return toRenderElements(elements);
+  }
+
   async exportSourceRows(
-    kind: 'group' | 'c2c' | 'service' | 'official',
+    kind: MessageRecordKind,
     conversation: string,
     ids: readonly string[],
     full = true,
@@ -288,11 +350,8 @@ export class MsgService {
           };
         },
       );
-    const database =
-      kind === 'service' ? this.session.serviceAssistantMsgs : this.c2cDbFor(conversation);
-    const partition =
-      kind === 'service' ? { appId: BigInt(conversation) } : this.c2cPartition(conversation);
-    return (await database.exportSourceRows(partition, ids, full)).map((source) => {
+    const { db, partition } = this.privateRecordDatabase(kind, conversation);
+    return (await db.exportSourceRows(partition, ids, full)).map((source) => {
       const details = enrich(source.message, source.columns);
       return {
         ...source,
@@ -609,6 +668,16 @@ export class MsgService {
   }
 
   // ---- raw / modify --------------------------------------------------------
+
+  /** Online voice recognition supports messages from ordinary private and group chats. */
+  async getChatMessageForVoice(msgId: bigint): Promise<RenderC2cMsg | RenderGroupMsg | null> {
+    const [privateRows, groupRows] = await Promise.all([
+      this.session.c2cMsgs.listByMsgIds([msgId]),
+      this.session.groupMsgs.listByMsgIds([msgId]),
+    ]);
+    if (privateRows[0]) return renderC2c(privateRows[0]);
+    return groupRows[0] ? renderGroup(groupRows[0]) : null;
+  }
 
   /**
    * Get all raw elements of a message by msgId (not filtered by renderer).
@@ -946,6 +1015,7 @@ export class MsgService {
 
   /** 漫游来源仅标记 WeQ 缓存，绝不将缓存身份送入 QQ 原库。 */
   deleteCachedSentMessage(message: GapFetchedMessage, hidden = false): boolean {
+    assertQqDatabaseWriteAllowed();
     if (
       !this.deleted ||
       !/^[1-9]\d*$/.test(message.msgSeq) ||
@@ -967,6 +1037,7 @@ export class MsgService {
   }
 
   restoreCachedSentMessage(messageId: string, kind: 'c2c' | 'group', conv: string): boolean {
+    assertQqDatabaseWriteAllowed();
     const match = /^roaming:(?:(?:native|protocol):)?([1-9]\d*):(-?\d+)$/.exec(messageId);
     if (!match || !this.deleted) return false;
     let restored = false;

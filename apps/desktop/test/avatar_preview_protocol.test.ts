@@ -3,6 +3,12 @@ import { expect, it, vi } from 'vitest';
 import sharp from 'sharp';
 import { handleAvatarRequest } from '../src/main/avatar_protocol';
 import { setupImageWorker } from './support/image-worker';
+import { MediaCacheService } from '@weq/service';
+import { UNKNOWN_NETWORK } from '@weq/service/data-saver';
+import { updateTransferPolicy } from '@weq/service/transfer-policy';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 setupImageWorker();
 
@@ -32,4 +38,34 @@ it('预览协议返回真实缩图，默认原图保持原始字节，损坏预�
   const failed = await handleAvatarRequest(new Request(`${url}&preview=1`));
   expect(failed.status).toBe(502);
   expect(failed.headers.get('Content-Type')).not.toBe('image/png');
+});
+
+it('省流量时卡片复用已有图片，新配图不能借头像开关联网，主动加载后可复用', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'weq-card-preview-policy-'));
+  const cache = new MediaCacheService({ cacheDir: (subdir) => join(dir, subdir ?? '') });
+  const bytes = await sharp({ create: { width: 3, height: 2, channels: 3, background: '#123456' } })
+    .png()
+    .toBuffer();
+  const fetch = vi.fn(
+    async () => new Response(new Uint8Array(bytes), { headers: { 'Content-Type': 'image/png' } }),
+  );
+  vi.stubGlobal('fetch', fetch);
+  get.mockImplementation(cache.get.bind(cache));
+  const cover =
+    'weq-avatar://fetch?resource=link-preview&src=https%3A%2F%2Ffixture.invalid%2Fcard.png';
+  const read = (url: string) => handleAvatarRequest(new Request(url));
+  try {
+    await mkdir(join(dir, 'avatar'));
+    updateTransferPolicy('always', UNKNOWN_NETWORK);
+    expect((await read(cover)).ok).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+    expect((await read(cover + '&intent=interactive')).ok).toBe(true);
+    expect((await read(cover)).ok).toBe(true);
+    expect(fetch).toHaveBeenCalledOnce();
+  } finally {
+    get.mockReset();
+    updateTransferPolicy('auto', UNKNOWN_NETWORK);
+    vi.unstubAllGlobals();
+    await rm(dir, { force: true, recursive: true });
+  }
 });

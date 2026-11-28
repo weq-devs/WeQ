@@ -12,7 +12,7 @@ import {
   type DressExportKind,
   type DressExportServices,
 } from './dressup_export';
-import { downloadUrlMedia } from './media_save';
+import { downloadUrlMedia } from '../../media_save';
 
 type DownloadKind = DressExportKind | 'callbg';
 

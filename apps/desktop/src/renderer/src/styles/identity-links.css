@@ -236,6 +236,13 @@
   pointer-events: auto;
 }
 :where(html[data-weq-layout='single'])
+  .weq-mobile-self-identity:has(> .weq-mobile-identity:empty)
+  .weq-mobile-account
+  > strong {
+  grid-row: 1 / 3;
+  align-self: center;
+}
+:where(html[data-weq-layout='single'])
   .weq-mobile-header:has(.weq-titlebar-search.is-expanded)
   .weq-mobile-self-identity {
   display: none;

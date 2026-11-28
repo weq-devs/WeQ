@@ -11,16 +11,20 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     bootstrap: { localModelResources: { useQuery: () => ({ data: undefined }) } },
   },
   client: {
+    wonderfulTools: {
+      captureSupport: { query: async () => ({ available: true, elevated: true }) },
+    },
     account: {
-      getGroupAlbumAccessState: { query: async () => ({ qqOnline: true, attachEnabled: true }) },
+      getGroupAlbumAccessState: { query: async () => ({ qqOnline: false, attachEnabled: false }) },
+      onlineTranscribeStatus: { query: async () => ({ armed: false }) },
       onlineTranscribeDisarm: { mutate: async () => undefined },
     },
     bootstrap: {
       ocrModels: { query: async () => ({ models: [] }) },
       getSettings: {
         query: async () => ({
-          ocr: { onlineConcurrency: 8 },
-          voiceTranscribe: { modelId: 'test-voice', onlineConcurrency: 3 },
+          ocr: { onlineConcurrency: 8, priority: 'local' },
+          voiceTranscribe: { modelId: 'test-voice', onlineConcurrency: 3, priority: 'qq' },
         }),
       },
       voiceModels: { query: async () => [{ id: 'test-voice', downloaded: true }] },
@@ -141,7 +145,12 @@ it.each([false, true])('设为默认按钮可撤销，确认时携带对应保�
     expect(confirm).toHaveBeenCalledWith(
       expect.objectContaining({
         saveAsDefault: !undo,
-        options: expect.objectContaining({ ocrConcurrency: 8, onlineConcurrency: 3 }),
+        options: expect.objectContaining({
+          ocrConcurrency: 8,
+          onlineConcurrency: 3,
+          ocrPriority: 'local',
+          voicePriority: 'qq',
+        }),
       }),
     );
   } finally {

@@ -8,7 +8,7 @@
 }
 
 .app-title-bar-signature {
-  flex: 0 1 auto;
+  flex: 0 3 auto;
   min-width: 0;
   letter-spacing: 0;
 }
@@ -69,7 +69,6 @@
 
   .app-title-bar:has(.weq-titlebar-search.is-persistent) .app-title-bar-signature {
     display: block;
-    margin-left: 0;
   }
 
   .app-title-bar:has(.weq-titlebar-search.is-persistent) .weq-title-online-status {

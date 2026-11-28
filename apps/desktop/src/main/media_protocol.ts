@@ -42,6 +42,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { toUSVString } from 'node:util';
 import { networkScope, scopedNetworkAllowed, transferBehavior } from '@weq/service/network-scope';
 import { hostDataSaver } from './data_saver';
+import { chatStickerMd5 } from '../shared/chat_sticker';
 import { ManagedDownload } from '@weq/service/managed-download';
 import { avatarResponse } from './avatar_response';
 import { aiImageAssetPath } from './ai_images';
@@ -105,6 +106,7 @@ export async function resolveVoiceSilk(
     fwdResId?: string;
   },
   check = () => mediaBinding.getStore()?.(),
+  localOnly = false,
 ): Promise<string | null> {
   check();
   const { source } = await services.fileSearch.findFile(input.t, input.name, 'ptt');
@@ -114,6 +116,7 @@ export async function resolveVoiceSilk(
   const downloaded = await services.mediaDownload.download(input.token, {
     ext: '.silk',
     rkeyTypes: PTT_RKEY_TYPES,
+    ...(localOnly ? { localOnly } : {}),
   });
   check();
   if (downloaded) return downloaded;
@@ -121,6 +124,7 @@ export async function resolveVoiceSilk(
   if (!boot) return null;
   const path = oidbCachePath(join(boot.userConfig.cacheDir('media'), 'ptt'), input.token, '.silk');
   if (existsSync(path)) return path;
+  if (localOnly) return null;
   const found = await findMediaElement(
     input.msgId,
     'ptt',
@@ -630,11 +634,16 @@ export async function resolveChatImageFile(
   const services = getAppContext().services;
   if (!services) throw new Error('账号尚未打开');
   const picType = q.get('recv') === '1' ? 'emoji' : 'pic';
+  const name = q.get('name') ?? '';
+  const md5 = q.get('md5');
+  const stickerMd5 = picType === 'emoji' ? chatStickerMd5(md5, name) : undefined;
+  const sharedSticker = stickerMd5 ? services.mediaDownload.cachedChatSticker(stickerMd5) : null;
+  if (sharedSticker) return { path: sharedSticker, variant: 'downloaded' as const };
   const { source, thumb } = await services.fileSearch.findFile(
     Number(q.get('t') ?? '0'),
-    q.get('name') ?? '',
+    name,
     picType,
-    q.get('md5') ?? undefined,
+    stickerMd5 ?? md5 ?? undefined,
   );
   check();
   const originalOnly = q.get('v') === 'original' && picType !== 'emoji';
@@ -649,6 +658,9 @@ export async function resolveChatImageFile(
   if (path) return { path, variant: path === source ? ('original' as const) : ('thumb' as const) };
   const backup = resolveChatpicFallback(q.get('md5') ?? '', originalOnly);
   if (backup) return { path: backup, variant: 'unknown' as const };
+  const token = q.get('token') ?? '';
+  const sent = services.mediaDownload.sentMedia?.find('pic', token, md5 ?? '');
+  if (sent) return { path: sent, variant: 'original' as const };
   if (previewOnly) {
     const small = q.get('small');
     const thumbnail =
@@ -658,8 +670,12 @@ export async function resolveChatImageFile(
     check();
     return { path: thumbnail ?? null, variant: 'thumb' as const };
   }
-  const cached = services.mediaDownload.cachedFile(q.get('token') ?? '');
-  if (cached) return { path: cached, variant: 'downloaded' as const };
+  const cached = services.mediaDownload.cachedFile(token);
+  if (cached) {
+    if (stickerMd5) await services.mediaDownload.rememberChatSticker(stickerMd5, cached, signal);
+    check();
+    return { path: cached, variant: 'downloaded' as const };
+  }
   if (q.get('localOnly') === '1') return { path: null, variant: 'unknown' as const };
   const restricted = await hostDataSaver(q.get('ds') === '1');
   check();
@@ -686,15 +702,11 @@ export async function resolveChatImageFile(
     behavior.dataSaverImageLoading !== 'original'
   ) {
     const small = q.get('small');
-    const thumbnail =
-      small && small !== q.get('orig')
-        ? await services.mediaDownload.thumbnail?.(small, false, signal)
-        : null;
-    return thumbnail
-      ? { path: thumbnail, variant: 'thumb' as const }
-      : { path: null, variant: 'unknown' as const, deferred: true };
+    if (!small || small === q.get('orig'))
+      return { path: null, variant: 'unknown' as const, deferred: true };
+    const thumbnail = await services.mediaDownload.thumbnail?.(small, false, signal);
+    return { path: thumbnail ?? null, variant: 'thumb' as const };
   }
-  const token = q.get('token') ?? '';
   const transfer = originalOnly
     ? transferIdInput.safeParse(q.get('transferId') ?? undefined)
     : null;
@@ -733,6 +745,8 @@ export async function resolveChatImageFile(
           );
         })
       : await services.mediaDownload.download(token, opts);
+  if (downloaded && stickerMd5)
+    await services.mediaDownload.rememberChatSticker(stickerMd5, downloaded, signal);
   check();
   return { path: downloaded, variant: 'downloaded' as const };
 }
@@ -1081,7 +1095,11 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
           if (deferred)
             return new Response('省流量模式：点击加载', {
               status: 409,
-              headers: { 'Cache-Control': 'no-store', 'X-WeQ-Media-State': 'deferred' },
+              headers: {
+                'Cache-Control': 'no-store',
+                'X-WeQ-Media-State': 'deferred',
+                'Access-Control-Expose-Headers': 'X-WeQ-Media-State',
+              },
             });
           return path ? await respond(path) : notFound('pic not found');
         }
@@ -1106,7 +1124,8 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
           if (!attachment) {
             const { source } = await services.fileSearch.findFile(tMs, name, 'video');
             mediaBinding.getStore()?.();
-            if (source) return fileResponse(source);
+            const local = source ?? services.mediaDownload?.sentMedia?.find('video', token);
+            if (local) return fileResponse(local);
           }
 
           const msgId = q.get('msgId') ?? '';

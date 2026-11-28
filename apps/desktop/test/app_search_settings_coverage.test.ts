@@ -13,7 +13,7 @@ const pages = {
   CallRecordingSection: 'call-recording',
   QzoneSettingsSection: 'qzone',
   RemotePanel: 'remote',
-  RemoteSection: 'remote',
+  RemoteSection: 'browser-access',
   StartupSection: 'startup',
   McpServerSection: 'mcp',
   AssistantSection: 'assistant',

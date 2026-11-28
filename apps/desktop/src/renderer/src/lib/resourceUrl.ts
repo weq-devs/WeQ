@@ -161,13 +161,21 @@ export function avatarFetchUrl(src: string): string {
   );
 }
 
+export function inlineImageUrl(src: string, resource: 'inline-image' | 'link-preview' | 'emoji') {
+  if (!/^https?:\/\//i.test(src)) return src;
+  const query = new URLSearchParams({ src, resource });
+  if (dataSaverActive()) query.set('ds', '1');
+  return remoteCachedResource(`${AVATAR_PREFIX}fetch?${query}`);
+}
+
 /**
  * Proxy a QQ 收藏 (collection) collector-CDN image (`http://shp.qpic.cn/collector/…`)
  * through the disk-cached avatar bridge. The collector CDN is public (no referer),
  * so the generic fetch+cache bridge is enough; on failure `<img onError>` falls back.
  */
 export function collectionImageUrl(src: string, preview = false): string {
-  return `${avatarFetchUrl(src)}${preview ? '&preview=1' : ''}`;
+  const url = inlineImageUrl(src, 'inline-image');
+  return preview && url !== src ? `${url}&preview=1` : url;
 }
 
 /**

@@ -22,6 +22,8 @@ import {
 } from '@weq/service';
 import { setAttachHintPrompt } from './attach_hint';
 import { getMainWindow } from './main_window';
+import { getBootstrapSettingsWindow } from './bootstrap_settings_window';
+import type { WebContents } from 'electron';
 
 const logger = getLogger().child({ scope: 'attach-hint' });
 
@@ -33,6 +35,7 @@ const PROMPT_TIMEOUT_MS = 10 * 60 * 1000;
 
 const state = accountRuntimeState(() => ({
   pendingResolve: null as ((answer: AttachHintAnswer) => void) | null,
+  pendingSender: null as WebContents | null,
   prompt: new SharedPrompt<AttachHintAnswer>({ choice: 'cancel', password: '' }),
   pendingToken: 0,
 }));
@@ -40,9 +43,11 @@ const state = accountRuntimeState(() => ({
 /** Register the IPC listener and wire the prompt into `attach_hint`. */
 export function registerAttachHintIpc(): void {
   accountIpc.on(RESPOND_CHANNEL, (event, raw: unknown) => {
-    if (event.sender !== getMainWindow()?.webContents || !state().pendingResolve) return;
+    const request = state();
+    if (event.sender !== request.pendingSender || event.senderFrame !== event.sender.mainFrame)
+      return;
     const payload = (raw ?? {}) as { token?: unknown; choice?: unknown; password?: unknown };
-    if (payload.token !== state().pendingToken) return;
+    if (payload.token !== request.pendingToken) return;
     const choice: AttachHintChoice =
       payload.choice === 'retry' ||
       payload.choice === 'no-remind' ||
@@ -52,7 +57,7 @@ export function registerAttachHintIpc(): void {
         : 'cancel';
     const password = typeof payload.password === 'string' ? payload.password : '';
     logger.info('ptrace hint answered', { event: 'attach-hint-answered', choice });
-    state().pendingResolve?.({ choice, password });
+    request.pendingResolve?.({ choice, password });
   });
 
   setAttachHintPrompt((signal) => promptImpl(signal));
@@ -62,12 +67,15 @@ function promptImpl(signal?: AbortSignal): Promise<AttachHintAnswer> {
   const request = state();
   return request.prompt.request((finish) => {
     const token = ++request.pendingToken;
-    const win = getMainWindow();
+    const owner = getMainWindow();
+    const settings = getBootstrapSettingsWindow(owner);
+    const win = settings?.isFocused() ? settings : owner;
     if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
       finish({ choice: 'cancel', password: '' });
       return () => {};
     }
     request.pendingResolve = finish;
+    request.pendingSender = win.webContents;
     const cancel = (): void => finish({ choice: 'cancel', password: '' });
     const timer = setTimeout(cancel, PROMPT_TIMEOUT_MS);
     win.once('closed', cancel);
@@ -75,7 +83,10 @@ function promptImpl(signal?: AbortSignal): Promise<AttachHintAnswer> {
     return () => {
       clearTimeout(timer);
       win.removeListener('closed', cancel);
-      if (request.pendingToken === token) request.pendingResolve = null;
+      if (request.pendingToken === token) {
+        request.pendingResolve = null;
+        request.pendingSender = null;
+      }
       if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
         win.webContents.send('attach:cancel-hint', { token });
       }

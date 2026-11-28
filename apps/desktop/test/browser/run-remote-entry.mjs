@@ -44,7 +44,7 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/remote-entry.html`,
   );
   const web = page.getByRole('switch', { name: '允许本机浏览器访问', exact: true });
-  const remote = page.getByRole('switch', { name: '允许远程连接', exact: true });
+  const remote = page.getByRole('switch', { name: '允许 Remote 连接', exact: true });
   await web.waitFor();
   await remote.click();
   if ((await web.getAttribute('aria-checked')) !== 'false')
@@ -85,6 +85,15 @@ try {
       cases++;
     }
   }
+  await page.getByRole('button', { name: '配对设备', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '配对设备' });
+  await dialog.getByRole('radio', { name: '跨网络连接', exact: true }).check();
+  if (!(await dialog.getByRole('button', { name: '启动 Tailscale' }).isVisible()))
+    throw new Error('跨网络配对缺少电脑端启动入口');
+  const bounds = await dialog.boundingBox();
+  if (!bounds || bounds.x < 0 || bounds.x + bounds.width > 320)
+    throw new Error('窄窗口的配对弹窗超出视口');
+  await dialog.getByRole('button', { name: '取消', exact: true }).click();
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(JSON.stringify({ cases, independentToggles: true, errors }));
 } finally {

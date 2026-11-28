@@ -1,3 +1,4 @@
+import { withQqFileWrite } from '@weq/db';
 import { cp, link, lstat, open, readdir, unlink, writeFile } from 'node:fs/promises';
 import { createReadStream, existsSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -316,6 +317,16 @@ export async function inventoryExportOutput(
 
 /** 校验后才回报成功；目录与支持链接的卷原子发布，其余卷独占复制，均不覆盖原件。 */
 export async function saveExportOutput(
+  output: SourceOutput,
+  directory: string | { filePath: string; unique?: boolean },
+  signal?: AbortSignal,
+  options?: { requireExistingDirectory?: boolean },
+): Promise<string> {
+  const target = typeof directory === 'string' ? directory : directory.filePath;
+  return withQqFileWrite(target, () => publishExportOutput(output, directory, signal, options));
+}
+
+async function publishExportOutput(
   output: SourceOutput,
   directory: string | { filePath: string; unique?: boolean },
   signal?: AbortSignal,

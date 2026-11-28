@@ -50,7 +50,6 @@ function greetWord(): string {
  */
 function HitokotoTicker({ verse }: { verse: Verse }) {
   const [display, setDisplay] = useState('');
-  const [from, setFrom] = useState('');
   const [showFrom, setShowFrom] = useState(false);
 
   useEffect(() => {
@@ -58,7 +57,6 @@ function HitokotoTicker({ verse }: { verse: Verse }) {
     let timer: ReturnType<typeof setTimeout>;
 
     const chars = [...verse.text];
-    setFrom(verse.from);
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
       setDisplay(verse.text);
       setShowFrom(true);
@@ -89,11 +87,17 @@ function HitokotoTicker({ verse }: { verse: Verse }) {
   return (
     <div className="weq-chathome-hitokoto">
       <p className="weq-chathome-verse">
-        <span>{display}</span>
-        <span className="weq-chathome-caret" aria-hidden />
+        <span className="weq-chathome-verse-measure" aria-hidden>
+          {verse.text}
+          <span className="weq-chathome-caret" />
+        </span>
+        <span>
+          {display}
+          <span className="weq-chathome-caret" aria-hidden />
+        </span>
       </p>
-      <p className={`weq-chathome-from${showFrom && from ? ' is-shown' : ''}`}>
-        {from ? `—— ${from}` : ''}
+      <p className={`weq-chathome-from${showFrom && verse.from ? ' is-shown' : ''}`}>
+        {verse.from ? `—— ${verse.from}` : ''}
       </p>
     </div>
   );
@@ -153,8 +157,8 @@ export function ChatHome({
   return (
     <section
       className={`weq-chathome weq-anim-fade${hasBackdrop ? ' is-onphoto' : ''}${
-        tags.length === 0 ? ' is-notags' : ''
-      }${!home.showGreeting ? ' is-nogreeting' : ''}`}
+        tags.length > 0 ? ' has-tag-ring' : ''
+      }`}
     >
       <CardBackdrop imageUrl={cardUrl} videoUrl={cardVideoUrl} />
       {screenUrl && <ScreenRain src={screenUrl} />}

@@ -855,7 +855,7 @@ function MarketEmojiBrowser({
                 compact
                 icon={<Store />}
                 title="请先下载商城表情目录"
-                body="在「设置 → 能力 → 增强包」安装后即可搜索。"
+                body="在「设置 → 应用 → 增强包」安装后即可搜索。"
               />
             ) : entries.length === 0 ? (
               <EmptyState compact icon={<SearchX />} title="没有匹配的表情包" />

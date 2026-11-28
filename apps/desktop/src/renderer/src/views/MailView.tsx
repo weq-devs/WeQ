@@ -19,7 +19,8 @@ export const MailWorkspace = memo(function MailWorkspace({
 }) {
   const parentActive = useTabActive();
   const foreground = active && parentActive;
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsAnchor, setSettingsAnchor] = useState<HTMLButtonElement | null>(null);
+  const closeSettings = () => setSettingsAnchor(null);
   const api = useMemo(() => createMailApi(selfUin), [selfUin]);
   return (
     <PageSnapshotScope name="mail">
@@ -30,14 +31,17 @@ export const MailWorkspace = memo(function MailWorkspace({
           selfEmail={`${selfUin}@qq.com`}
           active={foreground}
           searchTarget={searchTarget}
-          onOpenSettings={() => setSettingsOpen(true)}
+          settingsOpen={Boolean(settingsAnchor)}
+          onToggleSettings={(trigger) => setSettingsAnchor((current) => (current ? null : trigger))}
         />
-        {settingsOpen && foreground ? (
+        {settingsAnchor && foreground ? (
           <Modal
-            presentation="panel"
+            presentation="popover"
+            anchor={settingsAnchor}
+            fitAnchorHeight
             width={480}
             labelledBy="weq-mail-settings-title"
-            onClose={() => setSettingsOpen(false)}
+            onClose={closeSettings}
           >
             <header className="weq-tools-header">
               <h2 id="weq-mail-settings-title">邮箱设置</h2>
@@ -45,7 +49,7 @@ export const MailWorkspace = memo(function MailWorkspace({
                 type="button"
                 title="关闭邮箱设置"
                 aria-label="关闭邮箱设置"
-                onClick={() => setSettingsOpen(false)}
+                onClick={closeSettings}
               >
                 <X size={18} />
               </button>

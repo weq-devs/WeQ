@@ -1,3 +1,4 @@
+import { assertQqDatabaseWriteAllowed, qqDatabaseReadOnly } from '@weq/db';
 import { createReadStream, constants } from 'node:fs';
 import { copyFile, mkdir, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -13,6 +14,7 @@ import {
   preferenceDefaults,
   validatePreferencePatch,
   directoryUnreadKey,
+  isQqDirectoryReadKey,
   validReadPosition,
   type ClientStateChange,
   type PreferencePatch,
@@ -69,6 +71,7 @@ export function setDirectoryReadState(
   targets: readonly { key: string; position: string }[],
   unread: boolean,
 ) {
+  if (targets.some(({ key }) => isQqDirectoryReadKey(key))) assertQqDatabaseWriteAllowed();
   const changes = state.setDirectoryReadState(targets, unread);
   if (!unread) reportOfficialDirectoryReads(state, targets, true);
   return changes;
@@ -171,14 +174,15 @@ function savePreferences(input: PreferencePatch, receiptId?: string, seeded = fa
         : {}),
       ...(seeded ? { desktopPreferencesSeeded: true } : {}),
     });
-  if (input.dataSaverMode !== undefined || input.dataSaverOnMetered !== undefined) {
+  if (Object.keys(input).some((key) => key.startsWith('dataSaver'))) {
     const preferences = config.getSharedPreference('client');
     updateTransferPolicy(
       preferences.dataSaverMode ?? 'auto',
       dataSaverSession.status().host,
       preferences,
     );
-    dataSaverSession.clearTemporary('settings');
+    if (input.dataSaverMode !== undefined || input.dataSaverOnMetered !== undefined)
+      dataSaverSession.clearTemporary('settings');
   }
   return preferenceSnapshot();
 }
@@ -286,11 +290,17 @@ export const clientStateRouter = router({
         return accountSnapshot(input);
       }
       const state = boundClientState(input);
-      state.records(input.namespace, input.values, input.seed);
+      const values =
+        input.namespace === 'reads' && qqDatabaseReadOnly()
+          ? Object.fromEntries(
+              Object.entries(input.values).filter(([key]) => !isQqDirectoryReadKey(key)),
+            )
+          : input.values;
+      state.records(input.namespace, values, input.seed);
       if (input.namespace === 'reads' && !input.seed)
         reportOfficialDirectoryReads(
           state,
-          Object.entries(input.values).flatMap(([key, value]) => {
+          Object.entries(values).flatMap(([key, value]) => {
             const position =
               typeof value === 'string'
                 ? value

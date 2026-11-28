@@ -60,6 +60,38 @@ function ptt(fileName: string, extra: Partial<MediaRef> = {}): MediaRef {
   };
 }
 
+it('本地优先时只将本地失败的语音交给 QQ，已有转写直接复用', async () => {
+  const local = vi.fn(async (path: string) =>
+    path.endsWith('first.silk') ? { ok: true, text: '本地结果' } : { ok: false },
+  );
+  const online = vi.fn(async () => ({ texts: { 'second.silk': 'QQ 结果' }, missing: [] }));
+  const outcome = await transcribeFoundVoices(
+    scan([ptt('first.silk'), ptt('second.silk'), ptt('saved.silk', { transcript: '已有' })], []),
+    dir,
+    local,
+    undefined,
+    2,
+    undefined,
+    undefined,
+    online,
+    5,
+    undefined,
+    'local',
+  );
+  expect(outcome).toMatchObject({ ok: 3, failed: 0 });
+  expect(local).toHaveBeenCalledTimes(2);
+  expect(online).toHaveBeenCalledWith(
+    [expect.objectContaining({ fileName: 'second.silk' })],
+    5,
+    undefined,
+  );
+  expect(JSON.parse(readFileSync(join(dir, TRANSCRIPTS_FILE), 'utf8'))).toEqual({
+    'first.silk': '本地结果',
+    'second.silk': 'QQ 结果',
+    'saved.silk': '已有',
+  });
+});
+
 function scan(found: MediaRef[], missing: MediaRef[]): MediaScanResult {
   return {
     totalRefs: found.length + missing.length,

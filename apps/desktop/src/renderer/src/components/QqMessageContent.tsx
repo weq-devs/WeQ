@@ -197,11 +197,13 @@ function MediaBody({
   sendTimeMs,
   msgId,
   gridTile,
+  isSender,
 }: {
   element: RenderElement;
   sendTimeMs: number;
   msgId: string;
   gridTile?: boolean;
+  isSender?: boolean;
 }): ReactNode {
   const data = element.data ?? {};
   const conv = useContext(ConvContext);
@@ -222,6 +224,7 @@ function MediaBody({
           msgId={ownerMsgId}
           fwd={fwd}
           gridTile={gridTile}
+          preferLocal={isSender && !fwd}
         />
       );
     case 'video':
@@ -425,7 +428,9 @@ function ElementNode({
   callConv?: CallConv | null;
 }): ReactNode {
   if (element.type && MEDIA_KINDS.has(element.type)) {
-    return <MediaNode element={element} sendTimeMs={sendTimeMs} msgId={msgId} />;
+    return (
+      <MediaNode element={element} sendTimeMs={sendTimeMs} msgId={msgId} isSender={isSender} />
+    );
   }
   if (element.type === 'face') {
     return <FaceNode data={element.data ?? {}} size={INLINE_SIZE} isSender={isSender} />;
@@ -528,7 +533,13 @@ function renderElementNodes(
         tiles.push(
           <MediaItemIndexContext.Provider key={mediaPosition} value={mediaPosition}>
             <div className="qq-image-grid-tile">
-              <MediaNode element={picture} sendTimeMs={sendTimeMs} msgId={msgId} gridTile />
+              <MediaNode
+                element={picture}
+                sendTimeMs={sendTimeMs}
+                msgId={msgId}
+                isSender={isSender}
+                gridTile
+              />
             </div>
           </MediaItemIndexContext.Provider>,
         );
@@ -842,8 +853,10 @@ function QqMessageContentBody({
   conversation,
   forwardSource,
   forwardRecord,
+  preserveOrder,
 }: {
   elements: RenderElement[];
+  preserveOrder?: boolean;
   sendTimeMs: number;
   msgId: string;
   msgSeq?: string;
@@ -882,7 +895,8 @@ function QqMessageContentBody({
   const groupCode = useContext(ConvContext);
   const textMarkdownOn = useContext(TextMarkdownContext);
   const { enabled: linkPreviewOn } = useContext(LinkPreviewContext);
-  const groupImages = Boolean(useChatMediaOpen());
+  const openGallery = useChatMediaOpen();
+  const groupImages = !preserveOrder && Boolean(openGallery);
   /**
    * 通话气泡查录音要用的会话身份。`conversation` 没传时（转发窗口 / 导出预览）
    * 退回 `ConvContext`（那里只有群号），再拿不到就干脆不查 —— 宁可没有播放按钮，
@@ -1127,7 +1141,7 @@ function QqMessageContentBody({
     if ((lone.type && BORDERLESS_MEDIA.has(lone.type)) || isChatVideoAttachment(lone)) {
       return (
         <div className={cn('message-content', 'sticker-only')}>
-          <MediaNode element={lone} sendTimeMs={sendTimeMs} msgId={msgId} />
+          <MediaNode element={lone} sendTimeMs={sendTimeMs} msgId={msgId} isSender={isSender} />
         </div>
       );
     }
@@ -1173,7 +1187,7 @@ function QqMessageContentBody({
   //
   // 卡片挂在气泡下面（而不是取代气泡）—— 同语音转录的处理：原文始终看得见，卡片只是
   // 附加信息。数据优先取 QQ 自己扫出来的 urlVerify（本地就有，不出网），没有才让
-  // QqLinkCard 去抓；两个都没有它返回 null，只剩气泡里那条蓝链接。
+  // QqLinkCard 查询预览，并在补入卡片时保留聊天阅读位置。
   const soleLinkCard = ((): ReactNode => {
     if (!linkPreviewOn) return null;
     if (meaningful.length === 0 || !meaningful.every((element) => element.type === 'text'))

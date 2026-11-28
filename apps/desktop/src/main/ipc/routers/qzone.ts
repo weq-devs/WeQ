@@ -26,7 +26,7 @@ import {
   exportSavePolicyInput,
   prepareExportDestination,
 } from './export_save';
-import { planUrlMediaExport } from './media_save';
+import { planUrlMediaExport } from '../../media_save';
 import { pickedBrowserFiles } from '../../browser_files';
 import { QZONE_IMAGE_MAX_BYTES } from '../../../shared/qzone';
 

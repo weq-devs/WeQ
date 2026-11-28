@@ -96,6 +96,22 @@ function scan(found: MediaRef[], downloadList: MediaRef[] = []): MediaScanResult
   };
 }
 
+it('本地优先时 QQ 只识别本地失败或缺少本体的图片', async () => {
+  const local = vi.fn(async (path: string) =>
+    path.endsWith('first.png') ? { ok: true, text: '本地结果' } : { ok: false },
+  );
+  const online = vi.fn(async (_input: unknown) => ({ ok: true, text: 'QQ 结果' }));
+  const result = await ocrFoundImages(
+    scan([pic('first.png'), pic('second.png')], [missingPic('third.png', 1_700_000_001)]),
+    dir,
+    { local, online, priority: 'local' },
+  );
+  expect(result).toMatchObject({ ok: 3, local: 1, online: 2, failed: 0 });
+  expect(
+    online.mock.calls.map(([input]) => (input as { fileToken: string }).fileToken).sort(),
+  ).toEqual(['token-second.png', 'token-third.png']);
+});
+
 function readArtifact(): {
   stats: Record<string, number>;
   images: Record<string, { text: string; source: string; blocks?: unknown[] }>;

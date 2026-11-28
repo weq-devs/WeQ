@@ -61,6 +61,7 @@ describe('feature_search', () => {
       ['安装到本机 AI 客户端', 'mcp'],
       ['MCP 客户端配置', 'mcp'],
       ['推送地址', 'sse'],
+      ['公众号本地推送端口', 'assistant'],
       ['QQ 公众号推送端口', 'assistant'],
       ['WeQ 验证器', 'privacy'],
     ])('%s 可检索且指向所属设置页面 %s', (keyword, section) => {

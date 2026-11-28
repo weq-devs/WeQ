@@ -964,7 +964,7 @@ describe('群成员资料卡浮层', () => {
     });
     expect(closed).toBe(1);
   });
-  it('异步编辑区改变高度后重新避让视口，卸载时释放尺寸观察', async () => {
+  it('异步编辑区变高时保持卡片上沿并限制高度，卸载时释放尺寸观察', async () => {
     let height = 80;
     const observers = new Map<Element, { resize: () => void; disconnect: () => void }>();
     vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(288);
@@ -983,10 +983,14 @@ describe('群成员资料卡浮层', () => {
     const card = layer().querySelector<HTMLElement>('.weq-member-pop')!;
     const observer = observers.get(card)!;
     expect(observer).toBeDefined();
+    const top = Number.parseFloat(card.style.top);
     height = window.innerHeight - 40;
     act(() => observer.resize());
-    expect(Number.parseFloat(card.style.top) + height).toBeLessThanOrEqual(window.innerHeight - 10);
-    expect(Number.parseFloat(card.style.top)).toBeGreaterThanOrEqual(10);
+    const maxHeight = Number.parseFloat(card.style.maxHeight);
+    expect(Number.parseFloat(card.style.top)).toBe(top);
+    expect(top).toBeGreaterThanOrEqual(10);
+    expect(maxHeight).toBeLessThan(height);
+    expect(top + maxHeight).toBeLessThanOrEqual(window.innerHeight - 10);
     act(() => roots.pop()!.unmount());
     expect(observer.disconnect).toHaveBeenCalledOnce();
   });
@@ -1023,7 +1027,7 @@ describe('群成员资料卡浮层', () => {
       viewport.offsetTop = 96;
       act(() => viewport.dispatchEvent(new Event('resize')));
       expect(Number.parseFloat(card.style.top)).toBe(165);
-      expect(Number.parseFloat(card.style.maxHeight)).toBe(197);
+      expect(Number.parseFloat(card.style.maxHeight)).toBe(199);
     } finally {
       style.cssText = previous;
     }

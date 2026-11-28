@@ -1,4 +1,12 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   defaultRangeExtractor,
   measureElement,
@@ -9,6 +17,7 @@ import {
 import type { MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { PageDataCache } from '../lib/pageDataCache';
 import { FeedCardData, FeedRowKey, PinFeedCard } from './qzoneCardState';
+import { QzoneRefreshScrollContext } from './qzoneRefresh';
 
 // 切到其他栏目时容器会隐藏，保留最后一次可见尺寸和已测的行高。
 const observeFeedRect: typeof observeElementRect = (instance, update) =>
@@ -43,6 +52,7 @@ export function QzoneVirtualRows<Row extends VirtualFeedRow>({
   renderRow: (row: Row) => ReactNode;
 }) {
   const content = useRef<HTMLDivElement>(null);
+  const refreshScroll = useContext(QzoneRefreshScrollContext);
   const getScrollElement = useCallback(
     () => content.current?.closest<HTMLDivElement>('.weq-qzn-scroll') ?? null,
     [],
@@ -90,6 +100,14 @@ export function QzoneVirtualRows<Row extends VirtualFeedRow>({
     scrollMargin: offset,
     anchorTo: 'end',
   });
+  useLayoutEffect(() => {
+    if (!active || !refreshScroll) return;
+    // 告知虚拟列表这是主动滚动，行高测量时才不会用位置补偿打断动画。
+    refreshScroll.current = (top, behavior) => list.scrollToOffset(top, { behavior });
+    return () => {
+      refreshScroll.current = null;
+    };
+  }, [active, list, refreshScroll]);
   useLayoutEffect(() => {
     const scroll = getScrollElement();
     const element = content.current;

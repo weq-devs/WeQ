@@ -365,10 +365,12 @@
 
 .chat-status-desktop {
   display: flex;
+  flex: 0 3 auto;
   min-width: 0;
   align-items: center;
 }
 
+.chat-status-desktop:empty,
 .chat-status-mobile {
   display: none;
 }
@@ -2544,6 +2546,17 @@ html[data-theme='dark'] .member-role-badge.admin {
   z-index: 4;
   bottom: 20px;
   inset-inline: var(--composer-side-inset);
+}
+
+:where(html:not([data-weq-layout='single'], [data-weq-mobile-client='true']))
+  .composer.single-line-editor {
+  > .composer-editor {
+    line-height: 32px;
+  }
+
+  > .composer-send-controls {
+    bottom: 16px;
+  }
 }
 
 .composer-send {

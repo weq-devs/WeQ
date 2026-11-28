@@ -18,9 +18,11 @@ import {
   useId,
   useRef,
   useState,
+  type Dispatch,
   type ReactElement,
   type RefObject,
   type ReactNode,
+  type SetStateAction,
 } from 'react';
 import {
   AtSign,
@@ -134,6 +136,13 @@ import { QzonePublicNavigationContext } from '../lib/qzoneNavigation';
 import { QzoneRelatedRound, qzoneSelfLiked, type QzoneReplyTarget } from '../lib/qzoneActions';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
+import { scrollToNewest, type ScrollToPosition } from '../lib/scrollToNewest';
+import {
+  QzoneRefreshContext,
+  QzoneRefreshScrollContext,
+  useQzoneRefresh,
+  useQzoneRefreshRequest,
+} from './qzoneRefresh';
 import { completeQzonePostText, qzoneImageCompletionScope } from '../lib/qzoneCompletion';
 import {
   mergeQzoneHomePost,
@@ -189,6 +198,10 @@ const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : '加载失败，请重试。';
 
 const QzoneReadsEnabled = createContext(true);
+type QzoneRefreshTarget = { run: () => Promise<void>; signal: AbortSignal };
+const QzoneActiveRefresh = createContext<Dispatch<
+  SetStateAction<QzoneRefreshTarget | null>
+> | null>(null);
 const OwnPostVisibility = createContext<{
   changes: ReadonlyMap<string, QzoneTextVisibility> | undefined;
   confirm: (tid: string, visibility: QzoneTextVisibility) => void;
@@ -202,6 +215,7 @@ function QzonePage({
   resetScrollKey,
   pauseReadsDuringNavigation = true,
   retainTimeline = false,
+  allowManualRefresh = true,
   children,
 }: {
   active: boolean;
@@ -209,13 +223,44 @@ function QzonePage({
   resetScrollKey?: string;
   pauseReadsDuringNavigation?: boolean;
   retainTimeline?: boolean;
+  allowManualRefresh?: boolean;
   children: ReactElement;
 }) {
   const scroll = useRef<HTMLDivElement>(null);
+  const scrollVirtualRows = useRef<ScrollToPosition | null>(null);
   const readsEnabled = useContext(QzoneReadsEnabled);
   const activity = useQQReadActivity(active && (!pauseReadsDuringNavigation || readsEnabled), {
     remoteCache: true,
   });
+  const publishRefresh = useContext(QzoneActiveRefresh);
+  const registerRefresh = useCallback(
+    (refresh: (signal: AbortSignal) => Promise<boolean>) => {
+      const controller = new AbortController();
+      const { signal } = controller;
+      const target = {
+        signal,
+        run: async () => {
+          if (signal.aborted || !(await refresh(signal)) || signal.aborted) return;
+          // 数据已提交后再读取滚动位置，虚拟列表也能按新的条目顺序定位。
+          requestAnimationFrame(() => {
+            const container = scroll.current;
+            if (!signal.aborted && container)
+              scrollToNewest(
+                container,
+                container.querySelector('[data-qzone-refresh-start]'),
+                scrollVirtualRows.current,
+              );
+          });
+        },
+      };
+      publishRefresh?.(target);
+      return () => {
+        controller.abort();
+        publishRefresh?.((current) => (current === target ? null : current));
+      };
+    },
+    [publishRefresh],
+  );
   const position = useRef(0);
   const previousActive = useRef(false);
   const previousScrollKey = useRef<string | undefined>(undefined);
@@ -259,9 +304,15 @@ function QzonePage({
         if (active) position.current = event.currentTarget.scrollTop;
       }}
     >
-      <QzonePageContext.Provider value={context}>
-        {active || (retainTimeline && entry.visited) ? children : null}
-      </QzonePageContext.Provider>
+      <QzoneRefreshContext.Provider
+        value={activity.enabled && allowManualRefresh ? registerRefresh : null}
+      >
+        <QzoneRefreshScrollContext.Provider value={scrollVirtualRows}>
+          <QzonePageContext.Provider value={context}>
+            {active || (retainTimeline && entry.visited) ? children : null}
+          </QzonePageContext.Provider>
+        </QzoneRefreshScrollContext.Provider>
+      </QzoneRefreshContext.Provider>
     </div>
   );
 }
@@ -562,7 +613,23 @@ export function QzoneView({
   const [compose, setCompose] = useState(false);
   const [publication, setPublication] = useState<QzonePublication | null>(null);
   const toast = useToast((state) => state.push);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [refreshTarget, setRefreshTarget] = useState<QzoneRefreshTarget | null>(null);
+  const [refreshingTarget, setRefreshingTarget] = useState<QzoneRefreshTarget | null>(null);
+  const refreshing = !!refreshTarget && refreshingTarget === refreshTarget;
+  const refreshCurrentPage = async () => {
+    if (!refreshTarget || refreshing) return;
+    setRefreshingTarget(refreshTarget);
+    try {
+      await refreshTarget.run();
+    } catch (error) {
+      if (!refreshTarget.signal.aborted)
+        toast({ tone: 'error', title: '空间刷新失败', detail: errorText(error) });
+    } finally {
+      setRefreshingTarget((current) => (current === refreshTarget ? null : current));
+    }
+  };
+  const [settingsAnchor, setSettingsAnchor] = useState<HTMLButtonElement | null>(null);
+  const closeSettings = () => setSettingsAnchor(null);
   const navigationBacks = useRef<Array<() => void>>([]);
   useEffect(
     () => () => {
@@ -698,9 +765,26 @@ export function QzoneView({
           <div className="weq-qzn-tools" data-toolbar-group="">
             <button
               type="button"
+              title="刷新当前空间页面"
+              aria-label="刷新当前空间页面"
+              aria-busy={refreshing}
+              disabled={!refreshTarget || refreshing}
+              onClick={() => void refreshCurrentPage()}
+            >
+              <span className={refreshing ? 'weq-spin' : undefined}>
+                <RefreshCw size={17} aria-hidden />
+              </span>
+            </button>
+            <button
+              type="button"
               title="空间设置"
               aria-label="空间设置"
-              onClick={() => setSettingsOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={Boolean(settingsAnchor)}
+              onClick={(event) => {
+                const trigger = event.currentTarget;
+                setSettingsAnchor((current) => (current ? null : trigger));
+              }}
             >
               <Settings size={17} />
             </button>
@@ -1003,12 +1087,16 @@ export function QzoneView({
         }}
       >
         <QzonePublicNavigationContext.Provider value={() => setTab('public')}>
-          {workspace}
+          <QzoneActiveRefresh.Provider value={setRefreshTarget}>
+            {workspace}
+          </QzoneActiveRefresh.Provider>
         </QzonePublicNavigationContext.Provider>
-        {settingsOpen && active ? (
+        {settingsAnchor && active ? (
           <Modal
-            presentation="panel"
-            onClose={() => setSettingsOpen(false)}
+            presentation="popover"
+            anchor={settingsAnchor}
+            fitAnchorHeight
+            onClose={closeSettings}
             width={480}
             labelledBy="weq-qzone-settings-title"
           >
@@ -1018,7 +1106,7 @@ export function QzoneView({
                 type="button"
                 aria-label="关闭空间设置"
                 title="关闭空间设置"
-                onClick={() => setSettingsOpen(false)}
+                onClick={closeSettings}
               >
                 <X size={18} />
               </button>
@@ -1351,7 +1439,7 @@ function SpaceContent({
                   <ArrowLeft size={17} aria-hidden />
                 </button>
               </header>
-              <QzonePage active={active} refreshKey={0}>
+              <QzonePage active={active} refreshKey={0} allowManualRefresh={false}>
                 <div className="weq-qzn-timeline">
                   <LinkedPost
                     selfUin={selfUin}
@@ -1396,6 +1484,14 @@ function LinkedPost({
   const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: active });
   const configId = config.data?.uin === selfUin ? config.data.configId : '';
   const { query } = useQzonePostDetail(selfUin, hostUin, tid, configId ?? '', active, false);
+  useQzoneRefresh(
+    async () => {
+      await query.refetch({ throwOnError: true });
+      return false;
+    },
+    active && Boolean(configId),
+    tid,
+  );
   const post = query.data;
   const error = config.error ?? query.error;
   const ref = useRef<HTMLDivElement>(null);
@@ -1488,6 +1584,7 @@ function Posts({
   onDeleted?: (tid: string) => void;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
+  const refreshRequest = useQzoneRefreshRequest(active);
   const dataCache = usePageDataCache();
   const cacheKey = JSON.stringify(['posts', selfUin, hostUin]);
   const [cached] = useState(() => dataCache.read<PostsSnapshot>(cacheKey));
@@ -1552,21 +1649,25 @@ function Posts({
   }, [visiblePosts, done, cacheKey, dataCache]);
   useEffect(() => {
     const request = `${refresh}:${pageRequest}:${retry}`;
-    if (!active || settledRequest.current === request) {
+    const manual = refreshRequest?.pending ? refreshRequest : null;
+    if (!active || (!manual && settledRequest.current === request)) {
       setLoading(false);
       return;
     }
     let live = true;
     setLoading(true);
     setError('');
-    if (refresh !== lastRefresh.current) headRequest.current = true;
+    if (manual || refresh !== lastRefresh.current) headRequest.current = true;
     else if (offset !== lastOffset.current) headRequest.current = false;
     lastRefresh.current = refresh;
     lastOffset.current = offset;
     const refreshing = headRequest.current;
     const pageOffset = refreshing ? 0 : offset;
-    void run((requestId) =>
-      client.account.qzone.posts.query({ selfUin, hostUin, requestId, offset: pageOffset }),
+    void run(
+      (requestId) =>
+        client.account.qzone.posts.query({ selfUin, hostUin, requestId, offset: pageOffset }),
+      false,
+      manual?.signal,
     )
       .then((page) => {
         if (!live) return;
@@ -1611,9 +1712,16 @@ function Posts({
         }
         currentPosts.current = merged;
         setPosts(merged);
+        manual?.resolve(
+          page.list.some(
+            (post) => !previousIds.has(post.tid) && post.time >= (previous[0]?.time ?? 0),
+          ),
+        );
       })
       .catch((error: unknown) => {
-        if (live) setError(errorText(error));
+        if (!live) return;
+        if (manual) manual.reject(error);
+        else setError(errorText(error));
       })
       .finally(() => {
         if (live) {
@@ -1625,11 +1733,23 @@ function Posts({
       live = false;
       cancel();
     };
-  }, [active, selfUin, hostUin, offset, pageRequest, retry, refresh, run, cancel, onOwnerNickname]);
+  }, [
+    active,
+    selfUin,
+    hostUin,
+    offset,
+    pageRequest,
+    retry,
+    refresh,
+    refreshRequest,
+    run,
+    cancel,
+    onOwnerNickname,
+  ]);
   const pageCountLabel = `（已获取 ${fetchedPages.current.size} 页）`;
   return (
     <div {...multi.rootProps}>
-      {loading && posts.length > 0 && headRequest.current ? (
+      {loading && !refreshRequest?.pending && posts.length > 0 && headRequest.current ? (
         <LoadingStatus
           text={
             <span>
@@ -3156,6 +3276,7 @@ function FeedTimeline({
   onScopeChange?: (scope: 0 | 7) => void;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
+  const refreshRequest = useQzoneRefreshRequest(active);
   const dataCache = usePageDataCache();
   const cacheKey = JSON.stringify(['feeds', selfUin, scope, kind]);
   const [cached] = useState(() => dataCache.read<FeedSnapshot>(cacheKey));
@@ -3167,6 +3288,7 @@ function FeedTimeline({
   const [feeds, setFeeds] = useState<QzoneFeed[] | null>(cached?.feeds ?? null);
   const [error, setError] = useState('');
   const [interactionTab, setInteractionTab] = useState<RelatedKind>('like');
+  const shownInteraction = useRef(interactionTab);
   const suspended = useRef<string | null>(null);
   const readsPaused = kind === 'related' && /HTTP\s*501/i.test(error);
   const [unknownOpen, setUnknownOpen] = useState(false);
@@ -3215,10 +3337,13 @@ function FeedTimeline({
   useEffect(() => {
     const recovery = `${refresh}:${retry}`;
     const request = `${refresh}:${pageRequest}:${retry}`;
+    const manual = refreshRequest?.pending ? refreshRequest : null;
     if (
       !active ||
-      settledRequest.current === request ||
-      (kind === 'related' && (suspended.current === recovery || relatedRound.current.exhausted))
+      (!manual &&
+        (settledRequest.current === request ||
+          (kind === 'related' &&
+            (suspended.current === recovery || relatedRound.current.exhausted))))
     ) {
       setLoading(false);
       return;
@@ -3227,12 +3352,13 @@ function FeedTimeline({
     let live = true;
     setError('');
     setLoading(true);
-    if (refresh !== lastRefresh.current) headRequest.current = true;
+    if (manual || refresh !== lastRefresh.current) headRequest.current = true;
     else if (cursor !== lastCursor.current) headRequest.current = false;
     lastRefresh.current = refresh;
     lastCursor.current = cursor;
     const refreshing = headRequest.current;
     const pageCursor = refreshing ? undefined : cursor;
+    if (manual && kind === 'related') relatedRound.current.resume();
     void run<{ feeds: QzoneFeed[]; hasMore: boolean; nextCursor?: string; incomplete?: boolean }>(
       (requestId) => {
         if (kind === 'related')
@@ -3245,12 +3371,15 @@ function FeedTimeline({
             : Promise.reject(new Error('本轮互动读取已完成'));
         return client.account.qzone.feeds.query({ selfUin, requestId, cursor: pageCursor, scope });
       },
+      false,
+      manual?.signal,
     )
       .then((page) => {
         if (!live) return;
         fetchedPages.current.add(pageCursor ?? 'head');
         let carriedTail = false;
         let pageIncomplete = page.incomplete === true;
+        const previous = accumulated.current;
         const previousSize = feedKeys.size;
         const incoming = page.feeds.map((feed) => [keyForFeed(feed), feed] as const);
         const overlaps = incoming.some(([id]) => feedKeys.has(id));
@@ -3331,12 +3460,23 @@ function FeedTimeline({
         }
         setFeeds(accumulated.current);
         publishSnapshot((revision) => revision + 1);
+        if (manual) {
+          const visible = (feed: QzoneFeed) =>
+            kind === 'related'
+              ? projectQzoneRelated(feed, selfUin).kind === shownInteraction.current
+              : feed.uin > 0 && !projectQzoneFeed(feed.html).advertisement;
+          const previousLatest = previous.find(visible)?.time ?? 0;
+          manual.resolve(
+            [...added.values()].some((feed) => feed.time >= previousLatest && visible(feed)),
+          );
+        }
       })
       .catch((error: unknown) => {
         if (live) {
           const message = errorText(error);
           if (kind === 'related' && /HTTP\s*501/i.test(message)) suspended.current = recovery;
-          setError(message);
+          if (manual) manual.reject(error);
+          else setError(message);
         }
       })
       .finally(() => {
@@ -3356,6 +3496,7 @@ function FeedTimeline({
     pageRequest,
     retry,
     refresh,
+    refreshRequest,
     scope,
     kind,
     run,
@@ -3550,6 +3691,7 @@ function FeedTimeline({
     interactionTab === 'push' && !relatedTabs.some((tab) => tab.value === 'push')
       ? 'like'
       : interactionTab;
+  shownInteraction.current = selectedInteractionTab;
   const relatedShown = related?.filter((item) => item.activity.kind === selectedInteractionTab);
   const { panel: interactionPanel, rememberScroll: rememberInteractionScroll } = useTabPanelMotion(
     selectedInteractionTab,
@@ -3691,6 +3833,7 @@ function FeedTimeline({
             ref={interactionPanel}
             id={relatedPanel}
             role="tabpanel"
+            data-qzone-refresh-start=""
             aria-label={relatedTabs.find((item) => item.value === selectedInteractionTab)?.label}
           >
             {relatedShown?.map(({ feed, activity }) => (
@@ -3706,7 +3849,7 @@ function FeedTimeline({
                 onComment={rememberComment}
               />
             ))}
-            {feeds && !loading && !relatedShown?.length ? (
+            {feeds && (!loading || refreshRequest?.pending) && !relatedShown?.length ? (
               <EmptyState compact icon={<MessageCircle />} title="暂无此类互动" />
             ) : null}
           </div>

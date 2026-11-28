@@ -30,6 +30,7 @@ import { MessageBatchActionDialog } from './MessageBatchActionDialog';
 import {
   MessageContextMenu,
   type MessageContextMenuState,
+  type MessageDetailsSelection,
 } from '../im-template/template/messageContextMenu';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
 import { MessageTimeDivider } from '../im-template/template/messageTime';
@@ -58,6 +59,7 @@ import {
   forwardIntentInput,
   forwardIntentText,
   forwardMessage,
+  forwardRecordTarget,
   forwardTextClipboard,
   isForwardContinuation,
   type ForwardEntry,
@@ -69,7 +71,7 @@ import { MessageSelectionMark } from './MessageSelectionMark';
 import { MessageMediaRevealAction } from './MessageMediaRevealAction';
 import { useMediaSave } from './MediaSaveControls.shared';
 import { MessageFavoriteEmojiAction } from './qq-actions/MessageFavoriteEmojiAction';
-import { MessageDecorationCard } from './MessageDecorationCard';
+import { MessageDetails } from './lazyMainPanels';
 import { MessageMenuButton } from './MessageMenuButton';
 import { useToast } from './Toast.shared';
 import { ForwardSelectionAnalysis } from './ForwardSelectionAnalysis';
@@ -128,7 +130,10 @@ export function ForwardRecordList({
     y: number;
   } | null>(null);
   const [report, setReport] = useState<ForwardEntry[] | null>(null);
-  const [decoration, setDecoration] = useState<Message['decoration']>();
+  const [details, setDetails] = useState<{
+    selection: MessageDetailsSelection;
+    entry: ForwardEntry;
+  }>();
   const [merging, setMerging] = useState(false);
   const mergePending = useRef(false);
   const press = useRef<{
@@ -798,10 +803,7 @@ export function ForwardRecordList({
                 }
               : undefined
           }
-          onViewDecoration={(message) => {
-            closeMenu();
-            setDecoration(message.decoration);
-          }}
+          onViewDetails={(selection) => setDetails({ selection, entry: menu.entry })}
           onSaveMedia={
             save
               ? () => {
@@ -853,9 +855,20 @@ export function ForwardRecordList({
           }
         />
       )}
-      {decoration && (
-        <MessageDecorationCard decoration={decoration} onClose={() => setDecoration(undefined)} />
-      )}
+      {details ? (
+        <MessageDetails
+          key={details.entry.id}
+          selection={details.selection}
+          snapshot={details.entry.record}
+          isSender={details.entry.record.isSender}
+          forwardRecord={{
+            target: forwardRecordTarget(details.entry),
+            children: details.entry.record.subMsgs,
+            reply: details.entry.reply && { senderName: details.entry.reply.senderName },
+          }}
+          onClose={() => setDetails(undefined)}
+        />
+      ) : null}
       {review.review ? (
         <MessageBatchActionDialog
           {...review.review}

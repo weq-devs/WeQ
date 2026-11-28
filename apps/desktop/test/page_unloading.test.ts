@@ -23,6 +23,10 @@ import {
   pageValue,
 } from '../src/renderer/src/lib/pageSnapshots';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
+import {
+  revealTimelineMessage,
+  TIMELINE_MESSAGE_LOCATED,
+} from '../src/renderer/src/lib/timelineViewport';
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -387,6 +391,68 @@ it('用户中断等待中的滚动恢复后，迟到图片加载不能再次套�
     expect(scroll.scrollTop).toBe(35);
   } finally {
     act(() => root.unmount());
+  }
+});
+
+it.each([true, false])('切回消息页后显式定位优先（显式=%s）', async (explicit) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const scroll = () => host.querySelector<HTMLElement>('.message-scroll')!;
+  const render = (activeKey: string, messageId?: string) =>
+    act(() =>
+      root.render(
+        h(
+          PageSnapshots,
+          { scope: 'account' },
+          h(
+            RetainedTabs,
+            { snapshotKey: 'main', activeKey },
+            activeKey === 'messages'
+              ? h(
+                  'div',
+                  {
+                    className: 'message-scroll',
+                    ref: (node: HTMLDivElement | null) => {
+                      if (node)
+                        Object.defineProperty(node, 'scrollHeight', {
+                          configurable: true,
+                          value: messageId ? 1000 : 0,
+                        });
+                    },
+                  },
+                  messageId &&
+                    h('div', { className: 'message-line', 'data-message-id': messageId }),
+                )
+              : h('div'),
+          ),
+        ),
+      ),
+    );
+  try {
+    render('messages', 'old');
+    scroll().scrollTop = 120;
+    scroll().dispatchEvent(new Event('scroll', { bubbles: true }));
+    render('contacts');
+    render('messages');
+    render('messages', 'notification-target');
+    if (!explicit)
+      scroll().addEventListener(TIMELINE_MESSAGE_LOCATED, (event) => event.stopPropagation(), {
+        once: true,
+      });
+    const target = scroll().querySelector<HTMLElement>('[data-message-id]')!;
+    target.scrollIntoView = () => {
+      scroll().scrollTop = 640;
+    };
+    expect(revealTimelineMessage(scroll(), 'notification-target', true)).toBe(true);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(scroll().scrollTop).toBe(explicit ? 640 : 120);
+    expect(target.classList.contains('weq-reply-target-flash')).toBe(true);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
   }
 });
 

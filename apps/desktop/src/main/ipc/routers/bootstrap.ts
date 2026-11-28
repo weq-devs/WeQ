@@ -14,7 +14,9 @@
  */
 import { OperationError, developmentDressToolsEnabled, MAX_LOG_RETENTION_DAYS } from '@weq/service';
 import { isHistoryCapacityMiB, type HistoryCapacityMiB } from '@weq/service/settings-catalog';
-import { measureDatabaseStartup } from '@weq/db';
+import { assertQqFileWriteAllowed, measureDatabaseStartup } from '@weq/db';
+import { QQ_CAPABILITY_MODES, type QqCapabilityMode } from '@weq/service/qq-capability-mode';
+import { emitSettingsChanged } from '@weq/service/settings-changes';
 
 import { observable } from '@trpc/server/observable';
 import type { TranscribeResult } from '../../transcribe/engine';
@@ -22,7 +24,6 @@ import {
   ensureQqSyncProxy,
   isQqSyncProxyEnabled,
   qqSyncStatus,
-  qqSyncRequest,
   setQqSyncPort,
   setQqSyncProxyEnabled,
 } from '../../qq_sync/runtime';
@@ -76,7 +77,6 @@ import { botRuntime } from '../../bot_runtime';
 import { suggestOneBotPort } from '../../bot_runtime/onebot_port';
 import { maintainDesktopStorage } from '../../desktop_storage';
 import { withAccountInstance } from '../../account_instance_scope';
-import { readAccountQqSync } from '../../qq_sync/preferences';
 import { isMcpRunning, runningMcpConfig } from '../../mcp/server';
 import {
   desktopMcpStatus,
@@ -154,6 +154,7 @@ import { enhancementProcedures } from './enhancements';
 import { startEnhancementDownloads } from '../../enhancements/tasks';
 import { ENHANCEMENT_PACK_IDS } from '../../../shared/enhancement_manifest';
 import { assertRuntimeFilesIdle, runtimeFileBusyPaths } from '../../context/runtime_files';
+import { isDbRepairBusy } from './db_repair';
 import { runtimeMaintenance } from '../../runtime_maintenance';
 import { resolveSignerWrapper } from '../../context/signer_target';
 import { launchQq, qqRestartInProgress, restartQq, runningQqCount } from '../../qq_launch';
@@ -163,6 +164,7 @@ import {
   QQ_DEBUG_COPY_PERMISSION_ACTIONS,
 } from '../../../shared/qq_debug_copy';
 import { checkQqDataAccess, QQ_DATA_ACCESS_SETTINGS } from '../../qq_data_access';
+import { applyNativeQqReadOnly, saveQqCapabilityPreference } from '../../qq_output_path';
 import { macLaunchApplication } from '../../mac_launch_application';
 import { refreshWindowControls } from '../../window_controls_events';
 import {
@@ -427,6 +429,41 @@ function validateWeqOneBotConfig(value: unknown, uin: string): OneBotConfig {
 }
 const configuredNotificationKeys = new Set<string>();
 
+const qqCapabilityChanges = new Set<string>();
+
+async function setQqCapabilityMode(mode: QqCapabilityMode, disconnectProxy = false) {
+  const { userConfig, qqSyncRoot: root } = requireBootstrap();
+  if (qqCapabilityChanges.has(root)) throw new Error('正在切换 QQ 能力档位，请稍候。');
+  qqCapabilityChanges.add(root);
+  try {
+    const current = userConfig.getSetting('qqCapabilityMode');
+    const proxyEnabled = isQqSyncProxyEnabled(root);
+    const stopProxy = mode !== 'complete' && proxyEnabled && (current !== mode || disconnectProxy);
+    if (stopProxy && !disconnectProxy && (await qqSyncStatus(root)).tunnels)
+      return { status: 'confirm-disconnect' as const };
+    if (mode === 'read-only' && current !== mode && isDbRepairBusy())
+      throw new Error('请结束当前数据库维护后再切换到只读模式。');
+    if (current !== mode) saveQqCapabilityPreference(mode);
+    let proxyError: string | undefined;
+    try {
+      if (mode === 'complete') {
+        if (proxyEnabled) await ensureQqSyncProxy(root);
+        else await setQqSyncProxyEnabled(root, true);
+      } else if (stopProxy) {
+        await setQqSyncProxyEnabled(root, false);
+      }
+    } catch (error) {
+      proxyError = error instanceof Error ? error.message : String(error);
+    }
+    if (mode === 'complete' || stopProxy) {
+      emitSettingsChanged({ fields: ['qqCapabilityMode'], groups: [], clientFields: [] });
+    }
+    return { status: 'saved' as const, mode, proxyError };
+  } finally {
+    qqCapabilityChanges.delete(root);
+  }
+}
+
 export const bootstrapRouter = router({
   ...backupProcedures,
   ...intentSenseModelProcedures,
@@ -614,12 +651,12 @@ export const bootstrapRouter = router({
 
   /** 启动宿主上已安装的 QQ，不自动登录或更改在线功能设置。 */
   launchQq: procedure
-    .input(z.object({ newInstance: z.boolean() }).optional())
+    .input(z.object({ newInstance: z.boolean(), original: z.boolean().optional() }).optional())
     .mutation(async ({ input }) => {
       if (qqRestartInProgress()) throw new Error('正在重新启动 QQ，请稍候。');
       const platform = requirePlatform();
       const newInstance = input?.newInstance ?? false;
-      if (platform.kind === 'darwin' && (await qqDebugCopy.isConfigured())) {
+      if (!input?.original && platform.kind === 'darwin' && (await qqDebugCopy.isConfigured())) {
         const activate = !newInstance && (await qqDebugCopy.status()).runningPids.length > 0;
         await qqDebugCopy.perform(activate ? 'activate' : 'open');
       } else await launchQq(platform, newInstance);
@@ -906,7 +943,6 @@ export const bootstrapRouter = router({
   /** Full, defaulted global settings (realtime / 自动读取 QQ 内存 / …). */
   getSettings: procedure.query(() => {
     const ctx = getAppContext();
-    const sync = readAccountQqSync(ctx);
     const host = getHost();
     const settings = requireBootstrap().userConfig.getSettings();
     const remoteAccount = host.accountScoped && host.remoteClient;
@@ -924,8 +960,6 @@ export const bootstrapRouter = router({
             },
           }
         : {}),
-      qqClientSyncEnabled: sync.enabled,
-      qqLiveMessagesEnabled: sync.liveMessages,
       startupReadOnly: host.startupReadOnly,
     };
   }),
@@ -977,6 +1011,7 @@ export const bootstrapRouter = router({
       mode: 'preset',
       directory: host.exportRoot ? resolveExportSaveDirectory(host.exportRoot, selected) : selected,
     });
+    if (policy.directory) assertQqFileWriteAllowed(policy.directory);
     return config.setSettings({ exportSaveMode: policy.mode, defaultExportDir: policy.directory });
   }),
 
@@ -1022,6 +1057,7 @@ export const bootstrapRouter = router({
   setDefaultExportDir: procedure
     .input(z.object({ dir: z.string().min(1).nullable() }))
     .mutation(({ input }) => {
+      if (input.dir) assertQqFileWriteAllowed(input.dir);
       requireBootstrap().userConfig.setSettings({ defaultExportDir: input.dir });
       return true;
     }),
@@ -1032,6 +1068,7 @@ export const bootstrapRouter = router({
   pickDefaultExportDir: procedure.mutation(async (): Promise<string | null> => {
     const picked = await getHost().pickDirectory({ title: '选择默认导出保存文件夹' });
     if (!picked) return null;
+    assertQqFileWriteAllowed(picked);
     requireBootstrap().userConfig.setSettings({ defaultExportDir: picked });
     return picked;
   }),
@@ -1126,11 +1163,21 @@ export const bootstrapRouter = router({
       return true;
     }),
 
-  /** 保存宿主共享的 QQ 在线能力开关。 */
+  setQqCapabilityMode: procedure
+    .input(z.object({ mode: z.enum(QQ_CAPABILITY_MODES), disconnectProxy: z.boolean().optional() }))
+    .mutation(({ input }) => setQqCapabilityMode(input.mode, input.disconnectProxy)),
+
+  /** 旧登录入口的快捷开启只选择在线能力档位。 */
   setAutoAttachQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
     const { userConfig } = requireBootstrap();
-    if (userConfig.getSettings().autoAttachQq !== input.enabled)
-      userConfig.setSettings({ autoAttachQq: input.enabled });
+    if (userConfig.getSetting('autoAttachQq') !== input.enabled)
+      saveQqCapabilityPreference(
+        input.enabled
+          ? isQqSyncProxyEnabled(requireBootstrap().qqSyncRoot)
+            ? 'complete'
+            : 'online'
+          : 'local',
+      );
     return true;
   }),
 
@@ -1142,15 +1189,15 @@ export const bootstrapRouter = router({
     const liveAccount = accountUin !== null && !ctx.accountIsStatic;
     const sync = ctx.services?.qqClientSync;
     const protection = ctx.services?.antiRecall.protection();
-    const preferences = readAccountQqSync(ctx);
+    const complete = userConfig.getSetting('qqCapabilityMode') === 'complete';
     const status = await qqSyncStatus(qqSyncRoot);
     const uses = {
-      sync: preferences.enabled,
-      liveMessages: preferences.liveMessages && userConfig.getSetting('realtimeEnabled'),
+      sync: complete,
+      liveMessages: complete,
       antiRecall: protection?.enabled === true && protection.method !== 'database',
     };
     const connectionExpected =
-      status.enabled && liveAccount && Boolean(sync) && Object.values(uses).some(Boolean);
+      liveAccount && Boolean(sync) && (complete || (status.enabled && uses.antiRecall));
     const connected = status.running && liveAccount && status.accounts.includes(accountUin);
     const connecting =
       status.running &&
@@ -1170,60 +1217,9 @@ export const bootstrapRouter = router({
     };
   }),
 
-  setQqProxyEnabled: procedure
-    .input(z.object({ enabled: z.boolean() }).strict())
-    .mutation(async ({ input }) => {
-      await setQqSyncProxyEnabled(requireBootstrap().qqSyncRoot, input.enabled);
-      getAppContext().services?.qqClientSync?.refreshLive();
-      return true;
-    }),
-
-  setQqLiveMessagesEnabled: procedure
-    .input(z.object({ enabled: z.boolean() }).strict())
-    .mutation(async ({ input }) => {
-      const { qqSyncRoot: root } = requireBootstrap();
-      const ctx = getAppContext();
-      const services = ctx.services;
-      if (!services || ctx.accountIsStatic) throw new Error('请先打开在线账号。');
-      if (input.enabled && isQqSyncProxyEnabled(root)) await ensureQqSyncProxy(root);
-      if (ctx.services !== services) throw new Error('账号已切换，请重试。');
-      services.accountConfig.setQqSyncPreferences({
-        ...readAccountQqSync(ctx),
-        liveMessages: input.enabled,
-      });
-      services.qqClientSync?.refreshLive();
-      return true;
-    }),
-
   setQqClientSyncPort: procedure
     .input(z.object({ port: z.number().int().min(1).max(65535) }).strict())
     .mutation(({ input }) => setQqSyncPort(requireBootstrap().qqSyncRoot, input.port)),
-
-  setQqClientSyncEnabled: procedure
-    .input(z.object({ enabled: z.boolean() }).strict())
-    .mutation(async ({ input }) => {
-      const ctx = getAppContext();
-      const { qqSyncRoot: root } = requireBootstrap();
-      const services = ctx.services;
-      if (!services || ctx.accountIsStatic) throw new Error('请先打开在线账号。');
-      if (input.enabled && isQqSyncProxyEnabled(root)) await ensureQqSyncProxy(root);
-      if (ctx.services !== services) throw new Error('账号已切换，请重试。');
-      const preferences = readAccountQqSync(ctx);
-      services.accountConfig.setQqSyncPreferences({ ...preferences, enabled: input.enabled });
-      if (
-        !input.enabled &&
-        isQqSyncProxyEnabled(root) &&
-        ctx.account &&
-        !ctx.accountIsStatic &&
-        !preferences.liveMessages &&
-        !ctx.services?.antiRecall.protection().enabled
-      )
-        await qqSyncRequest(root, { op: 'forget', uin: String(ctx.account.context.uin) }).catch(
-          () => undefined,
-        );
-      ctx.services?.qqClientSync?.refresh();
-      return true;
-    }),
 
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁。渲染层的 AppLockOverlay
@@ -2423,7 +2419,7 @@ export const bootstrapRouter = router({
           const modelId = boot.userConfig.getLocalModelId('voice');
           const model = getVoiceModel(modelId);
           if (!model || !boot.voiceTranscribe.getModelStatus(modelId)?.downloaded)
-            return { success: false, error: '请先在「设置 → 能力 → 增强包」准备本地语音转写' };
+            return { success: false, error: '请先在「设置 → 应用 → 增强包」准备本地语音转写' };
           const { model: modelPath, tokens } = boot.voiceTranscribe.resolveModelPaths(modelId);
           if (!modelPath || !tokens) return { success: false, error: '本地语音模型文件缺失' };
           const { transcribeWav } = await import('../../transcribe/engine');
@@ -2443,6 +2439,14 @@ export const bootstrapRouter = router({
           },
         );
         return () => controller.abort();
+      }),
+    ),
+
+  setRecognitionPriority: procedure
+    .input(z.object({ kind: z.enum(['ocr', 'voice']), priority: z.enum(['local', 'qq']) }))
+    .mutation(({ input }) =>
+      requireBootstrap().userConfig.setSettings({
+        [input.kind === 'ocr' ? 'ocr' : 'voiceTranscribe']: { priority: input.priority },
       }),
     ),
 
@@ -3011,6 +3015,7 @@ export const bootstrapRouter = router({
           const host = getHost();
           const items = await requireBootstrap().userConfig.listStorageUsage(storageRoots());
           const targets = selectStorageCleanupTargets(items, input.ids);
+          assertQqFileWriteAllowed(targets.map(({ path }) => ({ path, tree: true })));
           if (!host.clearStorageNow || !host.clearStorageAfterExit) {
             if (input.afterExit || targets.some((item) => item.requiresExit))
               throw new Error('请在电脑桌面端清除所选数据');
@@ -3078,7 +3083,10 @@ export const bootstrapRouter = router({
     // `E:\备份\QQ`, …). Only fix the common off-by-one pick — the per-account
     // directory itself — by walking up to its parent.
     const root = normalizeQqDataRoot(picked);
-    requireBootstrap().globalConfig.setTencentFilesRootOverride(root);
+    const boot = requireBootstrap();
+    if (boot.userConfig.getSetting('qqCapabilityMode') === 'read-only')
+      applyNativeQqReadOnly(requirePlatform(), boot.userConfig, true, root);
+    boot.globalConfig.setTencentFilesRootOverride(root);
     logger.info('set QQ data dir override', {
       event: 'pick-root-accepted',
       picked,

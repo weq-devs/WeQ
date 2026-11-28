@@ -12,6 +12,7 @@
  */
 
 import { join } from 'node:path';
+import { qqDatabaseReadOnly } from '@weq/db';
 import { publishReleasePages, type ReleasePageInput } from './release_page';
 import { addTweet, loadTweets, tweetsStorePath } from './tweets';
 import { WeqAssistantService, getLogger, logErrorContext } from '@weq/service';
@@ -85,7 +86,7 @@ export async function announceUpdateAvailable(version: string): Promise<void> {
   // syncTweets 按本地推文库自然补上。静态账号禁止写助手头像（与
   // app_context.applyWeqAssistant 同一约定）。
   const ctx = getAppContext();
-  if (ctx.account && ctx.platform) {
+  if (ctx.account && ctx.platform && !qqDatabaseReadOnly()) {
     const port = userConfig.getSettings().weqAssistant.port;
     const svc = new WeqAssistantService(
       ctx.account,

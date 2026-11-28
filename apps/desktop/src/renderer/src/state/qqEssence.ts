@@ -12,7 +12,7 @@ export interface EssenceReceipt {
   source: string;
   groupId: number;
   sequence: number;
-  random: number;
+  random?: number;
   pending?: number;
   enabled?: boolean;
   at: number;
@@ -81,6 +81,13 @@ let nextOperation = 0;
 export const useQQEssence = create<{
   receipts: EssenceReceipts;
   begin: (source: string, target: EssenceTarget) => number | null;
+  observe: (
+    source: string,
+    groupId: number,
+    sequence: number,
+    enabled: boolean,
+    at: number,
+  ) => void;
   finish: (key: string, operation: number, enable?: boolean, outcome?: QQWriteOutcome) => void;
   reconcile: (
     source: string,
@@ -92,6 +99,21 @@ export const useQQEssence = create<{
   ) => void;
 }>((set, get) => ({
   receipts: {},
+  observe(source, groupId, sequence, enabled, at) {
+    if (!source || Date.now() - at >= ESSENCE_RECEIPT_TTL) return;
+    const key = essenceKey(source, groupId, sequence);
+    const receipts = { ...get().receipts };
+    const previous = receipts[key];
+    if (previous && (previous.at > at || (previous.at === at && previous.enabled === enabled)))
+      return;
+    if (!previous && Object.keys(receipts).length >= MAX_RECEIPTS) {
+      const oldest = Object.entries(receipts).find(([, receipt]) => !receipt.pending);
+      if (!oldest) return;
+      delete receipts[oldest[0]];
+    }
+    receipts[key] = { ...previous, source, groupId, sequence, enabled, at };
+    set({ receipts });
+  },
   begin(source, target) {
     if (!source) return null;
     const key = essenceKey(source, target.groupId, target.sequence);

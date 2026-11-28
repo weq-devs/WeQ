@@ -10,6 +10,7 @@ import {
 
 export const CALENDAR_CHECKPOINT_MAX_BYTES = 16 * 1024 * 1024;
 const pending = new Map<string, Promise<void>>();
+const flushing = new Set<Promise<void>>();
 const RELATED_CHECKPOINT_LIMIT = 4;
 const RELATED_CHECKPOINT_READ_BYTES = 4 * 1024 * 1024;
 const CHECKPOINT_WRITE_CHUNK_BYTES = 64 * 1024;
@@ -52,7 +53,8 @@ function readEnvelope(raw: unknown, identity: string, family?: string): unknown 
   return raw.state;
 }
 export async function waitForCalendarWrites(): Promise<void> {
-  while (pending.size) await Promise.all([...pending.values()]);
+  // 同一轮 flush 可在两次文件写入之间更新索引或合并新的保存请求。
+  while (flushing.size) await Promise.all(flushing);
 }
 
 function* arrayParts(items: readonly unknown[]): Generator<string> {
@@ -225,7 +227,7 @@ export class CalendarCheckpointStore {
     if (this.blocked) return;
     this.dirty = true;
     if (this.writing) return this.writing;
-    this.writing = (async () => {
+    const writing = (async () => {
       while (this.dirty) {
         this.dirty = false;
         const state = this.checkpoint();
@@ -242,8 +244,11 @@ export class CalendarCheckpointStore {
         throw error;
       })
       .finally(() => {
+        flushing.delete(writing);
         this.writing = undefined;
       });
-    return this.writing;
+    this.writing = writing;
+    flushing.add(writing);
+    return writing;
   }
 }

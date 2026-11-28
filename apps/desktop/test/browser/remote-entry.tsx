@@ -1,5 +1,8 @@
 import { createRoot } from 'react-dom/client';
-import { RemoteSection } from '../../src/renderer/src/components/settings/RemoteSection';
+import {
+  BrowserAccessSection,
+  RemoteSection,
+} from '../../src/renderer/src/components/settings/RemoteSection';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import { useRemoteEntryFixture } from './remote-entry.stub';
 import '../../src/renderer/src/styles/index.css';
@@ -14,6 +17,7 @@ createRoot(document.getElementById('root')!).render(
       main{padding:20px;max-width:900px;margin:auto;background:var(--weq-chat-bg);color:var(--weq-fg-primary)}
     `}</style>
     <main>
+      <BrowserAccessSection />
       <RemoteSection />
     </main>
   </>,

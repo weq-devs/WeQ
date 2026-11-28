@@ -389,31 +389,39 @@ export class RemoteRuntime {
 
   async invite(input?: z.infer<typeof remoteInviteInput>) {
     const bootstrap = remoteInviteInput.parse(input);
-    const direct = !bootstrap || !('authKey' in bootstrap);
+    const authKey = bootstrap && 'authKey' in bootstrap ? bootstrap.authKey : undefined;
+    const mode = bootstrap && 'mode' in bootstrap ? bootstrap.mode : undefined;
     const state = this.status().network;
-    if ((!direct && this.tailscaleState.state !== 'online') || !state.fingerprint)
-      throw new Error(direct ? '请先完成网络登录。' : '请先启动并登录 WeQ 专用 Tailscale 服务。');
+    const own = this.tailscaleState.state === 'online' ? this.tailscaleState.address : undefined;
+    if ((authKey && (!own || !state.fingerprint)) || (mode === 'existing' && !own))
+      throw new Error('请先启动并登录 WeQ 专用 Tailscale 服务。');
+    if (!state.fingerprint) throw new Error(mode ? '请先开启 Remote 连接。' : '请先完成网络登录。');
     const selected = bootstrap && 'endpoint' in bootstrap ? bootstrap.endpoint : undefined;
     const addresses = state.addresses ?? [];
     if (selected && !addresses.includes(selected)) throw new Error('所选网络地址已不可用。');
-    const endpoint = direct ? (selected ?? addresses[0]) : this.tailscaleState.address;
-    if (!endpoint)
+    const lan = remoteDirectAddresses(addresses, 'lan').slice(0, 6);
+    const tailscale = [...(own ? [own] : []), ...remoteDirectAddresses(addresses, 'existing')];
+    // 带密钥的跨网配对使用内嵌入口，让首次配对完成入网，即使设备此刻也能直连局域网。
+    const endpoints = selected
+      ? [selected]
+      : mode === 'lan'
+        ? lan
+        : mode === 'tailscale'
+          ? tailscale.slice(0, 1)
+          : mode === 'existing'
+            ? tailscale
+            : [...lan, ...tailscale];
+    if (!endpoints.length)
       throw new Error('没有可用的连接地址，请检查网络或启动 WeQ 专用 Tailscale 服务。');
     const invite = this.pairing.invite();
     const url = new URL('weq-remote://pair');
     url.searchParams.set('v', selected ? '3' : '4');
-    if (selected) url.searchParams.set('endpoint', selected);
-    else {
-      const lan = remoteDirectAddresses(addresses, 'lan').slice(0, 6);
-      const own = this.tailscaleState.state === 'online' ? this.tailscaleState.address : undefined;
-      const tls = remoteDirectAddresses(addresses, 'existing');
-      const endpoints = [...new Set([...lan, ...(own ? [own] : []), ...tls])].slice(0, 8);
-      for (const address of endpoints) url.searchParams.append('endpoint', address);
-    }
+    for (const address of [...new Set(endpoints)].slice(0, 8))
+      url.searchParams.append('endpoint', address);
     url.searchParams.set('invitation', invite.secret);
     url.searchParams.set('fingerprint', state.fingerprint!);
-    if (bootstrap && 'authKey' in bootstrap) {
-      url.searchParams.set('authKey', bootstrap.authKey);
+    if (authKey) {
+      url.searchParams.set('authKey', authKey);
       url.searchParams.set('expiresAt', String(invite.expiresAt));
     }
     return {

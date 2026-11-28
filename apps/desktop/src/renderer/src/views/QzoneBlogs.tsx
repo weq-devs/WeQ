@@ -24,6 +24,7 @@ import {
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
 import { QzoneAutoPage } from './QzonePagination';
 import { QzonePageContext } from './qzoneShared.shared';
+import { hasNewQzoneItems, useQzoneRefresh } from './qzoneRefresh';
 
 type BlogInput = Omit<
   Parameters<typeof client.account.qzone.blog.query>[0],
@@ -300,6 +301,11 @@ export function QzoneBlogs({
   onSpace: (uin: string, nickname?: string) => void;
 }) {
   const { items, input, configId, error, loading } = index;
+  useQzoneRefresh(
+    async () => hasNewQzoneItems(items, await index.reload(), (blog) => blog.id),
+    Boolean(configId),
+    configId,
+  );
   return (
     <div className="weq-qzn-timeline">
       {items.map((item) => (

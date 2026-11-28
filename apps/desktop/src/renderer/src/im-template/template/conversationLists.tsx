@@ -1995,13 +1995,13 @@ const ContactDirectoryRow = memo(function ContactDirectoryRow({
           />
         ) : null}
       </button>
-      {own && !detail && onlineStatus && onlineStatus.typeName !== '未知' ? (
+      {own && !detail ? (
         <div className="weq-contact-self-status-row">
           <OnlineStatus
             uid={contact.uid || contact.id}
             selfUin={contact.identityValue}
             showBaseStatus
-            fallbackText={onlineStatus.displayStatus}
+            fallbackText={onlineStatus?.typeName !== '未知' ? onlineStatus?.displayStatus : null}
           />
         </div>
       ) : null}

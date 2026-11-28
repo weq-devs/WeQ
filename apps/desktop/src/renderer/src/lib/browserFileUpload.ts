@@ -31,6 +31,7 @@ export async function withBrowserFile<T>(
   send: (uploadId: string) => Promise<T>,
   onProgress?: (received: number, total: number) => void,
   resumeTarget?: string,
+  retainRejected?: (result: T) => boolean,
 ): Promise<T> {
   if (!bytes.length || bytes.length > BROWSER_FILE_MAX_BYTES)
     throw new Error('请选择 100 MB 以内的非空文件');
@@ -90,7 +91,9 @@ export async function withBrowserFile<T>(
     check();
     submitted = true;
     if (key) forgetUpload(key);
-    return await send(id);
+    const result = await send(id);
+    if (canResume && retainRejected?.(result)) submitted = false;
+    return result;
   } finally {
     if (submitted || !canResume)
       await api.browserFileDiscard.mutate({ ...binding, uploadId: id }).catch(() => {});

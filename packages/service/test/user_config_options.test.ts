@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { UserConfigService, DEFAULT_APP_SETTINGS } from '../src/bootstrap/user_config';
+import {
+  UserConfigService,
+  DEFAULT_APP_SETTINGS,
+  WELCOME_POLICY_VERSION,
+} from '../src/bootstrap/user_config';
 import {
   DEFAULT_TOAST_DURATIONS,
   isToastDuration,
@@ -358,4 +362,24 @@ describe('附加提示旧配置', () => {
       expect(f.open().getSettings().suppressAttachHint).toBe(true);
     });
   });
+});
+
+it.each([
+  [false, false, 'local'],
+  [false, true, 'local'],
+  [true, false, 'online'],
+  [true, true, 'complete'],
+] as const)('迁移旧在线能力 %s 与代理 %s 后保存档位 %s', (online, proxy, mode) => {
+  const f = configFixture({
+    welcomePolicyVersion: WELCOME_POLICY_VERSION,
+    settings: { autoAttachQq: online },
+  });
+  f.service.setSettings({ preferCdn: false });
+  f.service.migrateQqCapabilityMode(proxy);
+  const reopened = f.open();
+  expect(reopened.getSetting('qqCapabilityMode')).toBe(mode);
+  expect(reopened.getSetting('autoAttachQq')).toBe(online);
+  reopened.setSettings({ qqCapabilityMode: 'read-only' });
+  reopened.migrateQqCapabilityMode(true);
+  expect(f.open().getSetting('qqCapabilityMode')).toBe('read-only');
 });
