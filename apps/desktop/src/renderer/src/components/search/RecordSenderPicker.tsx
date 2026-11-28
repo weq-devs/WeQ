@@ -161,7 +161,9 @@ export function RecordSenderPicker({
           <input
             type="search"
             aria-label="查找发送者"
-            placeholder={includeHistoricalNames ? '昵称、历史称呼或 QQ 号' : '昵称、备注或 QQ 号'}
+            placeholder={
+              includeHistoricalNames ? '昵称、备注、历史称呼或 QQ 号' : '昵称、备注或 QQ 号'
+            }
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             data-weq-autofocus
@@ -182,7 +184,7 @@ export function RecordSenderPicker({
             label="发送者查找范围"
             value={includeHistoricalNames ? 'historical' : 'current'}
             options={[
-              { value: 'current', label: '当前称呼' },
+              { value: 'current', label: '仅当前称呼' },
               { value: 'historical', label: '包含历史称呼' },
             ]}
             onChange={(value) => setIncludeHistoricalNames(value === 'historical')}

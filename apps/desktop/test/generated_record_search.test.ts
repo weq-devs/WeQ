@@ -561,7 +561,7 @@ it('群发送者打开即使用当前排序读取完整名单，按昵称筛选�
     expect(
       segments.map((button) => [button.textContent, button.getAttribute('aria-checked')]),
     ).toEqual([
-      ['当前称呼', 'true'],
+      ['仅当前称呼', 'true'],
       ['包含历史称呼', 'false'],
     ]);
     await act(async () => changeInput(input, '旧群名片'));
