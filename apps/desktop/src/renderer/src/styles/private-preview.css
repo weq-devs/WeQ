@@ -8,6 +8,11 @@
 .weq-group-page.is-previewing-chat > .weq-contact-chat-preview {
   padding: 0;
 }
+.weq-preview-message-row > .message-time-divider {
+  display: flex;
+  width: fit-content;
+  margin-inline: auto;
+}
 .weq-preview-message-note {
   margin: 4px 16px 12px;
   color: var(--weq-fg-secondary);
