@@ -540,7 +540,6 @@ export function QzoneSpaceHome({
             key={`${configId}:${hostUin}`}
             rows={virtualRows}
             active={active}
-            keepTopOnUpdate
             selectionMode={selection.selectionMode}
             focusRequest={multi.focusRequest}
             renderRow={({ key, row }) => {

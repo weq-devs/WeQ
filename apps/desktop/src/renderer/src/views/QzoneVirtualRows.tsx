@@ -24,11 +24,6 @@ const observeFeedRect: typeof observeElementRect = (instance, update) =>
   observeElementRect(instance, (rect) => {
     if (rect.height > 0) update(rect);
   });
-const observeFeedOffset: typeof observeElementOffset = (instance, update) =>
-  observeElementOffset(instance, (offset, scrolling) => {
-    if (!instance.scrollElement?.hasAttribute('hidden')) update(offset, scrolling);
-  });
-
 interface VirtualFeedRow {
   key: string;
   selectionId?: string;
@@ -37,7 +32,6 @@ interface VirtualFeedRow {
 export function QzoneVirtualRows<Row extends VirtualFeedRow>({
   rows,
   active,
-  keepTopOnUpdate = false,
   selectionMode,
   selected,
   focusRequest,
@@ -46,7 +40,6 @@ export function QzoneVirtualRows<Row extends VirtualFeedRow>({
 }: {
   rows: readonly Row[];
   active: boolean;
-  keepTopOnUpdate?: boolean;
   selectionMode: boolean;
   selected?: ReadonlySet<string>;
   focusRequest: { id: string; revision: number } | null;
@@ -64,7 +57,8 @@ export function QzoneVirtualRows<Row extends VirtualFeedRow>({
   const scrollTop = useRef(0);
   const observeReadingOffset = useCallback<typeof observeElementOffset>(
     (instance, update) =>
-      observeFeedOffset(instance, (top, scrolling) => {
+      observeElementOffset(instance, (top, scrolling) => {
+        if (instance.scrollElement?.hasAttribute('hidden')) return;
         scrollTop.current = top;
         update(top, scrolling);
       }),
@@ -97,7 +91,7 @@ export function QzoneVirtualRows<Row extends VirtualFeedRow>({
     overscan: 4,
     initialRect: { width: 0, height: 900 },
     observeElementRect: observeFeedRect,
-    observeElementOffset: keepTopOnUpdate ? observeReadingOffset : observeFeedOffset,
+    observeElementOffset: observeReadingOffset,
     useAnimationFrameWithResizeObserver: true,
     measureElement: (element, entry, instance) => {
       const actual = measureElement(element, entry, instance);
@@ -109,8 +103,10 @@ export function QzoneVirtualRows<Row extends VirtualFeedRow>({
     },
     rangeExtractor,
     scrollMargin: offset,
-    // 视口仍在主页顶部或简介时，新到的动态可以排到日志前面，无需跟着旧条目移动。
-    anchorTo: keepTopOnUpdate && scrollTop.current <= offset ? 'start' : 'end',
+    // 页首显示新内容，滚入列表后才按条目保留阅读位置。
+    anchorTo: scrollTop.current <= offset ? 'start' : 'end',
+    // 空间动态最新在上，卡片增高或分页时无需贴住列表底部。
+    scrollEndThreshold: -1,
   });
   useLayoutEffect(() => {
     if (!active || !refreshScroll) return;
