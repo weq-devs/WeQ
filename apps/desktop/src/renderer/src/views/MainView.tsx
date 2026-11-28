@@ -5597,7 +5597,7 @@ function MainWorkspace(): ReactElement {
         .filter(isPending)
         .map((item) => optimisticArkToTemplate(item, selectedConversation, optimisticSender)),
       ...optimisticMessages
-        .filter((item) => !item.preparingFont && isPending(item))
+        .filter(isPending)
         .map((item) => optimisticMessageToTemplate(item, selectedConversation, optimisticSender)),
     ]);
     recordMessagePhase('mapping', performance.now() - mappingStarted);
@@ -8454,7 +8454,7 @@ function MainWorkspace(): ReactElement {
     if (!resolved) return font;
 
     const lease = injectFontCss(font.fontId, resolved, true);
-    // 发送中的行与 QQ 回读共用同一字形，首帧之后由消息行接手续持。
+    // 字形就绪后由已经回显的消息行接续持有，QQ 回读复用同一字形。
     await lease.ready;
     if (!isCurrent()) {
       lease();
@@ -8494,7 +8494,7 @@ function MainWorkspace(): ReactElement {
     const target = sendTargetOf(conversation);
     const fontRequest = outgoingFontRequest(target, render.elements);
     const expectedAccountConfigId = pinSession.binding?.expectedAccountConfigId;
-    const preparingFont = Boolean(
+    const needsFontPreparation = Boolean(
       fontRequest && sendAccess.data?.qqOnline && sendAccess.data.attachEnabled,
     );
     submission.mediaSend = outgoingMediaSend(
@@ -8518,13 +8518,12 @@ function MainWorkspace(): ReactElement {
         ...render,
         composerDraft: submission.draft,
         mediaSend: submission.mediaSend,
-        preparingFont,
         state: 'queued',
         at: submission.at ?? Date.now(),
       },
     ]);
     function prepareQueuedFont() {
-      if (!preparingFont || !target || !fontRequest) return;
+      if (!needsFontPreparation || !target || !fontRequest) return;
       return prepareOutgoingFont(
         target,
         fontRequest,
@@ -8533,13 +8532,12 @@ function MainWorkspace(): ReactElement {
         expectedAccountConfigId,
       ).then(
         (font) => {
-          setOptimisticMessages((current) =>
-            current.map((item) =>
-              item.id === submission.id
-                ? { ...item, preparingFont: false, decoration: outgoingFontDecoration(font) }
-                : item,
-            ),
-          );
+          if (font) {
+            const decoration = outgoingFontDecoration(font);
+            setOptimisticMessages((current) =>
+              current.map((item) => (item.id === submission.id ? { ...item, decoration } : item)),
+            );
+          }
           return { font };
         },
         (error: unknown) => ({ error }),
@@ -8553,7 +8551,6 @@ function MainWorkspace(): ReactElement {
             ? {
                 ...item,
                 state: 'sending',
-                preparingFont: item.preparingFont || (preparingFont && !fontPreparation),
                 hostReceived: false,
                 transferId: undefined,
                 error: undefined,
@@ -8595,7 +8592,6 @@ function MainWorkspace(): ReactElement {
               ? {
                   ...item,
                   state: 'failed',
-                  preparingFont: false,
                   error: composerSendError(error),
                 }
               : item,

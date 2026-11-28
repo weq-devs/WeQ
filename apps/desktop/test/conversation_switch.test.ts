@@ -15,6 +15,7 @@ import { flushSync } from 'react-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
+import { ShowMessageTimeContext } from '../src/renderer/src/components/MessageProvenance.shared';
 import { MainView } from '../src/renderer/src/views/MainView';
 import { GROUP_INITIAL_PAGE_SIZE, PAGE_SIZE } from '../src/renderer/src/views/workspace/paging';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
@@ -175,6 +176,7 @@ const f = vi.hoisted(() => ({
   send: undefined as ComponentProps<typeof ChatMainContent>['onSend'] | undefined,
   sendCalls: [] as string[],
   sendPending: false,
+  prepareChatFontReply: undefined as (() => Promise<null>) | undefined,
   sendReply: undefined as
     | ((random?: number) => Promise<{ ok: true; groupSequence: number; random: number }>)
     | undefined,
@@ -305,6 +307,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             if (key === 'invalidate' && path.at(-1) === 'listRecentContacts')
               f.recentInvalidations++;
             if (path.at(-1) === 'peerQqShow') return null;
+            if (path.at(-1) === 'prepareChatFont') return f.prepareChatFontReply?.();
             if (
               [
                 'prepareChatDecoration',
@@ -649,6 +652,7 @@ afterEach(() => {
   f.send = undefined;
   f.sendCalls = [];
   f.sendPending = false;
+  f.prepareChatFontReply = undefined;
   f.sendReply = undefined;
   f.sendError = undefined;
   f.messageCommits = [];
@@ -695,6 +699,71 @@ it('电脑请求不返回时，发送内容仍立即在本端回显且不查询�
     expect(f.sendCalls).not.toContain('prepareChatDecoration');
   } finally {
     await act(async () => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
+
+it('群聊连续发送文字时，后发消息先准备好字体也不会跳过组首', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.sendPending = true;
+  let finishFirstFont!: (font: null) => void;
+  f.prepareChatFontReply = vi
+    .fn(async () => null)
+    .mockImplementationOnce(() => new Promise((resolve) => (finishFirstFont = resolve)));
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  try {
+    await act(async () => {
+      acceptPreferences(
+        { revision: 1, values: { groupConsecutiveMessages: true }, records: {} },
+        false,
+      );
+      root.render(
+        h(
+          ShowMessageTimeContext.Provider,
+          { value: true },
+          h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+        ),
+      );
+    });
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === '10001')!
+        .click(),
+    );
+    await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [] }));
+    await act(async () => {
+      void f.send!('第一条普通文字');
+      void f.send!('第二条普通文字');
+    });
+    expect(f.prepareChatFontReply).toHaveBeenCalledTimes(2);
+    expect(f.sendCalls).not.toContain('sendElements');
+    const expectGroupedRows = () => {
+      const rows = [...host.querySelectorAll('.message-line[data-message-id]')];
+      expect(rows.find((row) => row.querySelector('.message-name'))?.textContent).toContain(
+        '第一条普通文字',
+      );
+      expect(rows.map((row) => Boolean(row.querySelector('.weq-message-provenance')))).toEqual([
+        true,
+        false,
+      ]);
+      expect(rows[1]?.textContent).toContain('第二条普通文字');
+    };
+    expectGroupedRows();
+    await act(async () => finishFirstFont(null));
+    expect(f.sendCalls).toEqual(['sendElements']);
+    expectGroupedRows();
+  } finally {
+    await act(async () => {
+      root.unmount();
+      acceptPreferences({ revision: 2, values: {}, records: {} }, false);
+    });
     client.clear();
     host.remove();
   }
