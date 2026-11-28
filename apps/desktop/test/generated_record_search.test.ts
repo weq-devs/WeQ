@@ -280,6 +280,68 @@ it('换关键词时中止旧搜索，迟到的空批次不会继续分页', asyn
   }
 });
 
+it('切换聊天记录分类时等待新首屏，再按新游标续页', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const root = createRoot(document.createElement('div'));
+  const item = (id: string, content: string) => ({
+    msgId: id,
+    msgSeq: id,
+    senderUid: 'fixture',
+    senderUin: '',
+    senderName: '成员',
+    sendTime: '1794528000',
+    content,
+  });
+  const cursor = { time: 1794528000, rowId: '2' };
+  const firstPage = Promise.withResolvers<{
+    items: ReturnType<typeof item>[];
+    cursor: typeof cursor;
+    hasMore: boolean;
+  }>();
+  const browse = vi.fn((input: { filter: { recordType: string }; cursor?: typeof cursor }) => {
+    if (input.filter.recordType === 'file')
+      return {
+        items: [item('3', '文件样本')],
+        cursor: { ...cursor, rowId: '3' },
+        hasMore: true,
+      };
+    if (!input.cursor) return firstPage.promise;
+    return { items: [item('1', '更早的转发记录')], cursor: null, hasMore: false };
+  });
+  nativeReads.mockImplementation((path: string, input: Parameters<typeof browse>[0]) =>
+    path === 'account.browseConversation' ? browse(input) : undefined,
+  );
+  const tab = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>('[aria-label="消息类型"] button')].find(
+      (button) => button.textContent === label,
+    )!;
+  const forwardCursors = () =>
+    browse.mock.calls
+      .filter(([{ filter }]) => filter.recordType === 'forward')
+      .map(([input]) => input.cursor);
+  try {
+    await act(async () => root.render(nativeRecords('')));
+    await act(async () => tab('文件').click());
+    const results = document.querySelector<HTMLDivElement>('.weq-chatrecords-msgs')!;
+    // 切换分类后只显示加载提示，滚动区内容暂时不足一屏。
+    Object.defineProperties(results, {
+      clientHeight: { value: 300 },
+      scrollHeight: { value: 300 },
+    });
+    await act(async () => tab('聊天记录').click());
+    expect(forwardCursors()).toEqual([undefined]);
+
+    await act(async () =>
+      firstPage.resolve({ items: [item('2', '首屏的转发记录')], cursor, hasMore: true }),
+    );
+    expect(forwardCursors()).toEqual([undefined, cursor]);
+    expect(results.textContent?.match(/首屏的转发记录/g)).toHaveLength(1);
+    expect(results.textContent).toContain('更早的转发记录');
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
 function nativeRecords(initialKeyword = '合成') {
   return h(ChatRecordsModal, {
     fixed: true,

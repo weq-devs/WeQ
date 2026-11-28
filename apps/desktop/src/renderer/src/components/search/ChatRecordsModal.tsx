@@ -181,7 +181,7 @@ export function ChatRecordsModal({
   const [atResultsEnd, setAtResultsEnd] = useState(false);
   const [msgTotal, setMsgTotal] = useState(0);
   const [msgLimited, setMsgLimited] = useState(false);
-  const msgRunRef = useRef<{ controller: AbortController; loadingMore: boolean } | null>(null);
+  const msgRunRef = useRef<{ controller: AbortController; requestPending: boolean } | null>(null);
   const msgScrollRef = useRef<HTMLDivElement | null>(null);
   const savedScrollTop = useRef<number | null>(null);
   const bindMsgScroll = useCallback((element: HTMLDivElement | null) => {
@@ -387,10 +387,11 @@ export function ChatRecordsModal({
       setMsgLoading(false);
       return;
     }
-    const controller = new AbortController();
-    const { signal } = controller;
-    msgRunRef.current = { controller, loadingMore: false };
-    const cancel = () => controller.abort();
+    // 筛选切换时滚动回调仍可能看到上一轮的分页状态，首屏和续页共用这个同步标记。
+    const run = { controller: new AbortController(), requestPending: !localSource };
+    const { signal } = run.controller;
+    msgRunRef.current = run;
+    const cancel = () => run.controller.abort();
     if (localSource) {
       const selectedSenders = new Set(filter.senders);
       const keyword = filter.keyword?.toLocaleLowerCase();
@@ -431,6 +432,7 @@ export function ChatRecordsModal({
         if (!signal.aborted) setMsgError(String(err));
       })
       .finally(() => {
+        run.requestPending = false;
         if (!signal.aborted) {
           setSettledFilter(filter);
           setMsgLoading(false);
@@ -448,10 +450,10 @@ export function ChatRecordsModal({
       return;
     }
     const run = msgRunRef.current;
-    if (!run || run.loadingMore || msgLoading) return;
+    if (!run || run.requestPending || msgLoading) return;
     const { signal } = run.controller;
     if (signal.aborted) return;
-    run.loadingMore = true;
+    run.requestPending = true;
     setMsgLoadingMore(true);
     setMsgError('');
     void queryMessages(messages.length, signal)
@@ -465,8 +467,8 @@ export function ChatRecordsModal({
         if (!signal.aborted) setMsgError(String(err));
       })
       .finally(() => {
+        run.requestPending = false;
         if (!signal.aborted) setMsgLoadingMore(false);
-        run.loadingMore = false;
       });
   }, [messages.length, msgLoading, localSource, queryMessages]);
 
