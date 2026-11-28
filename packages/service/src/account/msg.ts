@@ -624,6 +624,21 @@ export class MsgService {
     );
   }
 
+  /** 复用已从 FTS 回查的原消息行，批量补上正式会话使用的删除、撤回标记。 */
+  async searchMessageStates(kind: 'c2c' | 'group', conv: string, rows: (C2cMsg | GroupMsg)[]) {
+    if (!rows.length) return new Map<bigint, Pick<RenderC2cMsg, 'deletedKind' | 'recall'>>();
+    const recalls = await this.recallMapFor(kind, conv, rows);
+    return new Map(
+      rows.map((message) => [
+        message.msgId,
+        {
+          deletedKind: this.classifyDeleted(message),
+          recall: this.classifyRecall(message, recalls),
+        },
+      ]),
+    );
+  }
+
   /** {@link renderC2c} plus the computed deleted/recall state. */
   private renderC2cWithState(m: C2cMsg, recallMap?: RecallMap): RenderC2cMsg {
     return {

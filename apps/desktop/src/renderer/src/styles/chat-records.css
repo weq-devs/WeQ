@@ -1,3 +1,14 @@
+::highlight(weq-record-keyword) {
+  background-color: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-record-match-excerpt {
+  display: block;
+  margin-block-start: 4px;
+  color: var(--weq-fg-secondary);
+}
+
 .weq-chatrecords-body:has(> .weq-record-progress) {
   grid-template-rows: minmax(0, 1fr) auto;
 }

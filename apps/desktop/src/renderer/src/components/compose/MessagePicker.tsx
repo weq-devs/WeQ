@@ -1,5 +1,5 @@
 import { EmptyState } from '../EmptyState';
-import * as timeFormat from '@weq/time';
+import { unixDate } from '@weq/time';
 /**
  * Message picker — lists a conversation's recent messages (via account.listLatest)
  * rendered faithfully with QqMessageContent, and lets the user click one. Used
@@ -12,6 +12,7 @@ import { trpc } from '../../trpc/client';
 import { QqAvatar } from '../QqAvatar';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { QqMessageContent } from '../QqMessageContent';
+import { MessageProvenance } from '../MessageProvenance';
 import { ConvContext, ForwardKindContext } from '../../state/messageContext';
 import type { RenderEl } from './composeModel';
 
@@ -55,11 +56,17 @@ export function MessagePicker({
               <button key={m.msgId} type="button" className="weq-msg-row" onClick={() => onPick(m)}>
                 <QqAvatar uin={m.senderUin} size={28} className="weq-msg-avatar" />
                 <div className="weq-msg-main">
-                  <div className="weq-msg-meta">
+                  <div className="weq-msg-meta weq-message-heading">
                     <span className="weq-msg-sender">{resolveName(m.senderUid, m.senderUin)}</span>
-                    <span className="weq-msg-time">
-                      <span className="weq-number weq-number-inherit">{fmtTime(m.sendTime)}</span>
-                    </span>
+                    <MessageProvenance
+                      message={{
+                        createdAt:
+                          Number(m.sendTime) > 0 ? unixDate(m.sendTime)?.toISOString() : undefined,
+                      }}
+                      alwaysShowDate
+                      alwaysShowTime
+                      showSequence={false}
+                    />
                   </div>
                   <div className="weq-msg-preview">
                     <QqMessageContent
@@ -76,10 +83,6 @@ export function MessagePicker({
       </ConvContext.Provider>
     </ForwardKindContext.Provider>
   );
-}
-
-function fmtTime(sec: string): string {
-  return Number(sec) > 0 ? timeFormat.formatUnixTime(sec) : '';
 }
 
 import { MessageSquare } from 'lucide-react';

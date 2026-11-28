@@ -22,6 +22,7 @@ function metadata(
   system = false,
   date = false,
   createdAt: string | undefined = '2026-10-16T17:02:03Z',
+  alwaysShowTime = false,
 ) {
   return renderToStaticMarkup(
     createElement(
@@ -35,6 +36,7 @@ function metadata(
           { value: date },
           createElement(MessageProvenance, {
             system,
+            alwaysShowTime,
             message: { msgSeq: '42', createdAt },
           }),
         ),
@@ -69,6 +71,15 @@ describe('消息元信息', () => {
     );
     expect(metadata(false, true, false, true, 'invalid')).toBe('');
     expect(metadata(false, true, false, true, '')).toBe('');
+  });
+
+  it('独立结果行沿用北京时间格式并保留序号显示规则', () => {
+    expect(metadata(false, false, false, false, undefined, true)).toContain('>01:02:03</time>');
+    expect(metadata(true, false, true, true, undefined, true)).toContain(
+      '>2026-10-17 01:02:03</time>',
+    );
+    expect(metadata(true, false, true, true, undefined, true)).not.toContain('seq 42');
+    expect(metadata(false, false, false, false, '', true)).toBe('');
   });
 });
 

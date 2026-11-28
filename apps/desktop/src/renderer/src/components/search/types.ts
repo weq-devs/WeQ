@@ -159,7 +159,11 @@ export type SearchCategoryStates = Partial<
   Record<SearchCategory, { loading: boolean; error: boolean }>
 >;
 
-export interface ConversationRecordHit {
+export interface ConversationRecordHit
+  extends Pick<
+    import('../../views/workspace/types').MessageWire,
+    'deletedKind' | 'recall' | 'setEmojiList' | 'decoration' | 'source' | 'sourceFormat'
+  > {
   msgId: string;
   msgSeq: string;
   clientSeq?: string;
@@ -177,10 +181,6 @@ export interface ConversationRecordHit {
    * 原消息渲染视图元素（能找到原 40800 正文时才有），有它前端就渲染真实气泡。
    */
   elements?: unknown[];
-  /** 群消息贴表情（列 40062）。 */
-  setEmojiList?: unknown[];
-  /** 单条消息装扮（列 40801）。 */
-  decoration?: unknown;
 }
 
 /** Category display metadata. */

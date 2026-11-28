@@ -4,6 +4,7 @@ import { ChatTimeline } from './chatTimeline';
 import {
   messageGroups,
   messageTimelineSpacing,
+  selectedMessageLayout,
   unreadTimelineBoundary,
   unreadTimelineStart,
   type MessageGroupPosition,
@@ -31,8 +32,8 @@ import {
   conversationExportSelection,
   conversationAnalysisTarget,
   conversationSourceLabel,
-  readonlyConversationKind,
 } from '../../lib/conversationActions';
+import { messageDetailsTarget } from '../../lib/messageDetailsTarget';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import {
   GiftMallPanel,
@@ -6091,42 +6092,11 @@ function ChatPaneContent({
   }
 
   function openMessageDetails(selection: MessageDetailsSelection) {
-    const { message } = selection;
     const binding = accountBinding() ?? recallBinding;
-    const msgId = message.msgId ?? message.id;
-    const source = readonlyConversationKind(conversation);
-    let target: Parameters<typeof client.account.messageRecordDetails.query>[0] | undefined;
-    if (
-      binding?.expectedAccountUin === user.identityValue &&
-      conversation &&
-      !conversation.generated &&
-      !conversation.id.startsWith('virtual:') &&
-      source !== 'guild' &&
-      !message.forwardSnapshot &&
-      !isLocalOutgoingMessage(message) &&
-      /^-?\d{1,20}$/.test(msgId)
-    ) {
-      if (conversation.type === 'group') {
-        target = { ...binding, kind: 'group', conv: conversation.group.identityValue, msgId };
-      } else if (conversation.type === 'direct') {
-        const conv =
-          source === 'service'
-            ? conversation.id.replace(/^service:/, '')
-            : conversation.otherUser.id;
-        target = { ...binding, kind: source ?? 'c2c', conv, msgId };
-      }
-    }
-    if (target && (message.source === 'roaming' || message.recall?.retained)) {
-      if (target.kind === 'c2c' || target.kind === 'group') {
-        target.cache = {
-          format: message.sourceFormat,
-          retained: Boolean(message.recall?.retained),
-          seq: message.msgSeq && /^-?\d{1,20}$/.test(message.msgSeq) ? message.msgSeq : undefined,
-        };
-      } else {
-        target = undefined;
-      }
-    }
+    const target =
+      binding?.expectedAccountUin === user.identityValue
+        ? messageDetailsTarget(binding, conversation, selection.message)
+        : undefined;
     setMessageDetails({ scope: messageDetailsScope, selection, target });
   }
 
@@ -6448,23 +6418,17 @@ function ChatPaneContent({
     const picked = await reviewSelected('image');
     const source = messageScrollRef.current;
     if (!source || !picked?.length) return;
-    const positions = new Map(visibleMessages.map(({ id }, index) => [id, index]));
-    const fallbackGroups = groupConsecutiveMessages
-      ? messageGroups(picked, {
-          standalone: (message) => deletedKeys.has(deletionIdentity(message.id)),
-          breakBefore: (_previous, message) => timelineGaps.has(message.id),
-        })
-      : undefined;
+    const layout = selectedMessageLayout(picked, visibleMessages, {
+      group: groupConsecutiveMessages,
+      standalone: (message) => deletedKeys.has(deletionIdentity(message.id)),
+      breakBefore: (message) => timelineGaps.has(message.id) || message.id === unreadBoundaryId,
+    });
     try {
       const incomplete = await messageImage.copy(source, picked.length, (start, end) => (
         <div className="weq-virtual-timeline">
           {picked.slice(start, end).map((message, batchIndex) => {
             const index = start + batchIndex;
-            const position = positions.get(message.id);
-            const groupPosition =
-              position === undefined ? fallbackGroups?.[index] : groupPositions?.[position];
-            const previous =
-              position === undefined ? picked[index - 1] : visibleMessages[position - 1];
+            const { groupPosition, showTime } = layout[index]!;
             return (
               <div
                 className="weq-virtual-timeline-row"
@@ -6479,7 +6443,7 @@ function ChatPaneContent({
               >
                 <MessageTimeDivider
                   value={message.createdAt}
-                  visible={shouldShowMessageTime(previous?.createdAt, message.createdAt)}
+                  visible={showTime}
                   precision={
                     conversation.generated || message.optimistic ? 'millisecond' : 'second'
                   }
@@ -6489,7 +6453,10 @@ function ChatPaneContent({
                     <span aria-hidden>以下为未读消息</span>
                   </div>
                 ) : null}
-                <MessageRow {...timelineMessageAppearance(message, groupPosition)} />
+                <MessageRow
+                  {...timelineMessageAppearance(message, groupPosition)}
+                  alwaysShowSenderName
+                />
               </div>
             );
           })}
@@ -7626,7 +7593,13 @@ function ChatPaneContent({
               {...batchReview.review}
               conversation={conversation}
               user={user}
-              renderMessage={(message) => <MessageRow {...timelineMessageAppearance(message)} />}
+              renderMessage={(message) => (
+                <MessageRow
+                  {...timelineMessageAppearance(message)}
+                  alwaysShowSenderName
+                  alwaysShowTime
+                />
+              )}
               onClose={() => batchReview.finish(null)}
               onContinue={batchReview.finish}
             />

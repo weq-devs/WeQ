@@ -8,12 +8,16 @@ import {
 } from '../src/renderer/src/components/MessageProvenance.shared';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { ChatMainContent } from '../src/renderer/src/im-template/template/chatMainContent';
+import { MessageRow } from '../src/renderer/src/im-template/template/messageRow';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { messagePerformanceSnapshot } from '../src/renderer/src/lib/messagePerformance';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { useStableCallback } from '../src/renderer/src/hooks/useStableCallback';
 import { mergeRefreshedWindow } from '../src/renderer/src/lib/conversationRefresh';
-import { messageGroups } from '../src/renderer/src/im-template/template/chatTimelineModel';
+import {
+  messageGroups,
+  selectedMessageLayout,
+} from '../src/renderer/src/im-template/template/chatTimelineModel';
 import type { Message } from '../src/renderer/src/im-template/template/types';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -87,6 +91,68 @@ it('连续分组纳入本地发送占位，仍按身份、时间与时间线分�
     [row(1), row(2, { qqElements: [{ type: 'grayTipRevoke', data: {} }] }), row(3)],
   ])
     expect(positions(separated)).toEqual(separated.map(() => undefined));
+});
+
+it('聊天长图从实际选区重建组首和时间分隔', () => {
+  const [first, second, third, fourth] = ['1', '2', '3', '4'].map(
+    (id): Message => ({
+      id,
+      conversationId: 'fixture',
+      senderId: 'author',
+      body: id,
+      createdAt: '2026-11-20T23:59:59+08:00',
+    }),
+  ) as [Message, Message, Message, Message];
+  const layout = (selection: Message[]) =>
+    selectedMessageLayout(selection, [first, second, third, fourth], {
+      group: true,
+      standalone: () => false,
+      breakBefore: () => false,
+    });
+
+  expect(layout([second, third])).toEqual([
+    { groupPosition: 'first', showTime: true },
+    { groupPosition: 'last', showTime: false },
+  ]);
+  expect(layout([second, fourth])).toEqual([
+    { groupPosition: undefined, showTime: true },
+    { groupPosition: undefined, showTime: true },
+  ]);
+});
+
+it('独立消息预览从会话解析实际作者，沿用聊天的时间标签', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  const { user, conversations } = createTemplateDemoData();
+  const conversation = conversations.find((row) => row.type === 'direct')!;
+  const sender = conversation.otherUser!;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(MessageRow, {
+          user,
+          conversation,
+          alwaysShowSenderName: true,
+          alwaysShowTime: true,
+          message: {
+            id: 'm1',
+            conversationId: conversation.id,
+            senderId: sender.id,
+            body: '对方消息',
+            createdAt: '2026-11-20T23:59:59+08:00',
+          },
+        }),
+      ),
+    );
+    expect(host.querySelector('.message-name')?.textContent).toBe(sender.displayName);
+    expect(host.querySelector('.weq-message-provenance time')?.textContent).toBe('23:59:59');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
 });
 
 it('排队消息逐条收到 QQ 回声时，只有组首显示头像和元数据', () => {

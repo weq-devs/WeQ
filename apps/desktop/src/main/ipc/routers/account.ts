@@ -5142,9 +5142,15 @@ export const accountRouter = router({
    * 返回 string[] 以便与渲染层 Message.msgSeq 直接匹配。
    */
   listGroupEssenceSeqs: directoryProcedure
-    .input(z.object({ groupCode: z.string().min(1) }))
+    .input(z.object({ groupCode: z.string().min(1) }).merge(exportAccountBindingInput))
     .query(async ({ input }) => {
-      const seqs = await requireServices().groupInfo.getEssenceSeqs(BigInt(input.groupCode));
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const seqs = await services.groupInfo.getEssenceSeqs(BigInt(input.groupCode));
+      if (requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services)
+        throw new Error('账号或数据源已切换');
       return seqs.map(String);
     }),
 

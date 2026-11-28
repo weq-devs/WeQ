@@ -156,3 +156,40 @@ export function messageGroups(
       breakBefore(previous, message),
   );
 }
+
+/** Rebuild the visible group heads after the user omits rows from a chat image. */
+export function selectedMessageLayout(
+  selection: readonly Message[],
+  timeline: readonly Message[],
+  {
+    group,
+    standalone,
+    breakBefore,
+  }: {
+    group: boolean;
+    standalone: (message: Message) => boolean;
+    breakBefore: (message: Message) => boolean;
+  },
+) {
+  const positions = new Map(timeline.map(({ id }, index) => [id, index]));
+  const separated = (previous: Message, message: Message) => {
+    const position = positions.get(previous.id);
+    return position === undefined || positions.get(message.id) !== position + 1;
+  };
+  const groups = group
+    ? messageGroups(selection, {
+        standalone,
+        breakBefore: (previous, message) => separated(previous, message) || breakBefore(message),
+      })
+    : undefined;
+  return selection.map((message, index) => {
+    const previous = selection[index - 1];
+    return {
+      groupPosition: groups?.[index],
+      showTime:
+        !previous ||
+        separated(previous, message) ||
+        shouldShowMessageTime(previous.createdAt, message.createdAt),
+    };
+  });
+}

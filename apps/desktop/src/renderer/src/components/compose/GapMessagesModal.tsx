@@ -14,21 +14,17 @@
  *                 兵进入视口）触发 onLoadMore 拉更新的一段 append 到尾部，
  *                 直到 hasMore 为 false。
  *
- * 两个刻意限制：
- *   - 回复引用（reply）的点击跳转被禁用：缺失消息不在主时间线窗口里，跳转目标
- *     与滚动状态都对不上，这里用 noop 覆盖宿主注入的 jumpToSeq。
- *   - 群成员昵称 / 身份 / 等级 / 头衔由宿主按需解析后回填（同主消息窗口），
- *     本组件只负责渲染。
+ * 群成员身份由宿主按需回填。引用先定位已加载的原消息，再按宿主提供的会话入口定位。
  */
 
 import { GAP_MESSAGES_WIDTH } from './GapMessagesModal.shared';
 import { NumericText } from '../NumericText';
 import {
-  Fragment,
   useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactElement,
@@ -37,23 +33,53 @@ import '../../styles/private-preview.css';
 import { ArrowLeft, CloudOff, RefreshCw, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { MemberProfileCard } from '../MemberProfileCard';
+import { ChatMediaGallery } from '../ChatMediaGallery';
 import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../../state/messageContext';
 import { cn } from '../../im-template/template/classNames';
 import { MessageRow } from '../../im-template/template/messageRow';
+import { MessageTimeDivider } from '../../im-template/template/messageTime';
+import { shouldShowMessageTime } from '../../im-template/template/messageTime.shared';
+import {
+  messageGroups,
+  messageTimelineSpacing,
+} from '../../im-template/template/chatTimelineModel';
+import { messageGapCount } from '../../im-template/template/messageGap.shared';
 import { grayTipOf } from '../../im-template/template/messageRow.shared';
 import { resolveMessageSender } from '../../im-template/template/conversationDisplay';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../../im-template/template/types';
 import type { ReplyJumpTarget } from '../../state/messageContext';
-import { useMessageLocateMenu } from '../../hooks/useMessageLocateMenu';
+import { useReadonlyMessageMenu } from '../../hooks/useReadonlyMessageMenu';
+import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import { readonlyConversationKind } from '../../lib/conversationActions';
+import { deletionIdentity, hiddenDeletionLookup } from '../../lib/messageDeletion';
+import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
+import { findReplySource } from '../../lib/replyPreview';
+import {
+  messageElement,
+  revealTimelineMessage,
+  TIMELINE_MESSAGE_SELECTOR,
+} from '../../lib/timelineViewport';
+import { loadHiddenMessageIds } from '../../im-template/template/hiddenMessages';
 
-const noop = (): void => {};
+function captureReadingAnchor(scroll: HTMLElement, first?: string) {
+  const top = scroll.getBoundingClientRect().top;
+  const row = [...scroll.querySelectorAll<HTMLElement>(TIMELINE_MESSAGE_SELECTOR)].find(
+    (row) => row.getBoundingClientRect().bottom > top,
+  );
+  return {
+    height: scroll.scrollHeight,
+    first,
+    id: row?.dataset.messageId,
+    top: row?.getBoundingClientRect().top,
+  };
+}
 
 export function GapMessagesModal({
   conversation,
   user,
+  detailsBinding,
   messages,
   renderers,
   loading,
@@ -72,10 +98,15 @@ export function GapMessagesModal({
   backLabel = '返回资料',
   messageNotice,
   onLocateMessage,
+  onLocateReply,
   showSenderProfiles = true,
+  independent = !preview,
+  deletedIds,
+  hiddenIds,
 }: {
   conversation: Conversation;
   user: User;
+  detailsBinding?: QQWriteBinding | null;
   /** 已通过 messageToTemplate 构建好的模板消息（与主时间线同一管线）；seq 升序，旧在上、新在下。 */
   messages: Message[];
   renderers?: MessageRenderer[];
@@ -102,9 +133,28 @@ export function GapMessagesModal({
   /** 只读预览中逐条展示的附注，例如跳过发送的原因。 */
   messageNotice?: (message: Message) => string | undefined;
   onLocateMessage?: (target: ReplyJumpTarget) => void | Promise<void>;
+  onLocateReply?: (target: ReplyJumpTarget) => boolean | Promise<boolean>;
   showSenderProfiles?: boolean;
+  /** 仅看某个成员、缺少可靠会话位置等选区逐条展示作者与时间。 */
+  independent?: boolean;
+  deletedIds?: ReadonlySet<string>;
+  hiddenIds?: ReadonlySet<string>;
 }): ReactElement {
-  const locateMenu = useMessageLocateMenu(onLocateMessage, `${user.id}:${conversation.id}`);
+  const [replyError, setReplyError] = useState('');
+  const menu = useReadonlyMessageMenu({
+    conversation,
+    user,
+    detailsBinding,
+    scope: `${user.id}:${detailsBinding?.expectedAccountConfigId}:${conversation.id}:${independent}`,
+    enterOpensMenu: true,
+    onLocate:
+      onLocateMessage &&
+      ((message) =>
+        onLocateMessage({
+          seq: message.msgSeq,
+          msgId: message.id,
+        })),
+  });
   const openChat = useContext(ChatNavigationContext);
   const [memberCard, setMemberCard] = useState<{
     member: User;
@@ -120,8 +170,45 @@ export function GapMessagesModal({
       : conversation.type === 'direct' && readonlyConversationKind(conversation) === 'official'
         ? conversation.otherUser.id
         : '';
-  const showSenderNames = conversation.type !== 'direct';
+  const showSenderNames = independent || conversation.type !== 'direct';
   const subtitle = isGroup ? conversation.group?.name : conversation.otherUser?.displayName;
+  const groupMessages = useClientPreferences(() => preferenceValue('groupConsecutiveMessages'));
+  const hidden = useMemo(
+    () =>
+      new Set([
+        ...(hiddenIds ?? []),
+        ...(preview ? [...loadHiddenMessageIds(conversation.id)].map(deletionIdentity) : []),
+      ]),
+    [hiddenIds, preview, conversation.id],
+  );
+  const visibleMessages = useMemo(
+    () => (hidden.size ? messages.filter(({ id }) => !hidden.has(deletionIdentity(id))) : messages),
+    [messages, hidden],
+  );
+  const positions = useMemo(() => {
+    if (independent || !groupMessages) return undefined;
+    const hiddenBetween = hiddenDeletionLookup(messages, hidden);
+    return messageGroups(visibleMessages, {
+      standalone: (message) => Boolean(deletedIds?.has(deletionIdentity(message.id))),
+      breakBefore: (previous, current) =>
+        Boolean(
+          hiddenBetween(previous.msgSeq, current.msgSeq) || messageGapCount(previous, current),
+        ),
+    });
+  }, [independent, groupMessages, hidden, deletedIds, messages, visibleMessages]);
+  const galleryMessages = useMemo(
+    () =>
+      visibleMessages.map((message) => ({
+        key: message.id,
+        msgId: message.msgId || message.id,
+        msgSeq: message.msgSeq,
+        source: message.source,
+        sourceFormat: message.sourceFormat,
+        sendTime: (Date.parse(message.createdAt) || 0) / 1000,
+        elements: message.qqElements ?? [],
+      })),
+    [visibleMessages],
+  );
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -129,7 +216,56 @@ export function GapMessagesModal({
   const initialPositioned = useRef(false);
   const followBottom = useRef(true);
   const earlierPending = useRef(false);
-  const anchor = useRef<{ height: number; first?: string } | null>(null);
+  const anchor = useRef<ReturnType<typeof captureReadingAnchor> | null>(null);
+  const replyScope = useRef(conversation.id);
+  replyScope.current = conversation.id;
+
+  async function jumpToReply(target: ReplyJumpTarget) {
+    const scope = conversation.id;
+    setReplyError('');
+    const exact = target.msgId && visibleMessages.find((row) => row.id === target.msgId);
+    const matchesById = target.msgId
+      ? visibleMessages.filter((row) => row.msgId === target.msgId && !grayTipOf(row))
+      : [];
+    const match =
+      exact ||
+      (matchesById.length === 1 ? matchesById[0] : undefined) ||
+      findReplySource(
+        isGroup ? 'group' : 'c2c',
+        {
+          origMsgSeq: target.seq,
+          origMsgIndex: target.index,
+          origClientSeq: target.clientSeq,
+          origSenderUin: target.senderUin,
+          origMsgTime: target.sendTime,
+        },
+        visibleMessages
+          .filter((row) => !grayTipOf(row))
+          .map((row) => ({
+            id: row.id,
+            msgSeq: row.msgSeq ?? '',
+            clientSeq: row.clientSeq,
+            senderUid: row.senderUid,
+            senderUin: row.sender?.identityValue ?? '',
+            sendTime: row.sendTime ?? String(Date.parse(row.createdAt) / 1000),
+            elements: row.qqElements ?? [],
+          })),
+      );
+    if (match && 'id' in match && typeof match.id === 'string' && scrollRef.current) {
+      followBottom.current = false;
+      if (revealTimelineMessage(scrollRef.current, match.id, true)) return true;
+    }
+    try {
+      if (await onLocateReply?.(target)) return true;
+    } catch (error) {
+      if (replyScope.current === scope)
+        setReplyError(error instanceof Error ? error.message : '暂时无法定位引用消息。');
+      return false;
+    }
+    if (replyScope.current === scope) setReplyError('当前记录里找不到这条引用消息。');
+    return false;
+  }
+
   const loadMore = useCallback(() => {
     if (!preview) {
       onLoadMore();
@@ -138,10 +274,7 @@ export function GapMessagesModal({
     const element = scrollRef.current;
     if (!element || !initialPositioned.current || earlierPending.current || loadingMore || !hasMore)
       return;
-    anchor.current = {
-      height: element.scrollHeight,
-      first: messages[0]?.id,
-    };
+    anchor.current = captureReadingAnchor(element, messages[0]?.id);
     earlierPending.current = true;
     onLoadMore();
   }, [preview, onLoadMore, loadingMore, hasMore, messages]);
@@ -155,17 +288,23 @@ export function GapMessagesModal({
       earlierPending.current = false;
       return;
     }
-    if (!initialPositioned.current && messages.length) {
+    if (!initialPositioned.current && (messages.length || hasMore)) {
       element.scrollTop = element.scrollHeight;
       initialPositioned.current = true;
       followBottom.current = true;
     } else if (anchor.current && !loadingMore) {
-      if (anchor.current.first !== messages[0]?.id)
-        element.scrollTop += element.scrollHeight - anchor.current.height;
+      if (anchor.current.first !== messages[0]?.id) {
+        const { id, top, height } = anchor.current;
+        const row = id ? messageElement(element, id) : undefined;
+        element.scrollTop +=
+          row && top !== undefined
+            ? row.getBoundingClientRect().top - top
+            : element.scrollHeight - height;
+      }
       anchor.current = null;
       earlierPending.current = false;
     }
-  }, [preview, loading, loadingMore, messages]);
+  }, [preview, loading, loadingMore, messages, hasMore]);
   useEffect(() => {
     if (!preview || !historyRef.current) return;
     const observer = new ResizeObserver(() => {
@@ -197,8 +336,7 @@ export function GapMessagesModal({
   }, [sentinelVisible, loadMore]);
 
   const content = (
-    <ReplyJumpContext.Provider value={noop}>
-      {/* 缺失消息窗口和只读预览不跳转主时间线的引用消息。 */}
+    <ReplyJumpContext.Provider value={jumpToReply}>
       <div className={cn('weq-deleted', embedded && 'weq-private-preview-inline')}>
         <header className="weq-compose-head" data-window-drag-handle={!embedded || undefined}>
           {embedded ? (
@@ -229,9 +367,9 @@ export function GapMessagesModal({
             {notice}
           </p>
         ) : null}
-        {locateMenu.error ? (
+        {replyError ? (
           <p role="alert" className="weq-preview-message-note">
-            {locateMenu.error}
+            {replyError}
           </p>
         ) : null}
 
@@ -249,6 +387,8 @@ export function GapMessagesModal({
                 const element = event.currentTarget;
                 followBottom.current =
                   element.scrollHeight - element.clientHeight - element.scrollTop < 40;
+                if (anchor.current?.first === messages[0]?.id && anchor.current)
+                  anchor.current = captureReadingAnchor(element, messages[0]?.id);
                 if (element.scrollTop < 160 && !moreFailed) loadMore();
               }}
             >
@@ -268,7 +408,7 @@ export function GapMessagesModal({
                     </button>
                   ) : null}
                 </div>
-              ) : messages.length === 0 && !hasMore ? (
+              ) : visibleMessages.length === 0 && !hasMore ? (
                 <div className="weq-deleted-empty">
                   <CloudOff size={26} />
                   <span className="weq-gap-empty-hint">
@@ -296,41 +436,51 @@ export function GapMessagesModal({
                       )}
                     </div>
                   ) : null}
-                  {messages.map((message) => {
-                    const mine = message.senderId === user.id;
+                  {visibleMessages.map((message, index) => {
                     const sender = resolveMessageSender(message, conversation, user);
-                    const row = (
-                      <MessageRow
-                        message={message}
-                        conversation={conversation}
-                        user={user}
-                        sender={sender}
-                        showSenderName={showSenderNames}
-                        renderers={renderers}
-                        onAvatarClick={preview && showSenderProfiles ? openMember : undefined}
-                        onContextMenu={
-                          onLocateMessage
-                            ? (event) =>
-                                locateMenu.openMenu(event, {
-                                  seq: message.msgSeq,
-                                  msgId: message.id,
-                                })
-                            : undefined
-                        }
-                      />
-                    );
+                    const groupPosition = positions?.[index];
                     const note = messageNotice?.(message);
                     return (
-                      <Fragment key={message.id}>
-                        {grayTipOf(message) ? (
-                          <div className="weq-preview-system-row">{row}</div>
-                        ) : (
-                          <div className={cn('weq-deleted-row', mine && 'is-mine')}>
-                            <div className="weq-deleted-bubble">{row}</div>
-                          </div>
-                        )}
+                      <div
+                        key={message.id}
+                        className="weq-preview-message-row"
+                        style={{
+                          paddingBlockEnd: messageTimelineSpacing(
+                            groupPosition,
+                            index === visibleMessages.length - 1,
+                          ),
+                        }}
+                        tabIndex={0}
+                        {...menu.rowProps(message)}
+                      >
+                        {!independent ? (
+                          <MessageTimeDivider
+                            value={message.createdAt}
+                            visible={shouldShowMessageTime(
+                              visibleMessages[index - 1]?.createdAt,
+                              message.createdAt,
+                            )}
+                            precision={conversation.generated ? 'millisecond' : 'second'}
+                          />
+                        ) : null}
+                        <MessageRow
+                          message={message}
+                          groupPosition={groupPosition}
+                          conversation={conversation}
+                          user={user}
+                          sender={sender}
+                          showSenderName={showSenderNames}
+                          alwaysShowSenderName={independent}
+                          alwaysShowTime={independent}
+                          renderers={renderers}
+                          deleted={deletedIds?.has(deletionIdentity(message.id))}
+                          deletedKind={message.deletedKind}
+                          recallRevokerName={message.recallRevokerName}
+                          grayTipClassName="weq-preview-system-row"
+                          onAvatarClick={preview && showSenderProfiles ? openMember : undefined}
+                        />
                         {note ? <p className="weq-preview-message-note">{note}</p> : null}
-                      </Fragment>
+                      </div>
                     );
                   })}
                   {!preview ? (
@@ -369,10 +519,10 @@ export function GapMessagesModal({
                 </div>
               )}
             </div>
+            {menu.menu}
           </ConvContext.Provider>
         </ForwardKindContext.Provider>
       </div>
-      {locateMenu.menu}
       {memberCard ? (
         <MemberProfileCard
           member={memberCard.member}
@@ -393,16 +543,25 @@ export function GapMessagesModal({
       ) : null}
     </ReplyJumpContext.Provider>
   );
-  return embedded ? (
-    content
-  ) : (
-    <Modal
-      presentation="floating"
-      onClose={onClose}
-      width={GAP_MESSAGES_WIDTH}
-      labelledBy="weq-gap-messages-title"
+  return (
+    <ChatMediaGallery
+      scopeKey={conversation.id}
+      conv={conversation.id}
+      kind={isGroup ? 'group' : 'c2c'}
+      messages={galleryMessages}
     >
-      {content}
-    </Modal>
+      {embedded ? (
+        content
+      ) : (
+        <Modal
+          presentation="floating"
+          onClose={onClose}
+          width={GAP_MESSAGES_WIDTH}
+          labelledBy="weq-gap-messages-title"
+        >
+          {content}
+        </Modal>
+      )}
+    </ChatMediaGallery>
   );
 }

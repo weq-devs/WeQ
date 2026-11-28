@@ -2,6 +2,7 @@ import { Fragment, useMemo, type HTMLAttributes } from 'react';
 import { Play } from 'lucide-react';
 import { ShimmerImage } from '../ShimmerImage';
 import { QqMessageContent } from '../QqMessageContent';
+import { messageMediaKey } from '../../lib/messageMediaTarget';
 import {
   MediaBrowseContext,
   useChatMediaItems,
@@ -57,6 +58,7 @@ export function RecordMediaResults({
                   key={key}
                   type="button"
                   className="weq-record-media-thumbnail"
+                  data-message-media-key={messageMediaKey(element)}
                   aria-label={item.title || (item.kind === 'video' ? '查看视频' : '查看图片')}
                   onClick={(event) => open?.(item.key, event.currentTarget.ownerDocument)}
                 >
@@ -80,6 +82,7 @@ export function RecordMediaResults({
                 {...contextProps(message)}
                 key={key}
                 className="weq-record-media-thumbnail is-native"
+                data-message-media-key={messageMediaKey(element)}
                 role="group"
                 tabIndex={0}
                 aria-label={type === 'emoji' ? '表情' : '图片'}

@@ -2,7 +2,7 @@ import { unixDate } from '@weq/time';
 import { plainMessageText } from '@weq/service/message-plain-text';
 import type { ForwardCardTarget, ForwardRecordTarget } from '@weq/service';
 import type { ContentSelection } from '../../../shared/content_selection';
-import type { Message } from '../im-template/template/types';
+import type { Message, User } from '../im-template/template/types';
 import type { ForwardRecordWire, ForwardWindowState } from '../state/forwardWindow';
 import { messageContentText } from './messageClipboard';
 import { shouldShowMessageTime } from '../im-template/template/messageTime.shared';
@@ -94,17 +94,43 @@ export function forwardEntries(
   win: Pick<ForwardWindowState, 'id' | 'records'>,
   groupMessages: boolean,
 ): ForwardEntry[] {
+  const entries: ForwardEntry[] = (win.records ?? []).map((record, index) => ({
+    id: `forward:${win.id}:${index}`,
+    index,
+    record,
+    sendTimeMs: unixDate(record.sendTime)?.getTime() ?? 0,
+    showTime: false,
+  }));
+  resolveForwardReplies(entries);
+  return presentForwardEntries(entries, groupMessages);
+}
+
+/** Rebuild the extracted timeline once, before splitting it into image batches. */
+export function forwardImageEntries(entries: readonly ForwardEntry[], groupMessages: boolean) {
+  return presentForwardEntries(
+    entries,
+    groupMessages,
+    (previous, current) => current.index !== previous.index + 1,
+  );
+}
+
+function presentForwardEntries(
+  entries: readonly ForwardEntry[],
+  groupMessages: boolean,
+  startsNewExcerpt?: (previous: ForwardEntry, current: ForwardEntry) => boolean,
+) {
   let previousTime: number | undefined;
-  const entries: ForwardEntry[] = (win.records ?? []).map((record, index) => {
-    const sendTimeMs = unixDate(record.sendTime)?.getTime() ?? 0;
+  const presented = entries.map((entry, index) => {
+    const previous = entries[index - 1];
+    if (previous && startsNewExcerpt?.(previous, entry)) previousTime = undefined;
+    const { sendTimeMs } = entry;
     const showTime = sendTimeMs > 0 && shouldShowMessageTime(previousTime, sendTimeMs);
     if (sendTimeMs > 0) previousTime = sendTimeMs;
-    return { id: `forward:${win.id}:${index}`, index, record, sendTimeMs, showTime };
+    return { ...entry, showTime, groupPosition: undefined as MessageGroupPosition | undefined };
   });
-  resolveForwardReplies(entries);
-  if (!groupMessages) return entries;
+  if (!groupMessages) return presented;
   const groups = consecutiveMessageGroups(
-    entries,
+    presented,
     ({ record, sendTimeMs }) => {
       if (sendTimeMs <= 0 || grayTipOf(record)) return;
       const senderId = /^[1-9]\d*$/.test(record.senderUin ?? '') ? record.senderUin : undefined;
@@ -115,10 +141,10 @@ export function forwardEntries(
     },
     (_previous, entry) => entry.showTime,
   );
-  entries.forEach((entry, index) => {
+  presented.forEach((entry, index) => {
     entry.groupPosition = groups[index];
   });
-  return entries;
+  return presented;
 }
 
 export function isForwardContinuation({ groupPosition }: ForwardEntry) {
@@ -126,13 +152,41 @@ export function isForwardContinuation({ groupPosition }: ForwardEntry) {
 }
 
 export function forwardSenderName(record: ForwardRecordWire) {
-  return record.sendNick || record.senderUin || record.senderUid || '未知用户';
+  return (
+    record.sendNick?.trim() ||
+    positiveNumberKey(record.senderUin) ||
+    forwardSenderUid(record) ||
+    '未知用户'
+  );
+}
+
+function forwardSenderUid(record: ForwardRecordWire) {
+  const uid = record.senderUid?.trim();
+  return uid && uid !== '0' ? uid : undefined;
+}
+
+export function forwardSenderAvatar(record: ForwardRecordWire) {
+  const uin = positiveNumberKey(record.senderUin);
+  return (
+    record.senderInfo?.avatar?.avatarUrl?.trim() ||
+    (uin ? `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}` : null)
+  );
+}
+
+export function forwardAuthorIsSelf(record: ForwardRecordWire, user?: User) {
+  if (!user) return false;
+  const uin = positiveNumberKey(record.senderUin);
+  const uid = forwardSenderUid(record);
+  const uidMatches = Boolean(uid && user.uid && uid === user.uid);
+  if (uin && user.identityValue)
+    return uin === user.identityValue && (!uid || !user.uid || uidMatches);
+  return uidMatches;
 }
 
 export function forwardSenderKey(entry: ForwardEntry) {
   const { senderUin, senderUid, sendNick } = entry.record;
   return (
-    senderUid ||
+    (senderUid && senderUid !== '0' ? senderUid : '') ||
     (/^[1-9]\d*$/.test(senderUin ?? '') ? `qq:${senderUin}` : '') ||
     (sendNick ? `name:${sendNick}` : entry.id)
   );
@@ -141,7 +195,8 @@ export function forwardSenderKey(entry: ForwardEntry) {
 export function forwardMessage(win: ForwardWindowState, entry: ForwardEntry): Message {
   const { id, record, sendTimeMs } = entry;
   const uin = /^[1-9]\d*$/.test(record.senderUin ?? '') ? record.senderUin! : '';
-  const senderId = record.senderUid || uin || forwardSenderKey(entry);
+  const uid = forwardSenderUid(record);
+  const senderId = uid || uin || forwardSenderKey(entry);
   const msgSeq = positiveNumberKey(record.msgSeq);
   return {
     id,
@@ -152,12 +207,12 @@ export function forwardMessage(win: ForwardWindowState, entry: ForwardEntry): Me
     senderId,
     sender: {
       id: senderId,
-      uid: record.senderUid,
+      uid,
       identityLabel: uin ? 'QQ' : 'UID',
-      identityValue: uin || record.senderUid || '',
+      identityValue: uin || uid || '',
       username: senderId,
       displayName: forwardSenderName(record),
-      avatarUrl: uin ? `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}` : null,
+      avatarUrl: forwardSenderAvatar(record),
     },
     body: messageContentText(record.elements),
     qqElements: record.elements,

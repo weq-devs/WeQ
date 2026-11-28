@@ -13,7 +13,12 @@ import {
 } from '../src/renderer/src/components/MessageProvenance.shared';
 import { openForwardWindow } from '../src/renderer/src/state/forwardWindow';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
-import { forwardEntries } from '../src/renderer/src/lib/forwardRecordActions';
+import {
+  forwardAuthorIsSelf,
+  forwardEntries,
+  forwardImageEntries,
+  forwardSenderAvatar,
+} from '../src/renderer/src/lib/forwardRecordActions';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { useForwardStore, type ForwardRecordWire } from '../src/renderer/src/state/forwardWindow';
 
@@ -125,6 +130,66 @@ it('转发作者共用 QQ 号和 UID 时，仍按头像快照身份拆组', () =
     'last',
     undefined,
   ]);
+});
+
+it('转发长图从选区首条重新显示作者和时间，跳选不会把相邻片段连组', () => {
+  const records = Array.from(
+    { length: 5 },
+    (_, index): ForwardRecordWire => ({
+      msgId: String(index + 1),
+      senderUin: '10002',
+      sendTime: 1700000000 + index,
+      elements: [{ type: 'text' }],
+    }),
+  );
+  const entries = forwardEntries({ id: 1, records }, true);
+  const picked = [entries[1]!, entries[2]!, entries[4]!];
+  expect(entries.map((entry) => entry.groupPosition)).toEqual([
+    'first',
+    'middle',
+    'middle',
+    'middle',
+    'last',
+  ]);
+  expect(
+    forwardImageEntries(picked, true).map(({ id, groupPosition, showTime }) => ({
+      id,
+      groupPosition,
+      showTime,
+    })),
+  ).toEqual([
+    { id: picked[0]!.id, groupPosition: 'first', showTime: true },
+    { id: picked[1]!.id, groupPosition: 'last', showTime: false },
+    { id: picked[2]!.id, groupPosition: undefined, showTime: true },
+  ]);
+  expect(forwardImageEntries([entries[1]!], false)[0]).toMatchObject({
+    groupPosition: undefined,
+    showTime: true,
+  });
+});
+
+it('装扮识别自己的转发记录，历史头像和包内的我方标记独立保留', () => {
+  const user = {
+    id: 'self:10002',
+    uid: 'u_self',
+    identityLabel: 'QQ',
+    identityValue: '10002',
+    username: '10002',
+    displayName: '现在的昵称',
+    avatarUrl: null,
+  };
+  const record: ForwardRecordWire = {
+    msgId: '1',
+    senderUin: '10002',
+    senderUid: 'u_self',
+    isSender: false,
+    senderInfo: { avatar: { avatarUrl: 'https://example.test/record-avatar' } },
+    elements: [],
+  };
+  expect(forwardAuthorIsSelf(record, user)).toBe(true);
+  expect(forwardAuthorIsSelf({ ...record, senderUid: 'u_peer', isSender: true }, user)).toBe(false);
+  expect(forwardAuthorIsSelf({ ...record, senderUin: '0' }, user)).toBe(true);
+  expect(forwardSenderAvatar(record)).toBe(record.senderInfo?.avatar?.avatarUrl);
 });
 
 it('实际应用只在名片导航上下文内挂载转发宿主', () => {

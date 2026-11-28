@@ -2,7 +2,6 @@ import {
   Fragment,
   memo,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -17,6 +16,7 @@ import { useSurfaceRemovalFade } from '../hooks/useSurfaceRemovalFade';
 import { client } from '../trpc/client';
 import { LoadingIndicator } from './LoadingIndicator';
 import { AvatarPicture } from './AvatarPicture';
+import { AvatarPendantImage } from './AvatarPendantImage';
 import { QqMessageContent } from './QqMessageContent';
 import {
   ConvContext,
@@ -24,25 +24,23 @@ import {
   ForwardKindContext,
   type ForwardCarrier,
 } from '../state/messageContext';
-import { MsgDecorationEnabledContext } from '../state/messageAppearance';
 import { GrayTipLine } from '../im-template/template/messageRow';
 import { grayTipOf } from '../im-template/template/messageRow.shared';
 import { MessageTimeDivider } from '../im-template/template/messageTime';
-import { useMsgDecoration } from '../hooks/useMsgDecoration';
-import { useActiveFontFx, useActiveWidget } from '../hooks/useActiveWidget.shared';
-import { localDressApplies } from '../lib/dressSkin';
+import { useMessageRowDress } from '../hooks/useMessageRowDress';
 import { preferenceValue, useClientPreferences } from '../lib/clientPreferences';
-import { useBubbleFontFx } from '../hooks/useBubbleFontFx';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
-import type { ResolvedWidget } from '@weq/service';
+import type { User } from '../im-template/template/types';
 import { ProfileAvatar } from './ProfileAvatar';
 import { visibleViewport } from '../lib/visibleViewport';
 import { ChatMediaGallery } from './ChatMediaGallery';
 import { MessageProvenance, SystemMessageContent } from './MessageProvenance';
 import { ForwardRecordList, type ForwardActions } from './ForwardRecordList';
 import {
+  forwardAuthorIsSelf,
   forwardEntries,
   forwardRecordTarget,
+  forwardSenderAvatar,
   forwardSenderName,
   isForwardContinuation,
   type ForwardEntry,
@@ -63,11 +61,6 @@ import {
 import '../styles/forward-records.css';
 
 // ---- helpers -------------------------------------------------------------
-
-function senderAvatarFromUin(uin: string | undefined): string | null {
-  if (!uin || uin === '0') return null;
-  return `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`;
-}
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(Math.max(v, lo), hi);
@@ -127,9 +120,11 @@ function forwardGrayTipConversation(kind: 'c2c' | 'group'): never {
 function ForwardWindowFrame({
   win,
   actions,
+  viewer,
 }: {
   win: ForwardWindowState;
   actions?: ForwardActions;
+  viewer?: User;
 }): ReactElement {
   const close = useForwardStore((s) => s.close);
   const bringToFront = useForwardStore((s) => s.bringToFront);
@@ -316,6 +311,8 @@ function ForwardWindowFrame({
                   win={win}
                   entries={entries}
                   actions={actions}
+                  viewer={viewer}
+                  groupMessages={groupMessages}
                   dismissRef={dismissBody}
                 />
               </ChatMediaGallery>
@@ -331,11 +328,15 @@ function ForwardScroll({
   win,
   entries,
   actions,
+  viewer,
+  groupMessages,
   dismissRef,
 }: {
   win: ForwardWindowState;
   entries: ForwardEntry[];
   actions?: ForwardActions;
+  viewer?: User;
+  groupMessages: boolean;
   dismissRef: { current: (() => boolean) | null };
 }): ReactElement {
   if (win.loading) {
@@ -360,8 +361,15 @@ function ForwardScroll({
     );
   }
 
-  const renderRow = (entry: ForwardEntry) => (
-    <ForwardRow entry={entry} kind={win.kind} windowId={win.id} interactive={Boolean(actions)} />
+  const renderRow = (entry: ForwardEntry, standalone = false) => (
+    <ForwardRow
+      entry={entry}
+      kind={win.kind}
+      windowId={win.id}
+      mine={forwardAuthorIsSelf(entry.record, viewer)}
+      interactive={Boolean(actions)}
+      standalone={standalone}
+    />
   );
   if (actions)
     return (
@@ -369,6 +377,7 @@ function ForwardScroll({
         win={win}
         entries={entries}
         actions={actions}
+        groupMessages={groupMessages}
         renderRow={renderRow}
         dismissRef={dismissRef}
       />
@@ -385,82 +394,35 @@ function ForwardScroll({
   );
 }
 
-/** 转发头像上的挂件叠加层，与 messageBubble 的 PendantOverlay 同构。 */
-function PendantLayer({ widget }: { widget: ResolvedWidget }): ReactElement | null {
-  if (widget.animated) {
-    return <span className="weq-avatar-pendant-img" aria-hidden />;
-  }
-  return (
-    <img
-      className="weq-avatar-pendant-img"
-      src={widget.url}
-      alt=""
-      aria-hidden
-      draggable={false}
-      onError={(event) => {
-        event.currentTarget.style.display = 'none';
-      }}
-    />
-  );
-}
-
 const ForwardRow = memo(function ForwardRow({
   entry,
   kind,
   windowId,
+  mine,
   interactive,
+  standalone,
 }: {
   entry: ForwardEntry;
   kind: 'c2c' | 'group';
   windowId: number;
+  mine: boolean;
   interactive: boolean;
+  standalone: boolean;
 }): ReactElement {
   const { record, sendTimeMs, reply } = entry;
   const replyTargetId = reply?.targetId;
   const rowRef = useRef<HTMLDivElement | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
-  const decorationEnabled = useContext(MsgDecorationEnabledContext);
-  // 转发行都是「对方」样式，替代无装扮仍依据原始 ID 判断。
-  const {
-    widget: activeWidget,
-    scope: activeScope,
-    scopes,
-    bubbleActive,
-    fontActive,
-  } = useActiveWidget();
-  const decoration = record.decoration;
-  const activeFontFx = useActiveFontFx();
-  const localBubble =
-    bubbleActive &&
-    localDressApplies(scopes?.bubble ?? activeScope, false, Boolean(decoration?.bubbleId));
-  const localFont =
-    fontActive &&
-    localDressApplies(scopes?.font ?? activeScope, false, Boolean(decoration?.fontId));
-  const localWidget = localDressApplies(activeScope, false, Boolean(decoration?.widgetId))
-    ? activeWidget
-    : null;
-  const msgDec = useMsgDecoration(
-    decoration
-      ? {
-          ...decoration,
-          bubbleId: localBubble ? 0 : decoration.bubbleId,
-          fontId: localFont ? 0 : decoration.fontId,
-          widgetId: localWidget ? 0 : decoration.widgetId,
-        }
-      : undefined,
-    rowRef,
-  );
-  const fontFxAttr = useBubbleFontFx(localFont ? activeFontFx : msgDec.fontFx, rowRef);
-  const avatar =
-    senderAvatarFromUin(record.senderUin) || record.senderInfo?.avatar?.avatarUrl || null;
+  const gray = grayTipOf(record);
+  const dress = useMessageRowDress(gray ? undefined : record.decoration, bubbleRef, { mine });
+  const avatar = forwardSenderAvatar(record);
   const displayName = forwardSenderName(record);
-  const continuation = isForwardContinuation(entry);
-  const dressed = Boolean(msgDec.bubbleId || localBubble);
+  const groupPosition = standalone ? undefined : entry.groupPosition;
+  const continuation = !standalone && isForwardContinuation(entry);
   const metadata = {
     msgSeq: record.msgSeq === undefined ? undefined : String(record.msgSeq),
     createdAt: sendTimeMs > 0 ? new Date(sendTimeMs).toISOString() : undefined,
   };
-  const widget = decorationEnabled.widget ? (localWidget ?? msgDec.widget) : null;
   const profileTarget = {
     identity: record.senderUid || record.senderUin || '',
     uin: record.senderUin,
@@ -470,7 +432,6 @@ const ForwardRow = memo(function ForwardRow({
 
   // 灰条判定：放在所有 hook 之后（规则要求 hook 顺序稳定），命中就直接画成**居中
   // 一行** —— 与主面板一样没有头像 / 昵称 / 气泡，而不是把这些消息硬套进转发行。
-  const gray = grayTipOf(record);
   if (gray) {
     // 灰条组件要 conversation / message 来把 uid 解析成昵称。转发窗口里没有会话成员表，
     // 但灰条自带的 nick 字段 + 发送人快照够用 —— 走与主面板完全相同的分支（拿不到
@@ -486,12 +447,11 @@ const ForwardRow = memo(function ForwardRow({
     };
     return (
       <div className="weq-forward-graytip" data-message-id={interactive ? undefined : entry.id}>
-        <SystemMessageContent message={metadata}>
+        <SystemMessageContent message={metadata} alwaysShowTime={standalone}>
           <GrayTipLine
             gt={gray}
             conversation={forwardGrayTipConversation(kind)}
             message={{ id: record.msgId, sender: graySender } as never}
-            user={graySender as never}
           />
         </SystemMessageContent>
       </div>
@@ -503,19 +463,12 @@ const ForwardRow = memo(function ForwardRow({
       ref={rowRef}
       className="weq-forward-row message-line theirs"
       data-message-id={interactive ? undefined : entry.id}
-      data-forward-group={entry.groupPosition}
+      data-forward-group={groupPosition}
       data-forward-continuation={continuation || undefined}
-      data-message-group={dressed ? undefined : entry.groupPosition}
-      data-grouped-dress-bubble={dressed ? entry.groupPosition : undefined}
-      data-bubble={msgDec.bubbleId || undefined}
-      data-weq-message-image-pending={msgDec.imagePending || undefined}
-      data-font={msgDec.fontId || undefined}
-      data-weq-system-font={msgDec.systemFont || undefined}
-      data-fontfx={fontFxAttr}
-      data-widget={widget?.animated ? widget.itemId : undefined}
-      data-record-bubble={decoration?.bubbleId || undefined}
-      data-record-font={decoration?.fontId || undefined}
-      data-record-widget={decoration?.widgetId || undefined}
+      data-message-group={dress.dressed ? undefined : groupPosition}
+      data-grouped-dress-bubble={dress.dressed ? groupPosition : undefined}
+      data-weq-dress-mine={mine || undefined}
+      {...dress.attributes}
     >
       {continuation ? (
         <span className="sr-only" data-privacy-sensitive>
@@ -526,14 +479,14 @@ const ForwardRow = memo(function ForwardRow({
           <ProfileAvatar className="weq-forward-avatar-link" target={profileTarget}>
             <div className="weq-forward-avatar">
               <AvatarPicture className="weq-forward-avatar-face" src={avatar} />
-              {widget ? <PendantLayer widget={widget} /> : null}
+              <AvatarPendantImage widget={dress.widget} />
             </div>
           </ProfileAvatar>
           <div className="weq-message-heading">
             <span className="message-name weq-forward-row-name" data-marquee-text>
               {displayName}
             </span>
-            <MessageProvenance message={metadata} />
+            <MessageProvenance message={metadata} alwaysShowTime={standalone} />
           </div>
         </header>
       )}
@@ -543,6 +496,9 @@ const ForwardRow = memo(function ForwardRow({
             elements={record.elements}
             sendTimeMs={sendTimeMs}
             msgId={record.msgId || ''}
+            isSender={mine}
+            // 外层会话只负责转发素材下载，不能用作原通话录音等操作的会话身份。
+            conversation={{ id: '' }}
             galleryKey={entry.id}
             textMarkdownDisplayKey={textMarkdownKey({
               conversationId: `forward:${windowId}`,
@@ -574,9 +530,13 @@ const ForwardRow = memo(function ForwardRow({
 export function ForwardWindowContent({
   windows,
   actions,
+  viewer,
 }: {
   windows: ForwardWindowState[];
   actions?: ForwardActions;
+  viewer?: User;
 }): ReactNode {
-  return windows.map((win) => <ForwardWindowFrame key={win.id} win={win} actions={actions} />);
+  return windows.map((win) => (
+    <ForwardWindowFrame key={win.id} win={win} actions={actions} viewer={viewer} />
+  ));
 }

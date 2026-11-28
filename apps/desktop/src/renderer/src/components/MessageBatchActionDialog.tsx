@@ -141,9 +141,10 @@ export function MessageBatchActionDialog({
                           message={message}
                           conversation={source}
                           user={user}
+                          alwaysShowSenderName
+                          alwaysShowTime
                           deleted={deleted?.(message)}
                           renderers={renderers}
-                          recallRevokerName={message.recallRevokerName}
                         />
                       ))
                     }

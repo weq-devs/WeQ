@@ -20,14 +20,14 @@ import { MessageHistorySurface } from '../MessageHistorySurface';
 import { MessageHistoryRow } from './MessageHistoryRow';
 import { ConvContext, ForwardKindContext } from '../../state/messageContext';
 import { cn } from '../../im-template/template/classNames';
-import { MessageBubble } from '../../im-template/template/messageBubble';
+import { MessageRow } from '../../im-template/template/messageRow';
 import { resolveMessageSender } from '../../im-template/template/conversationDisplay';
 import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../../im-template/template/types';
 import { useToast } from '../Toast.shared';
-
-const noop = (): void => {};
+import { TimeLabel } from '../TimeLabel';
+import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 
 /** `''` as the "no filter" sentinel for the two `<select>`s. */
 const ALL = '';
@@ -57,6 +57,7 @@ type RecallRow = {
   recallLine: string;
   /** Formatted recall time ('' when unknown). */
   when: string;
+  recallTime?: Date;
 };
 
 /** Sort option labels the way a Chinese user reads them (pinyin-ish, stable). */
@@ -96,7 +97,6 @@ export function RecalledMessagesModal({
   const pushToast = useToast((s) => s.push);
   const isGroup = conversation.type === 'group';
   const convKey = isGroup ? conversation.group.identityValue : '';
-  const showSenderNames = conversation.type !== 'direct';
   const subtitle = isGroup ? conversation.group?.name : conversation.otherUser?.displayName;
 
   const [revokerFilter, setRevokerFilter] = useState<string>(ALL);
@@ -105,43 +105,46 @@ export function RecalledMessagesModal({
 
   // One pass turns each message into a display row (labels + filter keys), so the
   // render body and both option lists stay trivial.
-  const rows = useMemo<RecallRow[]>(
-    () =>
-      messages.map((message) => {
-        const mine = message.senderId === user.id;
-        const sender = resolveMessageSender(message, conversation, user);
-        const recall = (message as { recall?: RecallInfo }).recall;
-        const revokerName = (message as { recallRevokerName?: string }).recallRevokerName;
-        const senderLabel = mine ? '你' : displayUserName(sender);
-        const revokerLabel = !recall?.revokeUid
-          ? '未知'
-          : recall.sameSender
-            ? senderLabel
-            : revokerName?.trim() || '管理员';
-        const revokerKey = !recall?.revokeUid
-          ? 'unknown'
-          : recall.sameSender
-            ? `sender:${message.senderId}`
-            : `revoker:${recall.revokeUid}`;
-        const recallLine = !recall?.revokeUid
-          ? '这条消息曾被撤回'
-          : recall.sameSender
-            ? `${revokerLabel} 撤回了自己的消息`
-            : `${revokerLabel} 撤回了 ${senderLabel} 的消息`;
-        return {
-          message,
-          mine,
-          sender,
-          revokerKey,
-          revokerLabel,
-          senderKey: message.senderId,
-          senderLabel,
-          recallLine,
-          when: recall ? formatRecallTime(recall.recallTs) : '',
-        };
-      }),
-    [messages, conversation, user],
-  );
+  const rows = useMemo<RecallRow[]>(() => {
+    const self = new Set(selfIdentityValues(user));
+    return messages.map((message) => {
+      const mine = isSelfIdentity(self, message.senderId);
+      const sender = resolveMessageSender(message, conversation, user);
+      const recall = (message as { recall?: RecallInfo }).recall;
+      const revokerName = (message as { recallRevokerName?: string }).recallRevokerName;
+      const senderLabel = mine ? '你' : message.historicalSenderName || displayUserName(sender);
+      const revokerLabel = !recall?.revokeUid
+        ? '未知'
+        : recall.sameSender
+          ? senderLabel
+          : revokerName?.trim() || '管理员';
+      const revokerKey = !recall?.revokeUid
+        ? 'unknown'
+        : recall.sameSender
+          ? `sender:${message.senderId}`
+          : `revoker:${recall.revokeUid}`;
+      const recallLine = !recall?.revokeUid
+        ? '这条消息曾被撤回'
+        : recall.sameSender
+          ? `${revokerLabel} 撤回了自己的消息`
+          : `${revokerLabel} 撤回了 ${senderLabel} 的消息`;
+      return {
+        message,
+        mine,
+        sender,
+        revokerKey,
+        revokerLabel,
+        senderKey: message.senderId,
+        senderLabel,
+        recallLine,
+        when: recall ? formatRecallTime(recall.recallTs) : '',
+        recallTime:
+          recall && recall.recallTs > 0
+            ? (timeFormat.unixDate(recall.recallTs) ?? undefined)
+            : undefined,
+      };
+    });
+  }, [messages, conversation, user]);
 
   const revokerOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -258,22 +261,15 @@ export function RecalledMessagesModal({
   );
 
   const renderBubble = (row: RecallRow) => (
-    <MessageBubble
+    <MessageRow
       message={row.message}
       conversation={conversation}
+      user={user}
       sender={row.sender}
-      mine={row.mine}
-      senderName={displayUserName(row.sender)}
-      senderAvatarUrl={row.sender.avatarUrl}
-      senderSeed={row.sender.identityValue}
-      senderKind={row.sender.kind}
-      showSenderName={showSenderNames}
-      active={false}
+      alwaysShowSenderName
+      alwaysShowTime
       renderers={renderers}
-      recallRevokerName={row.revokerLabel}
       hideRecallTag
-      onContextMenu={noop}
-      onLongPress={noop}
     />
   );
 
@@ -386,11 +382,24 @@ export function RecalledMessagesModal({
                       row.mine && 'is-mine',
                       onJumpToMessage && 'is-clickable',
                     )}
-                    onClick={() => onJumpToMessage && handleClickMessage(row.message)}
+                    onClick={(event) => {
+                      if (
+                        !onJumpToMessage ||
+                        event.defaultPrevented ||
+                        (event.target instanceof Element &&
+                          event.target.closest('button, a[href], input, video, audio'))
+                      )
+                        return;
+                      handleClickMessage(row.message);
+                    }}
                     role={onJumpToMessage ? 'button' : undefined}
                     tabIndex={onJumpToMessage ? 0 : undefined}
                     onKeyDown={(event) => {
-                      if (onJumpToMessage && (event.key === 'Enter' || event.key === ' ')) {
+                      if (
+                        onJumpToMessage &&
+                        event.target === event.currentTarget &&
+                        (event.key === 'Enter' || event.key === ' ')
+                      ) {
                         event.preventDefault();
                         handleClickMessage(row.message);
                       }
@@ -402,7 +411,15 @@ export function RecalledMessagesModal({
                         <RotateCcw size={12} />
                       </span>
                       <span className="weq-msglist-line">{row.recallLine}</span>
-                      {row.when ? <time className="weq-msglist-time">{row.when}</time> : null}
+                      {row.recallTime ? (
+                        <TimeLabel
+                          className="weq-msglist-time"
+                          value={row.recallTime}
+                          tabbable={false}
+                        >
+                          {row.when}
+                        </TimeLabel>
+                      ) : null}
                       {onJumpToMessage ? (
                         <span className="weq-msglist-jump">
                           <CornerUpRight size={12} />

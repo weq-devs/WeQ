@@ -58,6 +58,7 @@ import { client } from '../trpc/client';
 import {
   forwardExportSelection,
   forwardClipboardElements,
+  forwardImageEntries,
   forwardIntentInput,
   forwardIntentText,
   forwardMessage,
@@ -110,13 +111,15 @@ export function ForwardRecordList({
   win,
   entries,
   actions,
+  groupMessages,
   renderRow,
   dismissRef,
 }: {
   win: ForwardWindowState;
   entries: ForwardEntry[];
   actions: ForwardActions;
-  renderRow: (entry: ForwardEntry) => ReactNode;
+  groupMessages: boolean;
+  renderRow: (entry: ForwardEntry, standalone?: boolean) => ReactNode;
   dismissRef: { current: (() => boolean) | null };
 }) {
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -435,7 +438,7 @@ export function ForwardRecordList({
   async function copySelectedImage() {
     const source = bodyRef.current;
     if (!source || messageImage.busy) return;
-    const selection = await reviewEntries('image');
+    const selection = forwardImageEntries(await reviewEntries('image'), groupMessages);
     if (!selection.length) return;
     try {
       const incomplete = await messageImage.copy(source, selection.length, (start, end) =>
@@ -902,7 +905,7 @@ export function ForwardRecordList({
           user={previewUser}
           renderMessage={(message) => {
             const entry = entriesById.get(message.id);
-            return entry ? renderRow(entry) : null;
+            return entry ? renderRow(entry, true) : null;
           }}
           onClose={() => review.finish(null)}
           onContinue={review.finish}

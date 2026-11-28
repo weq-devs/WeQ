@@ -29,17 +29,13 @@ import {
 import { Avatar } from './primitives';
 import { ChatQqShowEnabledContext, useChatQqShow } from '../../lib/chatQqShow';
 import { qqShowUrl } from '../../lib/resourceUrl';
-import { DressImage } from '../../components/DressImage';
+import { AvatarPendantImage } from '../../components/AvatarPendantImage';
 import type { Conversation, GroupMember, Message, MessageAction, User } from './types';
 import { cn } from './classNames';
 import { SetEmojiReactions, type ReactionInteraction } from '../../components/SetEmojiReactions';
 import { MessageIntentSense } from '../../components/intentSense/MessageIntentSense';
 import { useSelfBubble, useSelfPendant } from '../../hooks/useSelfPendant';
-import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget.shared';
-import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
-import { useMsgDecoration } from '../../hooks/useMsgDecoration';
-import { localDressApplies } from '../../lib/dressSkin';
-import { MsgDecorationEnabledContext } from '../../state/messageAppearance';
+import { useMessageRowDress } from '../../hooks/useMessageRowDress';
 import { MessageProvenance } from '../../components/MessageProvenance';
 import { MessageExpansion, MessageLayoutChange } from '../../components/MessageExpansion';
 import { OutgoingMessageName } from './outgoingMessageName';
@@ -61,13 +57,6 @@ import '../../styles/unsent-message.css';
 const swipeReplySlop = 10;
 const swipeReplyDistance = 59;
 const swipeReplyMaxOffset = 89;
-
-// 猜测式回退（newPreview 拼接，见 msg_decoration.ts）常年会有下架/过期 404。加载失败
-// 就把 <img> 本身藏起来，别让浏览器画那个裂图占位——头像本体照常显示，只是没有这个
-// 装饰角标。真动画帧（CSS 背景图 keyframes）走本地 protocol 文件，不会 404，不需要这层。
-function hideBrokenImg(event: { currentTarget: HTMLImageElement }) {
-  event.currentTarget.style.display = 'none';
-}
 
 function QqShowAvatar({ src }: { src: string }) {
   const [ready, setReady] = useState(false);
@@ -117,22 +106,10 @@ function PendantOverlay({
   const avatarRef = useRef<HTMLSpanElement>(null);
   const qqShowInfo = useChatQqShow(uin, qqShowEnabled, avatarRef);
   const qqShowSrc = qqShowInfo?.url ? qqShowUrl(qqShowInfo.url, qqShowInfo.expiresAt) : '';
-  const staticUrl = widget ? (widget.animated ? undefined : widget.url) : fallbackUrl;
   return (
     <span ref={avatarRef} className={cn('weq-avatar-pendant')} title={qqShowSrc ? name : undefined}>
       <Avatar name={name} avatarUrl={avatarUrl} seed={seed} resolution="small" />
-      {widget?.animated ? (
-        <span className={cn('weq-avatar-pendant-img')} aria-hidden />
-      ) : staticUrl ? (
-        <DressImage
-          className={cn('weq-avatar-pendant-img')}
-          src={staticUrl}
-          alt=""
-          aria-hidden
-          draggable={false}
-          onError={hideBrokenImg}
-        />
-      ) : null}
+      <AvatarPendantImage widget={widget} fallbackUrl={fallbackUrl} />
       {qqShowSrc ? <QqShowAvatar key={qqShowSrc} src={qqShowSrc} /> : null}
     </span>
   );
@@ -206,6 +183,9 @@ function MessageBubbleBody({
   senderSeed,
   senderKind,
   showSenderName,
+  alwaysShowSenderName,
+  alwaysShowTime,
+  alwaysShowDate,
   active,
   renderers,
   deleted,
@@ -244,6 +224,9 @@ function MessageBubbleBody({
   senderSeed: string;
   senderKind?: 'human' | 'bot';
   showSenderName: boolean;
+  alwaysShowSenderName?: boolean;
+  alwaysShowTime?: boolean;
+  alwaysShowDate?: boolean;
   active: boolean;
   renderers?: MessageRenderer[];
   /** WeQ-deleted: rendered in place under a translucent overlay + restore-on-hover. */
@@ -316,7 +299,8 @@ function MessageBubbleBody({
   );
   const groupContinuation = groupPosition === 'middle' || groupPosition === 'last';
   const senderNameVisible =
-    showSenderName && (conversation.type !== 'group' || Boolean(groupDisplay & 1));
+    alwaysShowSenderName ||
+    (showSenderName && (conversation.type !== 'group' || Boolean(groupDisplay & 1)));
   const longPressTimerRef = useRef<number | null>(null);
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
   const longPressAnchorRef = useRef<{ x: number; y: number } | null>(null);
@@ -333,7 +317,6 @@ function MessageBubbleBody({
   const [reeditArmed, setReeditArmed] = useState(false);
   const [reeditBusy, setReeditBusy] = useState(false);
   const reeditPending = useRef(false);
-  const decorationEnabled = useContext(MsgDecorationEnabledContext);
   // 自己账号的静态挂件，仅在消息与本地装扮都没有挂件时回退。
   const pendantUrl = useSelfPendant();
   const selfBubbleId = useSelfBubble();
@@ -341,43 +324,11 @@ function MessageBubbleBody({
   const decoration =
     message.decoration ??
     (mine && message.optimistic ? { bubbleId: selfBubbleId, fontId: 0, widgetId: 0 } : undefined);
-  // 本地生效装扮按作用范围覆盖消息记录，未覆盖的种类仍使用记录里的装扮。
-  const {
-    widget: activeWidget,
-    scope: activeScope,
-    scopes,
-    fontActive,
-    bubbleActive,
-  } = useActiveWidget();
-  const activeFontFx = useActiveFontFx();
-  const recordWidget = Boolean(decoration?.widgetId || (mine && pendantUrl));
-  const localFontOverride =
-    fontActive && localDressApplies(scopes?.font ?? activeScope, mine, Boolean(decoration?.fontId));
-  const localBubbleOverride =
-    bubbleActive &&
-    localDressApplies(scopes?.bubble ?? activeScope, mine, Boolean(decoration?.bubbleId));
-  const localWidget =
-    activeWidget && localDressApplies(activeScope, mine, recordWidget) ? activeWidget : null;
-  const msgDec = useMsgDecoration(
-    decoration
-      ? {
-          ...decoration,
-          fontId: localFontOverride ? 0 : decoration.fontId,
-          bubbleId: localBubbleOverride ? 0 : decoration.bubbleId,
-          widgetId: localWidget ? 0 : decoration.widgetId,
-        }
-      : decoration,
-    bubbleRef,
-    outgoingMetadata,
-  );
-  const msgWidget = msgDec.widget;
-  const msgBubbleId = msgDec.bubbleId;
-  const msgFontId = msgDec.fontId;
-  // 本地生效字体优先，普通款也要清除原消息的炫彩；未覆盖时使用消息字体。
-  const lineFontFx = localFontOverride ? activeFontFx : msgDec.fontFx;
-  // 量完气泡尺寸才知道放不放、放哪一段（见 useBubbleFontFx）。
-  const fontFxAttr = useBubbleFontFx(lineFontFx, bubbleRef);
-  const lineWidget = decorationEnabled.widget ? (localWidget ?? msgWidget) : null;
+  const dress = useMessageRowDress(decoration, bubbleRef, {
+    mine,
+    pending: outgoingMetadata,
+    fallbackPendant: pendantUrl,
+  });
   // Deleted origin — prefer the explicit kind; fall back to the legacy boolean
   // (which always meant a WeQ delete). `qq` = QQ-native recall, not restorable.
   const resolvedKind: 'weq' | 'qq' | null = deletedKind ?? (deleted ? 'weq' : null);
@@ -680,8 +631,8 @@ function MessageBubbleBody({
           uin={sender.identityValue}
           avatarUrl={senderAvatarUrl}
           seed={senderSeed}
-          widget={lineWidget}
-          fallbackUrl={mine && decorationEnabled.widget ? pendantUrl : null}
+          widget={dress.widget}
+          fallbackUrl={dress.fallbackPendant}
         />
       )}
       {!mine ? avatarBadge : null}
@@ -749,8 +700,8 @@ function MessageBubbleBody({
       )}
       data-message-id={message.id}
       data-swipe-reply={Boolean(onSwipeReply) || undefined}
-      data-message-group={msgBubbleId || localBubbleOverride ? undefined : groupPosition}
-      data-grouped-dress-bubble={msgBubbleId || localBubbleOverride ? groupPosition : undefined}
+      data-message-group={dress.dressed ? undefined : groupPosition}
+      data-grouped-dress-bubble={dress.dressed ? groupPosition : undefined}
       data-generated-message-id={
         conversation.generated && !message.generatedPending ? message.id : undefined
       }
@@ -775,15 +726,7 @@ function MessageBubbleBody({
             }
           : undefined
       }
-      data-bubble={msgBubbleId || undefined}
-      data-weq-message-image-pending={msgDec.imagePending || undefined}
-      data-font={msgFontId || undefined}
-      data-weq-system-font={msgDec.systemFont || undefined}
-      data-record-bubble={decoration?.bubbleId || undefined}
-      data-record-font={decoration?.fontId || undefined}
-      data-record-widget={recordWidget || undefined}
-      data-fontfx={fontFxAttr}
-      data-widget={lineWidget?.animated ? lineWidget.itemId : undefined}
+      {...dress.attributes}
     >
       <MessageLayoutChange
         anchor={lineRef}
@@ -800,8 +743,8 @@ function MessageBubbleBody({
           ['.message-actions', message.actions],
           [
             '.message-content, .weq-message-heading',
-            msgBubbleId,
-            msgFontId,
+            dress.bubbleId,
+            dress.fontId,
             sender.memberLevel,
             sender.customTitle,
             sender.levelName,
@@ -836,6 +779,8 @@ function MessageBubbleBody({
               message={message}
               precision={conversation.generated || message.optimistic ? 'millisecond' : 'second'}
               animate={outgoingMetadata}
+              alwaysShowTime={alwaysShowTime}
+              alwaysShowDate={alwaysShowDate}
             />
           </div>
         )}

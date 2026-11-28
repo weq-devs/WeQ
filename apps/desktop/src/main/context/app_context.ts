@@ -2330,6 +2330,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       });
       setProxyMessageReadSharing(session, () => qqClientSync.isLiveEnabled());
       const unifiedSearch = new UnifiedSearchService(session, {
+        searchMessageStates: (kind, conv, rows) => msgs.searchMessageStates(kind, conv, rows),
         searchContent: (category, keyword, limit, offset) =>
           searchAccountContent(
             contentSearch,
@@ -3355,6 +3356,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       let generatedSources: GeneratedSearchSources | undefined;
       await dressInstall.prepareMessageRendering();
       const unifiedSearch = new UnifiedSearchService(session, {
+        searchMessageStates: (kind, conv, rows) => msgs.searchMessageStates(kind, conv, rows),
         searchContent: (category, keyword, limit, offset) =>
           searchAccountContent(
             contentSearch,

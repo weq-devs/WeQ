@@ -100,6 +100,7 @@ export function createSearchHighlighter(keyword: string, matchPinyin = false) {
     return matches.length ? matches : (pinyin?.findRanges(text) ?? []);
   };
   return {
+    findRanges,
     matches: (text: string) => findRanges(text).length > 0,
     render(text: string): ReactElement {
       const ranges = findRanges(text);

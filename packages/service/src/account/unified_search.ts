@@ -23,6 +23,7 @@ import {
   type GroupMsg,
 } from '@weq/db';
 import { toRenderElements, type RenderElement } from './msg_view';
+import type { MsgService, RecallInfo, DeletedKind } from './msg';
 import { elementsToText } from './export/element_text';
 import { extractArkCard, extractArkPrompt } from './ark_feed';
 import { GuildDirectService } from './guild_direct';
@@ -65,6 +66,7 @@ import {
 } from './generated_search';
 
 export interface UnifiedSearchServiceOptions {
+  searchMessageStates?: MsgService['searchMessageStates'];
   searchContent?: (
     category: ContentSearchCategory,
     keyword: string,
@@ -173,6 +175,7 @@ export interface FileSearchHit {
 export interface ConversationRecordHit {
   msgId: string;
   msgSeq: string;
+  clientSeq?: string;
   senderUid: string;
   /** Sender QQ number ('' when unresolvable) — for the real sender avatar. */
   senderUin: string;
@@ -194,6 +197,8 @@ export interface ConversationRecordHit {
   setEmojiList?: SetEmojiItem[];
   /** Per-message decoration (column 40801): bubble/font/widget itemIds. */
   decoration?: MsgDecoration;
+  deletedKind?: DeletedKind;
+  recall?: RecallInfo;
 }
 
 export interface QuickSearchResult {
@@ -953,6 +958,11 @@ export class UnifiedSearchService {
     hits: BuddyMsgFtsHit[],
     originals: Map<bigint, C2cMsg | GroupMsg>,
   ): Promise<ConversationRecordHit[]> {
+    const states = await this.options.searchMessageStates?.(
+      source === 'group' ? 'group' : 'c2c',
+      conv,
+      [...originals.values()],
+    );
     const uids = [...new Set(hits.map((h) => h.senderUid).filter(Boolean))];
     const uinByUid = new Map<string, bigint>();
     const nameByUid = new Map<string, string>();
@@ -980,6 +990,7 @@ export class UnifiedSearchService {
       const uin = uinByUid.get(h.senderUid);
       const orig = originals.get(h.msgId);
       const rendered = orig ? toRenderElements(orig.elements) : undefined;
+      const state = states?.get(h.msgId);
       return rowToRecordHit(
         h,
         uin ? uin.toString() : '0',
@@ -990,6 +1001,8 @@ export class UnifiedSearchService {
               elements: rendered!,
               setEmojiList: source === 'group' ? (orig as GroupMsg).setEmojiList : undefined,
               decoration: orig.decoration,
+              clientSeq: 'clientSeq' in orig && orig.clientSeq ? String(orig.clientSeq) : undefined,
+              ...state,
             }
           : undefined,
       );
@@ -1708,6 +1721,9 @@ function rowToRecordHit(
     elements: RenderElement[];
     setEmojiList?: SetEmojiItem[];
     decoration?: MsgDecoration;
+    clientSeq?: string;
+    deletedKind?: DeletedKind;
+    recall?: RecallInfo;
   },
 ): ConversationRecordHit {
   return {
@@ -1723,6 +1739,9 @@ function rowToRecordHit(
           elements: original.elements,
           ...(original.setEmojiList ? { setEmojiList: original.setEmojiList } : {}),
           ...(original.decoration ? { decoration: original.decoration } : {}),
+          ...(original.clientSeq ? { clientSeq: original.clientSeq } : {}),
+          ...(original.deletedKind ? { deletedKind: original.deletedKind } : {}),
+          ...(original.recall ? { recall: original.recall } : {}),
         }
       : {}),
   };

@@ -50,6 +50,7 @@ import type {
   HiddenSessionWire,
   DeletedSessionWire,
   MessageWire,
+  RenderElementWire,
   ChatMsgWire,
   UserProfileWire,
   GroupMemberWire,
@@ -10391,12 +10392,15 @@ function MainWorkspace(): ReactElement {
   const [specialPreview, setSpecialPreview] = useState<ConcreteConversation | null>(null);
   const [privatePreview, setPrivatePreview] = useState<{
     account: string;
+    scope: string;
     source: PreviewSource;
     contactScope: string | null;
     conversation: Conversation;
     sender?: string;
     cursor?: ProfilePreviewCursor;
     rows: MessageWire[];
+    deletedIds?: ReadonlySet<string>;
+    hiddenIds?: ReadonlySet<string>;
     loading: boolean;
     loadingMore: boolean;
     error: string | null;
@@ -10451,7 +10455,7 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     previewRequest.current++;
     setPrivatePreview(null);
-  }, [memberCard?.member.id, memberCard?.member.identityValue, user.identityValue]);
+  }, [memberCard?.member.id, memberCard?.member.identityValue, user.identityValue, messageScope]);
   useEffect(() => {
     if (
       (privatePreview?.source !== 'contact' && privatePreview?.source !== 'group-profile') ||
@@ -10500,6 +10504,7 @@ function MainWorkspace(): ReactElement {
       useViewState.getState().openedUin === account;
     setPrivatePreview({
       account,
+      scope,
       source,
       contactScope,
       conversation,
@@ -10536,21 +10541,24 @@ function MainWorkspace(): ReactElement {
         conversation = { ...conversation, otherUser: localProfileUser(peer, local ?? undefined) };
       }
       if (!isCurrent()) return;
-      const page = await readProfilePreviewPage({
-        binding,
-        kind: conversation.type === 'group' ? 'group' : 'c2c',
-        conv: conversation.id,
-        sender,
-      });
+      const target = convFetchKey(conversation);
+      const [page, deleted, hidden] = await Promise.all([
+        readProfilePreviewPage({ ...target, binding, sender }),
+        client.account.deletedMsgIds.query(target),
+        client.account.hiddenDeletedMsgIds.query(target),
+      ]);
       if (!isCurrent()) return;
       setPrivatePreview({
         account,
+        scope,
         source,
         contactScope,
         conversation,
         sender,
         cursor: page.cursor,
         rows: page.rows.map(toMessageWire),
+        deletedIds: new Set(deleted.map(deletionIdentity)),
+        hiddenIds: new Set(hidden.map(deletionIdentity)),
         loading: false,
         loadingMore: false,
         error: null,
@@ -10572,16 +10580,17 @@ function MainWorkspace(): ReactElement {
 
   async function loadPrivatePreview() {
     const snapshot = privatePreview;
-    if (!snapshot || snapshot.loadingMore || !snapshot.hasMore) return;
+    if (!snapshot || snapshot.scope !== messageScope || snapshot.loadingMore || !snapshot.hasMore)
+      return;
     const request = previewRequest.current;
     const first = snapshot.rows[0];
     if (!first && !snapshot.sender) return;
     setPrivatePreview({ ...snapshot, loadingMore: true, error: null });
     try {
+      const target = convFetchKey(snapshot.conversation);
       const page = await readProfilePreviewPage({
         binding: messageBindingRef.current ?? undefined,
-        kind: snapshot.conversation.type === 'group' ? 'group' : 'c2c',
-        conv: snapshot.conversation.id,
+        ...target,
         beforeSeq: first?.msgSeq,
         sender: snapshot.sender,
         cursor: snapshot.cursor,
@@ -10614,7 +10623,7 @@ function MainWorkspace(): ReactElement {
   }, [loaded, resolveProfiles]);
 
   useEffect(() => {
-    if (!privatePreview) return;
+    if (!privatePreview || privatePreview.scope !== messageScope) return;
     resolveProfiles([
       ...privatePreview.rows.map((row) => row.senderUid),
       ...(privatePreview.conversation.type === 'direct'
@@ -10632,6 +10641,11 @@ function MainWorkspace(): ReactElement {
     const uids = privatePreview.rows.flatMap((row) => [
       row.senderUid,
       ...extractGrayTipUids(row.elements),
+      ...row.elements.flatMap((element) => {
+        const reply = element as RenderElementWire | null | undefined;
+        const uid = reply?.type === 'reply' ? reply.data?.origSenderUid : undefined;
+        return typeof uid === 'string' ? [uid] : [];
+      }),
     ]);
     resolveProfiles(uids);
     resolvePreviewMembers(
@@ -10640,8 +10654,23 @@ function MainWorkspace(): ReactElement {
       known,
       () => useViewState.getState().openedUin === account,
     );
-  }, [privatePreview, currentGroupMembers, selectedUid, resolvePreviewMembers, resolveProfiles]);
+  }, [
+    privatePreview,
+    messageScope,
+    currentGroupMembers,
+    selectedUid,
+    resolvePreviewMembers,
+    resolveProfiles,
+  ]);
 
+  const previewEssence = trpc.account.listGroupEssenceSeqs.useQuery(
+    { groupCode: privatePreviewGroup },
+    {
+      enabled: Boolean(privatePreviewGroup && privatePreview?.scope === messageScope),
+      staleTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+    },
+  );
   const resolvedPreviewConversation = useMemo(() => {
     const conversation = privatePreview?.conversation;
     if (conversation?.type === 'direct')
@@ -10660,7 +10689,17 @@ function MainWorkspace(): ReactElement {
         ...Object.values(missingMembers[conversation.id] ?? {}).map(mapGroupMemberWire),
       ].map((member) => [member.id, member]),
     );
-    return { ...conversation, members: [...members.values()] };
+    return {
+      ...conversation,
+      members: [...members.values()],
+      group: {
+        ...conversation.group,
+        essenceSeqs:
+          selectedUid === conversation.id
+            ? effectiveEssenceSeqs
+            : (previewEssence.data ?? conversation.group.essenceSeqs),
+      },
+    };
   }, [
     privatePreview?.conversation,
     selectedUid,
@@ -10668,6 +10707,8 @@ function MainWorkspace(): ReactElement {
     missingMembers,
     mapGroupMemberWire,
     profileByUid,
+    effectiveEssenceSeqs,
+    previewEssence.data,
   ]);
 
   const previewMemberMap = useMemo(
@@ -10676,12 +10717,37 @@ function MainWorkspace(): ReactElement {
   );
   const previewRows = privatePreview?.rows;
   const previewAccount = privatePreview?.account;
+  const previewScope = privatePreview?.scope;
+  const previewTarget = resolvedPreviewConversation
+    ? convFetchKey(resolvedPreviewConversation)
+    : null;
+  const showPreviewHistoricalNames = useShowHistoricalNames(
+    previewTarget && !isDatalineUid(previewTarget.conv)
+      ? conversationDisplayKey(previewTarget.kind, previewTarget.conv)
+      : undefined,
+  );
+  const previewRecordedSenderNames = useRecordedSenderNames(
+    showPreviewHistoricalNames && previewScope === messageScope ? previewTarget : null,
+    pinSession.binding,
+    previewRows ?? [],
+  );
   const previewTemplateMessages = useMemo(() => {
-    if (!previewRows || !resolvedPreviewConversation || previewAccount !== user.identityValue)
+    if (
+      !previewRows ||
+      !resolvedPreviewConversation ||
+      previewAccount !== user.identityValue ||
+      previewScope !== messageScope
+    )
       return [];
-    const replyIndex = createReplyPreviewIndex(previewRows);
+    const rows = previewRecordedSenderNames
+      ? previewRows.map((row) => {
+          const senderAtTime = previewRecordedSenderNames.get(row.msgId);
+          return senderAtTime ? { ...row, senderAtTime } : row;
+        })
+      : previewRows;
+    const replyIndex = createReplyPreviewIndex(rows);
     const lookupByUin = createMemberUinLookup(previewMemberMap);
-    return previewRows.map((row) =>
+    return rows.map((row) =>
       messageToTemplate(
         row,
         resolvedPreviewConversation,
@@ -10691,27 +10757,84 @@ function MainWorkspace(): ReactElement {
         replyIndex,
         profileByUid,
         lookupByUin,
+        showPreviewHistoricalNames,
       ),
     );
   }, [
     previewRows,
     previewAccount,
+    previewScope,
+    messageScope,
     resolvedPreviewConversation,
     user,
     previewMemberMap,
     botUids,
     profileByUid,
+    previewRecordedSenderNames,
+    showPreviewHistoricalNames,
   ]);
   const floatingPreview =
     privatePreview?.source === 'latest' ||
     privatePreview?.source === 'speech' ||
     privatePreview?.source === 'menu';
+  function locatePreviewMessage(target: ReplyJumpTarget) {
+    const conversation = resolvedPreviewConversation;
+    if (!conversation || previewScope !== messageScopeRef.current || (!target.seq && !target.msgId))
+      return false;
+    if (
+      !conversations.some((item) => item.id === conversation.id) &&
+      !hiddenConversationsById.has(conversation.id) &&
+      !deletedConversationsById.has(conversation.id)
+    )
+      setTemporaryConversations((current) => ({
+        ...current,
+        [conversation.id]: { conversation, appearedAt: Date.now() },
+      }));
+    closePrivatePreview();
+    setMemberCard(null);
+    setNumberGroupCard(null);
+    const { kind, conv } = convFetchKey(conversation);
+    jumpToConvSeq(
+      kind,
+      conv,
+      target.seq == null ? undefined : String(target.seq),
+      true,
+      undefined,
+      target.msgId,
+    );
+    return true;
+  }
+  async function locatePreviewReply(target: ReplyJumpTarget) {
+    if (!previewTarget || previewScope !== messageScopeRef.current) return false;
+    const request = previewRequest.current;
+    const positive = (value: unknown) =>
+      /^[1-9]\d*$/.test(String(value)) ? String(value) : undefined;
+    const index = positive(target.index);
+    const clientSeq = positive(target.clientSeq);
+    const seq =
+      previewTarget.kind === 'group'
+        ? (positive(target.seq) ?? index)
+        : (index ??
+          (clientSeq && !target.msgId
+            ? await client.account.resolveReplySeq.query({
+                conv: previewTarget.conv,
+                clientSeq,
+                senderUin: positive(target.senderUin),
+                sendTime: positive(target.sendTime),
+              })
+            : positive(target.seq)));
+    if (request !== previewRequest.current) return false;
+    return locatePreviewMessage({ seq: seq ?? undefined, msgId: target.msgId });
+  }
   const conversationPreviewContent =
     privatePreview &&
     resolvedPreviewConversation &&
+    previewScope === messageScope &&
     privatePreview.account === user.identityValue ? (
       <GapMessagesModal
+        key={`${previewScope}:${resolvedPreviewConversation.id}:${privatePreview.source}:${privatePreview.sender ?? ''}`}
         preview
+        independent={Boolean(privatePreview.sender)}
         embedded={!floatingPreview}
         title={
           privatePreview.sender
@@ -10724,7 +10847,10 @@ function MainWorkspace(): ReactElement {
         }
         conversation={resolvedPreviewConversation}
         user={user}
+        detailsBinding={pinSession.binding}
         messages={previewTemplateMessages}
+        deletedIds={privatePreview.deletedIds}
+        hiddenIds={privatePreview.hiddenIds}
         renderers={messageRenderers}
         loading={privatePreview.loading}
         loadingMore={privatePreview.loadingMore}
@@ -10742,28 +10868,9 @@ function MainWorkspace(): ReactElement {
         }
         onClose={closePrivatePreview}
         onLocateMessage={(target) => {
-          const conversation = resolvedPreviewConversation;
-          if (
-            !conversations.some((item) => item.id === conversation.id) &&
-            !hiddenConversationsById.has(conversation.id) &&
-            !deletedConversationsById.has(conversation.id)
-          )
-            setTemporaryConversations((current) => ({
-              ...current,
-              [conversation.id]: { conversation, appearedAt: Date.now() },
-            }));
-          closePrivatePreview();
-          setMemberCard(null);
-          setNumberGroupCard(null);
-          jumpToConvSeq(
-            conversation.type === 'group' ? 'group' : 'c2c',
-            conversation.id,
-            target.seq == null ? undefined : String(target.seq),
-            true,
-            undefined,
-            target.msgId,
-          );
+          locatePreviewMessage(target);
         }}
+        onLocateReply={locatePreviewReply}
       />
     ) : null;
 
@@ -13336,6 +13443,7 @@ function MainWorkspace(): ReactElement {
                       </QzoneCardNavigationContext.Provider>
                       <ForwardWindowHost
                         key={messageScope}
+                        viewer={user}
                         actions={{
                           binding: pinSession.binding,
                           sendAvailable,
