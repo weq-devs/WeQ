@@ -185,7 +185,7 @@
   cursor: pointer;
   opacity: 0;
   transform: translateX(-50%);
-  translate: 0 calc(-1 * (var(--composer-height, 190px) + var(--composer-toggle-extra-offset, 0px)));
+  translate: 0 calc(-1 * (var(--composer-height, 190px) + var(--composer-top-offset, 0px)));
   transition:
     opacity 100ms ease-out,
     background 100ms ease-out,
@@ -2492,7 +2492,7 @@ html[data-theme='dark'] .member-role-badge.admin {
 
 .composer-resize {
   position: absolute;
-  top: -5px;
+  top: calc(-5px - var(--composer-top-offset, 0px));
   right: 0;
   left: 0;
   z-index: 8;
