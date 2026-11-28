@@ -283,6 +283,8 @@ import {
   deletedSessionToWire,
   officialAccountSummaryToWire,
   serviceAccountSummaryToWire,
+  aiAssistantSessionToWire,
+  aiAssistantMessageToWire,
   userProfileToWire,
   groupDetailToWire,
   groupEssenceToWire,
@@ -3519,6 +3521,42 @@ export const accountRouter = router({
         items: hits.slice(input.offset, input.offset + input.limit),
         hasMore: hits.length > input.offset + input.limit,
       };
+    }),
+
+  /**
+   * AI 助手（小Q，chatType 45）会话列表。
+   *
+   * 小Q 主入口（sessionId 10000）在 `recent_contact_v3_table` 里；其余子会话
+   * 只存在于 `ai_session_table`。这里一次性返回全部，最新在前。
+   */
+  listAiAssistantSessions: procedure.query(async () => {
+    const service = requireServices().aiAssistant;
+    const sessions = await service.listSessions();
+    return sessions.map(aiAssistantSessionToWire);
+  }),
+
+  /**
+   * 一个 AI 会话的完整消息。AI 会话体量很小，不分页；渲染前已把流式 markdown
+   * 片段折叠好，卡片按占位符切进 segments。
+   */
+  listAiAssistantMessages: procedure
+    .input(
+      z.object({
+        sessionId: z.string().min(1),
+        ...exportAccountBindingInput.shape,
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const messages = await services.aiAssistant.listMessages(input.sessionId);
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号数据源已切换');
+      return messages.map(aiAssistantMessageToWire);
     }),
 
   /** 公众号单个会话 ARK 消息流（最近 limit 条）。 */

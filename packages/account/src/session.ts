@@ -20,6 +20,7 @@ import {
   DraftDb,
   DeletedSessionDb,
   ServiceAssistantContactDb,
+  AiAssistantDb,
   UidMappingDb,
   UidMap,
   ForwardMsgDb,
@@ -171,6 +172,8 @@ export interface AccountSession {
   readonly serviceAssistantContacts: ServiceAssistantContactDb;
   /** 服务号消息（service_assistant_msg_table），结构同 c2c，分区键是 appId。 */
   readonly serviceAssistantMsgs: C2cMsgDb;
+  /** AI 助手（小Q，chatType 45）：ai_session_table + ai_assistant_msg_table，只读。 */
+  readonly aiAssistant: AiAssistantDb;
   /** Merged-forward / quote-reply cache (40900 column). */
   readonly forwardMsgs: ForwardMsgDb;
   /** Full-text-search index over message text (buddy_msg_fts.db). */
@@ -389,6 +392,13 @@ export async function openAccount(
     table: 'service_assistant_msg_table',
   });
 
+  // AI 助手（小Q，chatType 45）用的是两张独立表，会话键是 sessionId。只读。
+  const aiAssistant = new AiAssistantDb(nt, {
+    dbPath: msgDbPath,
+    key: ctx.dbKey,
+    algo: a(msgDbPath),
+  });
+
   // Load the uid ↔ uin ↔ sortNo directory once and keep it resident; the c2c
   // query path needs uid → sortNo (column 40027) translation on every call.
   // A failure here (e.g. table absent on an older QQ build) must NOT block
@@ -578,6 +588,7 @@ export async function openAccount(
     deletedSessions,
     serviceAssistantContacts,
     serviceAssistantMsgs,
+    aiAssistant,
     forwardMsgs,
     buddyMsgFts,
     groupMsgFts,
@@ -615,6 +626,7 @@ export async function openAccount(
       deletedSessions.close();
       serviceAssistantContacts.close();
       serviceAssistantMsgs.close();
+      aiAssistant.close();
       forwardMsgs.close();
       buddyMsgFts.close();
       groupMsgFts.close();

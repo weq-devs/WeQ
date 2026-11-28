@@ -141,6 +141,7 @@ import {
   GuildDirectService,
   OfficialAccountService,
   ServiceAccountService,
+  AiAssistantService,
   UnreadInfoService,
   createQqUnreadCountSource,
   AccountConfigService,
@@ -1292,6 +1293,7 @@ export interface AccountServices {
   deletedSessions: DeletedSessionService;
   officialAccount: OfficialAccountService;
   serviceAccount: ServiceAccountService;
+  aiAssistant: AiAssistantService;
   unreadInfo: UnreadInfoService;
   qqClientSync?: AccountQqSync;
   proxyReactions?: GroupReactionWatch;
@@ -2351,6 +2353,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
+        aiAssistant: new AiAssistantService(session),
         unreadInfo: new UnreadInfoService(
           session,
           {
@@ -3359,6 +3362,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
+        aiAssistant: new AiAssistantService(session),
         unreadInfo: new UnreadInfoService(session, undefined, {
           statePath: join(
             platform.appDataRoot(),

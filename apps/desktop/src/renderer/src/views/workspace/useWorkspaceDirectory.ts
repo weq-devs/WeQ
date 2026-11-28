@@ -4,6 +4,7 @@ import { intimateRelationOf } from '../../lib/profileRelations';
 import { sidebarConversationsWithoutAssistant } from '../../lib/groupAssistant';
 import { groupDirectoryPreference } from '../../lib/groupNotifications';
 import { isDataline } from '../../lib/deviceAvatar';
+import { aiAssistantAvatarDataUri } from '../../lib/aiAssistantAvatar';
 import { applyOutgoingConversationPreview } from '../../lib/outgoingConversationPreview';
 import { classifyChatType, toChatTypeNumber } from '@weq/codec';
 import { contactTitle } from '../../lib/contactTitle';
@@ -399,6 +400,7 @@ export function useWorkspaceDirectory({
     const recentConversations = recentContactsData
       .filter((c) => {
         const kind = classifyChatType(c.chatType);
+        // 103/118 走合并入口；45（小Q）保留在常规列表里当普通会话。
         if (kind === 'official' || kind === 'service') return false;
         // 隐藏会话：在 hidden_session_storage_table_v1 里有记录的，不出现在主列表
         return !hiddenUidSet.has(c.targetUid);
@@ -416,6 +418,17 @@ export function useWorkspaceDirectory({
     const byId = new Map(
       recentConversations.map((conversation) => [conversation.id, conversation]),
     );
+    // 小Q（AI 助手，chatType 45）：普通列表项，点进去是只读会话面板。
+    // 它没有 profile / 头像 CDN，补上自绘头像与 AI 目录标识。
+    for (const [id, conversation] of byId) {
+      if (conversation.type !== 'direct') continue;
+      if (classifyChatType(conversation.chatType ?? '') !== 'aiAssistant') continue;
+      byId.set(id, {
+        ...conversation,
+        directoryKind: 'aiAssistant',
+        otherUser: { ...conversation.otherUser, avatarUrl: aiAssistantAvatarDataUri() },
+      });
+    }
 
     for (const detail of groups) {
       // 群也要检查：如果在 hidden_session_storage_table_v1 里，不加入主列表

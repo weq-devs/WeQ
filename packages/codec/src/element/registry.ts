@@ -45,6 +45,8 @@ const KIND_TO_TYPE: Record<KnownKind, ElementType> = {
   emojiBounce: ElementType.EMOJI_BOUNCE,
   qqDynamic: ElementType.QQ_DYNAMIC,
   shareLocation: ElementType.SHARE_LOCATION,
+  recommendedMsg: ElementType.RECOMMENDED_MSG,
+  actionBar: ElementType.ACTION_BAR,
 };
 
 const TYPE_TO_KIND: Partial<Record<ElementType, KnownKind>> = {
@@ -69,6 +71,8 @@ const TYPE_TO_KIND: Partial<Record<ElementType, KnownKind>> = {
   [ElementType.EMOJI_BOUNCE]: 'emojiBounce',
   [ElementType.QQ_DYNAMIC]: 'qqDynamic',
   [ElementType.SHARE_LOCATION]: 'shareLocation',
+  [ElementType.RECOMMENDED_MSG]: 'recommendedMsg',
+  [ElementType.ACTION_BAR]: 'actionBar',
 };
 
 export function decodeElement(wire: ProtoDecodeStructType<typeof ElementWire>): Element {
@@ -97,6 +101,26 @@ export function decodeElement(wire: ProtoDecodeStructType<typeof ElementWire>): 
                   : null;
     if (!kind) return makeUnknown(wire, wire.elementType ?? 0);
     return { kind, ...wire } as Element;
+  }
+
+  // 推荐消息 / 操作栏：与内联键盘共用 48751/48753 的行/按钮结构，但要摊平成
+  // `rows` 并把按钮动作码（48770 → 48780）提到按钮顶层。
+  if (type === ElementType.RECOMMENDED_MSG || type === ElementType.ACTION_BAR) {
+    const rows = (wire.keyboardRows ?? []).map((row) =>
+      (row.buttons ?? []).map((button) => ({
+        ...button,
+        actionCode: button.actionStruct?.actionCode,
+      })),
+    );
+    const kind = type === ElementType.RECOMMENDED_MSG ? 'recommendedMsg' : 'actionBar';
+    return {
+      kind,
+      rows,
+      ...(kind === 'recommendedMsg' ? { flagJson: wire.recommendedFlagJson } : {}),
+      elementId: wire.elementId,
+      isSender: wire.isSender,
+      subType: wire.subType,
+    } as Element;
   }
 
   const kind = TYPE_TO_KIND[type];
@@ -137,6 +161,26 @@ export function encodeElement(el: Element): ProtoEncodeStructType<typeof Element
         o && typeof o === 'object' && 'kind' in o ? encodeElement(o as Element) : o,
       );
     }
+  }
+  // 推荐消息 / 操作栏：decode 时把 48751 的行摊平成 `rows` 并把动作码提到按钮
+  // 顶层；编码时按同样的形状折回 48751/48753 与 48770。
+  if (kind === 'recommendedMsg' || kind === 'actionBar') {
+    const { rows, flagJson, ...restWithoutRows } = rest as {
+      rows?: Array<Array<{ actionCode?: number } & Record<string, unknown>>>;
+      flagJson?: string;
+    };
+    const keyboardRows = (rows ?? []).map((row) => ({
+      buttons: row.map(({ actionCode, ...button }) => ({
+        ...button,
+        ...(actionCode !== undefined ? { actionStruct: { actionCode } } : {}),
+      })),
+    }));
+    return {
+      ...restWithoutRows,
+      keyboardRows,
+      ...(flagJson !== undefined ? { recommendedFlagJson: flagJson } : {}),
+      elementType: KIND_TO_TYPE[kind as KnownKind],
+    } as ProtoEncodeStructType<typeof ElementWire>;
   }
   return {
     ...rest,

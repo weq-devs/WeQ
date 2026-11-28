@@ -12,6 +12,12 @@
  */
 export enum ChatType {
   KCHATTYPEADELIE = 42, // 机器人？
+  /**
+   * QQ AI 助手「小Q」的会话（`ai_session_table` / `ai_assistant_msg_table`）。
+   * 它**不在** c2c_msg_table 里：会话键是 sessionId（40021），小Q 主入口的
+   * sessionId 固定为 `10000`。见 docs/database/nt_msg/ai-assistant.md。
+   */
+  KCHATTYPEAIASSISTANT = 45,
   KCHATTYPEBUDDYNOTIFY = 5,
   KCHATTYPEC2C = 1, // 好友私聊
   KCHATTYPECIRCLE = 113, // QQ短视频？？

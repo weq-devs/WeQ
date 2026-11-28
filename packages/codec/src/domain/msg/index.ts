@@ -1,5 +1,6 @@
 export * from './message';
 export * from './row_to_message';
+export * from './ai_assistant';
 export * from './enums';
 export * from './chat_kind';
 export * from './msg_cache';

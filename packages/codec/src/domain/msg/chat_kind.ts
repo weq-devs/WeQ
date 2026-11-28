@@ -7,7 +7,7 @@
 
 import { ChatType } from './enums';
 
-export type ChatKind = 'direct' | 'group' | 'dataline' | 'service' | 'official';
+export type ChatKind = 'direct' | 'group' | 'dataline' | 'service' | 'official' | 'aiAssistant';
 
 const DIRECT = new Set<number>([
   ChatType.KCHATTYPEC2C, // 1 好友私聊
@@ -19,6 +19,8 @@ const GROUP = new Set<number>([ChatType.KCHATTYPEGROUP]); // 2，仅此一个
 const DATALINE = new Set<number>([ChatType.KCHATTYPEDATALINE, ChatType.KCHATTYPEDATALINEMQQ]);
 const SERVICE = new Set<number>([ChatType.KCHATTYPESERVICEASSISTANT]); // 118，实现待定
 const OFFICIAL = new Set<number>([ChatType.KCHATTYPETEMPPUBLICACCOUNT]); // 103，实现待定
+/** QQ AI 助手（小Q），独立表 ai_session_table / ai_assistant_msg_table。 */
+const AI_ASSISTANT = new Set<number>([ChatType.KCHATTYPEAIASSISTANT]); // 45
 
 /**
  * wire chatType 有两种形态：db 层对已知值会用 `enumName()` 映射成枚举成员名字符串
@@ -43,6 +45,7 @@ export function classifyChatType(chatType: string | number): ChatKind | null {
   if (DATALINE.has(n)) return 'dataline';
   if (SERVICE.has(n)) return 'service';
   if (OFFICIAL.has(n)) return 'official';
+  if (AI_ASSISTANT.has(n)) return 'aiAssistant';
   return null;
 }
 

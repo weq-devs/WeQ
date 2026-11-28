@@ -28,7 +28,11 @@ export interface WorkspaceContext {
   specialChat?: 'assistant' | 'guild' | null;
   assistantSessionId?: string | null;
   /** 正在浏览的具体公众号 / 服务号（ARK Feed）；没有就是合并入口。 */
-  officialFeed?: { kind: 'official' | 'service'; conversationId: string; title: string } | null;
+  officialFeed?: {
+    kind: 'official' | 'service' | 'aiAssistant';
+    conversationId: string;
+    title: string;
+  } | null;
   /** 联系人页选中的好友。 */
   contact?: Contact | null;
   /** 联系人页选中的群（群详情）。 */
@@ -77,6 +81,8 @@ function guildEntry(nodeId?: string | null): ExportEntry {
 
 function feedEntry(feed: NonNullable<WorkspaceContext['officialFeed']>): ExportEntry {
   const { kind, title, conversationId } = feed;
+  // AI 助手（小Q）暂无导出通道：导出面板不支持这种来源，退回通用入口。
+  if (kind === 'aiAssistant') return { mode: 'full', label: '导出聊天记录' };
   if (!conversationId || conversationId.startsWith('merged:'))
     return { mode: 'full', label: '导出聊天记录' };
   const ownerId =

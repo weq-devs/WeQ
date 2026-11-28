@@ -22,6 +22,7 @@
  */
 
 import { ProtoField, ScalarType } from '../../core';
+import { AiButtonActionWire, AiButtonHintWire, AiMarkdownWire } from './ai_markdown';
 
 /** Nested message for action user info (tags 48210/43210). */
 export const ActionUserWire = {
@@ -145,7 +146,16 @@ export const InlineKeyboardButtonWire = {
   flag48766: ProtoField(48766, ScalarType.UINT32, { optional: true }),
   flag48767: ProtoField(48767, ScalarType.UINT32, { optional: true }),
   flag48768: ProtoField(48768, ScalarType.UINT32, { optional: true }),
+  /**
+   * AI 助手操作栏 / 推荐消息的动作码（tag 48770）。与机器人内联键盘共用
+   * 48751/48753 的行/按钮结构，但这两类元素的按钮没有 `action` 字符串，
+   * 真正的动作在 48770 → 48780：操作栏 4=重新生成、7=复制、1=喜欢、
+   * 2=不喜欢、6=分享；推荐消息为 0，点击后发送同条按钮的 label。
+   */
+  actionStruct: ProtoField(48770, () => AiButtonActionWire, { optional: true }),
   flag48772: ProtoField(48772, ScalarType.UINT32, { optional: true }),
+  /** 推荐/操作栏按钮的提示元数据（tag 48773）。 */
+  hint: ProtoField(48773, () => AiButtonHintWire, { optional: true }),
   flag48790: ProtoField(48790, ScalarType.STRING, { optional: true }),
 };
 
@@ -1034,8 +1044,15 @@ export const ElementWire = {
   /** Unknown integer flag. Required for MARKDOWN elements. */
   markdownFlag48706: ProtoField(48706, ScalarType.UINT32, { optional: true }),
 
-  /** QQ flash-transfer proto 1 (tag 48707). Complex nested structure — parsed as raw bytes. Optional. */
-  flashTransferProto1: ProtoField(48707, ScalarType.BYTES, { optional: true }),
+  /**
+   * AI 助手 markdown 的流式元数据（tag 48707）。
+   *
+   * 与 QQ 闪传共用这个 tag：闪传的 48707 是另一套嵌套结构，按本结构解出来
+   * 全是空值。`phase` 非空即代表这是一条 AI 助手 markdown（见 ./ai_markdown.ts）。
+   * 旧实现把它当 `flashTransferProto1` 原始字节保留，从未有消费方；改成结构化
+   * 解析后才能拿到 `cardPayload` / `phase` / `metaJson`。
+   */
+  aiMarkdown: ProtoField(48707, () => AiMarkdownWire, { optional: true }),
 
   /** QQ flash-transfer info (tag 48708). Nested: fileSetId, thumbnail name/url, file size, create time. Optional. */
   flashTransferInfo: ProtoField(48708, () => FlashTransferInfoWire, { optional: true }),
@@ -1052,6 +1069,16 @@ export const ElementWire = {
 
   /** 机器人的 appid（不是 uin），如 101986948。 */
   keyboardBotAppId: ProtoField(48752, ScalarType.UINT64, { optional: true }),
+
+  // ---- RECOMMENDED_MSG (43) / ACTION_BAR (44) ----
+  // 这两类元素的按钮行同样是 48751/48753，只是按钮动作在 48770（见
+  // InlineKeyboardButtonWire.actionStruct），而不是 48761 的 action 字符串。
+
+  /**
+   * 推荐消息外层 JSON（tag 48796）：`{screen_id, trigger, …}`。渲染用不到，
+   * 保留给后续调试；操作栏不带这个字段。
+   */
+  recommendedFlagJson: ProtoField(48796, ScalarType.STRING, { optional: true }),
 
   // ---- ARK (elementType=10) ----
 

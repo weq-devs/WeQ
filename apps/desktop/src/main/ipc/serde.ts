@@ -632,6 +632,45 @@ export function serviceAccountSummaryToWire(
   };
 }
 
+// ---------------------------------------------------------------------------
+// AI 助手（小Q，chatType 45）
+// ---------------------------------------------------------------------------
+
+import type {
+  AiAssistantSessionWire,
+  AiAssistantMessageWire,
+  AiSegmentWire,
+} from '../../shared/aiAssistantTypes';
+export type { AiAssistantSessionWire, AiAssistantMessageWire, AiSegmentWire };
+
+export function aiAssistantSessionToWire(
+  s: import('@weq/service').AiAssistantSessionSummary,
+): AiAssistantSessionWire {
+  return {
+    sessionId: s.sessionId,
+    isMain: s.isMain,
+    title: s.title,
+    messageCount: s.messageCount,
+    sendTime: s.sendTime.toString(),
+    preview: s.preview,
+  };
+}
+
+export function aiAssistantMessageToWire(
+  m: import('@weq/service').AiAssistantMessage,
+): AiAssistantMessageWire {
+  return {
+    msgId: m.msgId,
+    msgSeq: m.msgSeq,
+    sendTime: m.sendTime,
+    mine: m.mine,
+    senderUid: m.senderUid,
+    segments: sanitize(m.segments) as AiSegmentWire[],
+    elements: sanitize(m.elements),
+    needsAuth: m.needsAuth,
+  };
+}
+
 export function userProfileToWire(p: UserProfile): UserProfileWire {
   return {
     uid: p.uid,

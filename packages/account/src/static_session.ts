@@ -27,6 +27,7 @@ import {
   DraftDb,
   DeletedSessionDb,
   ServiceAssistantContactDb,
+  AiAssistantDb,
   UidMappingDb,
   UidMap,
   ForwardMsgDb,
@@ -673,6 +674,8 @@ export async function openStaticAccount(
     ...opts(msgDbPath),
     table: 'service_assistant_msg_table',
   });
+  // AI 助手（小Q，chatType 45），两张独立表，只读。
+  const aiAssistant = new AiAssistantDb(nt, opts(msgDbPath));
 
   // Load the uid ↔ uin ↔ sortNo directory.
   const uidMappingDb = new UidMappingDb(nt, opts(msgDbPath));
@@ -761,6 +764,7 @@ export async function openStaticAccount(
     deletedSessions,
     serviceAssistantContacts,
     serviceAssistantMsgs,
+    aiAssistant,
     forwardMsgs,
     buddyMsgFts,
     groupMsgFts,
@@ -798,6 +802,7 @@ export async function openStaticAccount(
       deletedSessions.close();
       serviceAssistantContacts.close();
       serviceAssistantMsgs.close();
+      aiAssistant.close();
       forwardMsgs.close();
       buddyMsgFts.close();
       groupMsgFts.close();
