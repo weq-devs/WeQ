@@ -5187,7 +5187,9 @@ export const accountRouter = router({
         input.expectedAccountConfigId,
       );
       const seqs = await services.groupInfo.getEssenceSeqs(BigInt(input.groupCode));
-      if (requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services)
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
         throw new Error('账号或数据源已切换');
       return seqs.map(String);
     }),

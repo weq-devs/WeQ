@@ -2503,7 +2503,7 @@ it.each([
     },
   });
   f.refreshRows = [...initial].reverse();
-  const quotes = vi.spyOn(replyPreview, 'findReplyPreview');
+  const quotes = vi.spyOn(replyPreview, 'findReplySource');
   const quotedElements = () =>
     (
       f.previewMessages.find((row) => row.msgId === '51')?.qqElements?.[0] as

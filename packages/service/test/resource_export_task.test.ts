@@ -83,6 +83,7 @@ describe('独立资源沿用导出任务生命周期', () => {
           id,
           received: 4,
           total: 10,
+          itemTransfer: false,
           targets: ['group-activity'],
           files: expect.arrayContaining([
             { target: 'a', received: 3, total: 8 },
@@ -94,9 +95,14 @@ describe('独立资源沿用导出任务生命周期', () => {
       continueRun();
     }
     await f.done();
-    expect(snapshots[0]?.[0]?.total).toBeUndefined();
-    expect(snapshots[1]?.[0]).toMatchObject({ processed: 1, items: 2 });
-    expect(snapshots[1]?.[0]?.total).toBeUndefined();
+    expect(snapshots[0]?.[0]).toMatchObject({ received: 3, total: 8, itemTransfer: true });
+    expect(snapshots[1]?.[0]).toMatchObject({
+      received: 1,
+      total: 2,
+      itemTransfer: true,
+      processed: 1,
+      items: 2,
+    });
     expect(f.manager.getTask(id)?.resource?.failed).toBe(1);
     expect(f.manager.activeResourceTransfers()).toEqual([]);
   });

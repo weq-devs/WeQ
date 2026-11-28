@@ -184,12 +184,14 @@ it('活动对象入口点击后按卡片群号和相册定位，不打开其它�
     ),
   );
   await click(f.host.querySelector<HTMLElement>('[role="link"]')!);
-  expect(rpc.albums).toHaveBeenCalledWith({ ...binding, groupCode: '123456' });
-  expect(rpc.media).toHaveBeenCalledWith({
-    ...binding,
-    groupCode: '123456',
-    albumId: 'synthetic_album',
-  });
+  expect(rpc.albums).toHaveBeenCalledWith(
+    { ...binding, groupCode: '123456' },
+    { signal: expect.any(AbortSignal) },
+  );
+  expect(rpc.media).toHaveBeenCalledWith(
+    { ...binding, groupCode: '123456', albumId: 'synthetic_album' },
+    { signal: expect.any(AbortSignal) },
+  );
 });
 it('旧图文定位卡可用键盘进入精确批次和评论，旧定位串不丢失', async () => {
   const f = fixture();
@@ -403,11 +405,10 @@ it('指定相册未找到时不打开其它相册，重试后仍定位原目标'
   expect(document.body.textContent).toContain('指定相册不存在');
   expect(rpc.media).not.toHaveBeenCalled();
   await click(button('重试读取相册列表'));
-  expect(rpc.media).toHaveBeenCalledWith({
-    ...binding,
-    groupCode: target.groupCode,
-    albumId: target.albumId,
-  });
+  expect(rpc.media).toHaveBeenCalledWith(
+    { ...binding, groupCode: target.groupCode, albumId: target.albumId },
+    { signal: expect.any(AbortSignal) },
+  );
 });
 it('媒体暂缺后刷新可重新定位，不因旧失败永久跳过自动预览', async () => {
   const f = fixture();
@@ -611,11 +612,10 @@ it('相册卡离线尚未读取时不误报相册不存在，恢复网络后定�
 
     await vi.dynamicImportSettled();
   });
-  expect(rpc.media).toHaveBeenCalledWith({
-    ...binding,
-    groupCode: target.groupCode,
-    albumId: target.albumId,
-  });
+  expect(rpc.media).toHaveBeenCalledWith(
+    { ...binding, groupCode: target.groupCode, albumId: target.albumId },
+    { signal: expect.any(AbortSignal) },
+  );
 });
 
 it('普通分享卡的明确群相册链接也走内部导航，不局限于三个 app 名', async () => {
@@ -631,11 +631,10 @@ it('普通分享卡的明确群相册链接也走内部导航，不局限于三�
     ),
   );
   await click(f.host.querySelector<HTMLElement>('[role="link"]')!);
-  expect(rpc.media).toHaveBeenCalledWith({
-    ...binding,
-    groupCode: target.groupCode,
-    albumId: target.albumId,
-  });
+  expect(rpc.media).toHaveBeenCalledWith(
+    { ...binding, groupCode: target.groupCode, albumId: target.albumId },
+    { signal: expect.any(AbortSignal) },
+  );
   expect(external).not.toHaveBeenCalled();
 });
 it('已知卡片的目标冲突不被普通链接回退掩盖', async () => {

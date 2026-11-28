@@ -44,6 +44,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             hasD2: true,
             hasD2Key: true,
             hasGuid: true,
+            ssoReady: true,
+            source: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
           },
         }),
       },
@@ -63,6 +65,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
           return {
             data,
             isFetching: !data,
+            isFetchedAfterMount: Boolean(data),
             refetch: async () => ({ data: await rpc.files(input), error: null }),
           };
         },
@@ -142,7 +145,10 @@ it('同名相册跳转使用精确 id，群文件读取目标目录并高亮精�
   );
   try {
     await act(async () => {});
-    expect(rpc.album).toHaveBeenCalledWith({ groupCode: '50001', albumId: 'target' });
+    expect(rpc.album).toHaveBeenCalledWith(
+      { groupCode: '50001', albumId: 'target' },
+      { signal: expect.any(AbortSignal) },
+    );
   } finally {
     a.close();
   }

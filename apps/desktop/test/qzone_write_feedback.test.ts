@@ -1844,11 +1844,16 @@ it('主页的相册对话框用后续页的标题，并从原预览直接跳转�
       const album = view.host.querySelector('.weq-qzone-album-embedded')!;
       expect(album.textContent).toContain(name);
       expect(album.textContent).toContain('海边');
-      expect(album.querySelector('button[aria-label="选择"]')).not.toBeNull();
+      expect(album.querySelector('button[aria-label="选择"]')).toBeNull();
     }),
   );
+  await act(async () => view.button('多选').click());
+  expect(
+    view.host.querySelector('.weq-qzone-album-embedded button[aria-label="选择"]'),
+  ).not.toBeNull();
   expect(state.albumMedia).toHaveBeenLastCalledWith(
     expect.objectContaining({ hostUin: '10001', topicId }),
+    { signal: expect.any(AbortSignal) },
   );
 });
 
