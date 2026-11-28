@@ -4621,24 +4621,6 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     if (!essenceSourceKey || !groupExtrasReady || !messagesTabActive) return;
     const reconcile = () => {
-      if (
-        Object.values(essenceReceipts).some(
-          (receipt) =>
-            receipt.source === essenceSourceKey &&
-            receipt.groupId === Number(selectedUid) &&
-            !receipt.pending &&
-            Date.now() - receipt.at >= ESSENCE_RECEIPT_TTL,
-        )
-      )
-        pushToast({
-          tone: 'warning',
-          message: '精华状态同步未确认，已重新显示读取结果',
-          source: notificationSource({
-            kind: 'conversation',
-            conversationKind: 'group',
-            conv: selectedUid,
-          }),
-        });
       useQQEssence
         .getState()
         .reconcile(
@@ -4672,7 +4654,6 @@ function MainWorkspace(): ReactElement {
     groupEssenceSeqs.dataUpdatedAt,
     onlineEssenceSequences,
     onlineEssenceUpdatedAt,
-    pushToast,
     messagesTabActive,
     setTimeout,
   ]);
