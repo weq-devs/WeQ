@@ -15,7 +15,8 @@ const rpc = vi.hoisted(() => ({ quick: vi.fn(), slow: vi.fn(), more: vi.fn(), re
 vi.mock('../src/renderer/src/components/ChatMediaGallery', () => ({
   ChatMediaGallery: ({ children }: { children: ReactNode }) => children,
 }));
-vi.mock('../src/renderer/src/trpc/client', () => ({
+vi.mock('../src/renderer/src/trpc/client', async () => ({
+  trpc: (await import('./browser/clone-conversation.stub')).trpc,
   client: {
     account: {
       searchQuick: { query: rpc.quick },
@@ -339,8 +340,28 @@ it.each([false, true])(
           sendTime: '1',
           content: `${keyword}正文`,
         },
+        ...[3, 5].map((seq) => ({
+          msgId: String(seq),
+          msgSeq: String(seq),
+          senderUid: 'u_fixture',
+          senderUin: '20001',
+          senderName: '同一个发言人',
+          sendTime: String(seq),
+          content: `${keyword}片段 ${seq}`,
+          elements: [{ type: 'text', data: { textContent: `${keyword}片段 ${seq}` } }],
+        })),
+        {
+          msgId: '6',
+          msgSeq: '6',
+          senderUid: 'u_fixture',
+          senderUin: '20001',
+          senderName: '同一个发言人',
+          sendTime: '6',
+          content: `${keyword}撤回索引摘要`,
+          elements: [{ type: 'grayTipRevoke', data: { recallRevokeUid: 'u_fixture' } }],
+        },
       ],
-      total: 1,
+      total: 4,
     }));
     const f = mount(['chatRecord']);
     try {
@@ -361,6 +382,16 @@ it.each([false, true])(
       expect(
         document.querySelector('.weq-titlebar-search-results .weq-chatrecords-msg')!.textContent,
       ).toContain('合成正文');
+      const results = [...document.querySelectorAll('.weq-chatrecords-msg')];
+      expect(results).toHaveLength(4);
+      expect(
+        results.map((result) => result.querySelector('time')?.textContent?.split(' ').at(-1)),
+      ).toEqual(['08:00:01', '08:00:03', '08:00:05', '08:00:06']);
+      expect(
+        results.slice(1, 3).every((result) => result.textContent?.includes('同一个发言人')),
+      ).toBe(true);
+      expect(results[3]?.textContent).toContain('撤回了一条消息');
+      expect(results[3]?.textContent).not.toContain('撤回索引摘要');
       expect(document.querySelector('[role="dialog"]')).toBeNull();
       expect(document.querySelector('.weq-chatrecords-convs')).toBeNull();
       expect(document.querySelectorAll('input')).toHaveLength(1);

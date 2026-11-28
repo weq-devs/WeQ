@@ -24,6 +24,7 @@ import { bigintReplacer } from './serialize';
 import {
   avatarUrlForUin,
   fallbackSender,
+  withRecordedSenderName,
   iterateConv,
   resolveC2cSenders,
   resolveGroupSenders,
@@ -40,6 +41,7 @@ import type {
 } from './types';
 
 export interface JsonMetaExportOptions {
+  useRecordedSenderName?: boolean;
   /** 仅旧任务恢复保留原文件形状；新导出不设置。 */
   legacyFormat?: boolean;
   archive?: import('./archive').ArchiveOptions;
@@ -163,7 +165,7 @@ export async function exportJsonConversation(
         await writer.write(`${JSON.stringify({ _type: 'member', ...member }, bigintReplacer)}\n`);
       }
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
-        const exported = toExportedMessage(raw);
+        const exported = toExportedMessage(raw, opts.useRecordedSenderName);
         const dec = exported.forwardSource ? undefined : opts.dressLookup?.(exported.msgId);
         if (dec) exported.decoration = dec;
         opts.collectSenders?.add(exported.senderUin);
@@ -171,9 +173,11 @@ export async function exportJsonConversation(
         await expandForwards(msgs, opts.kind, exported);
         audit.observe(exported.elements);
         if (opts.withMediaPaths) annotateExportPaths(exported.elements);
-        const sender = exported.forwardSource
-          ? fallbackSender(exported)
-          : (senders.get(exported.senderUid) ?? fallbackSender(exported));
+        const sender = withRecordedSenderName(
+          (exported.forwardSource ? undefined : senders.get(exported.senderUid)) ??
+            fallbackSender(exported),
+          exported,
+        );
         await writer.write(`${JSON.stringify(toJsonMessage(exported, sender), bigintReplacer)}\n`);
         count += 1;
         if (count % progressEvery === 0) {
@@ -188,7 +192,7 @@ export async function exportJsonConversation(
         '"messages": [\n';
       await writer.write(head);
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
-        const exported = toExportedMessage(raw);
+        const exported = toExportedMessage(raw, opts.useRecordedSenderName);
         const dec = exported.forwardSource ? undefined : opts.dressLookup?.(exported.msgId);
         if (dec) exported.decoration = dec;
         opts.collectSenders?.add(exported.senderUin);
@@ -196,9 +200,11 @@ export async function exportJsonConversation(
         await expandForwards(msgs, opts.kind, exported);
         audit.observe(exported.elements);
         if (opts.withMediaPaths) annotateExportPaths(exported.elements);
-        const sender = exported.forwardSource
-          ? fallbackSender(exported)
-          : (senders.get(exported.senderUid) ?? fallbackSender(exported));
+        const sender = withRecordedSenderName(
+          (exported.forwardSource ? undefined : senders.get(exported.senderUid)) ??
+            fallbackSender(exported),
+          exported,
+        );
         await writer.write(
           (count === 0 ? '' : ',\n') +
             JSON.stringify(toJsonMessage(exported, sender), bigintReplacer),

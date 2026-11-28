@@ -134,7 +134,18 @@ export function QzoneVideoGrid({
     const items = tiles.flatMap((tile) => {
       const url = tile.source ?? tile.cover;
       return url && selectedIds.has(tile.id)
-        ? [{ id: tile.id, name: tile.name, url, video: Boolean(tile.source) }]
+        ? [
+            {
+              id: tile.id,
+              name: tile.name,
+              url,
+              video: Boolean(tile.source),
+              tid:
+                tile.sourcePostId && isOrdinaryQzonePost(hostUin, tile.sourcePostId)
+                  ? tile.sourcePostId
+                  : undefined,
+            },
+          ]
         : [];
     });
     if (!items.length) return;
@@ -219,7 +230,7 @@ export function QzoneVideoGrid({
               }
               selected={selectedIds.has(tile.id)}
               sensitiveName
-              onSelect={available ? () => multi.toggle(tile.id) : undefined}
+              onSelect={selectionMode && available ? () => multi.toggle(tile.id) : undefined}
               onOpen={available ? () => setPreviewKey(tile.id) : undefined}
               selectionProps={multi.itemProps(tile.id, !available)}
             />

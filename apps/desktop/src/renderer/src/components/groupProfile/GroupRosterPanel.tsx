@@ -253,7 +253,7 @@ function ScopedGroupRosterPanel({
                 failed: Boolean(fillError || (usingTask && task?.status === 'failed')),
                 start: () => {
                   fill.mutate(
-                    { ...binding, groupCode: conversation.id, sort },
+                    { ...binding, groupCode: conversation.id, sort, descending, prioritizeAdmins },
                     { onSuccess: (id) => setStartedTask({ id, sort }) },
                   );
                 },

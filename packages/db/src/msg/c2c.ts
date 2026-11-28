@@ -24,6 +24,7 @@
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { readMessageSourceRows } from './export_source';
+import { senderNameAtTime } from './group_sender_history';
 import { nativeHistoryCursor, newestHistoryPage, type HistoryCursor } from './history';
 import { directoryTimePage } from './directory_times';
 import { listDeletedRefs } from './deleted_refs';
@@ -169,6 +170,19 @@ export class C2cMsgDb {
   hasTable(): Promise<boolean> {
     return this.qq.hasTable(this.table);
   }
+  async recordedSenderNames(peerUid: string, ids: readonly string[]) {
+    if (!ids.length || !(await this.qq.tableColumns(this.table)).has('40093')) return [];
+    const rows = await this.qq.query(
+      `SELECT "40001","40093" FROM ${this.table}
+       WHERE "40021"=? AND "40001" IN (SELECT CAST(value AS INTEGER) FROM json_each(?))`,
+      [peerUid, JSON.stringify(ids)],
+    );
+    return rows.flatMap(([id, nickname]) => {
+      const sender = senderNameAtTime(undefined, nickname);
+      return sender ? [{ msgId: String(id), sender }] : [];
+    });
+  }
+
   directoryTimePage(before?: string) {
     return directoryTimePage(this.qq, before);
   }

@@ -12,4 +12,11 @@ export type MediaSaveSource =
       fwdKind?: ForwardCacheKind;
       fwdResId?: string;
     }
-  | { kind: 'group-file'; groupCode: string; fileId: string; fileName: string; busId?: number };
+  | {
+      kind: 'group-file';
+      groupCode: string;
+      fileId: string;
+      fileName: string;
+      busId?: number;
+      folderId?: string;
+    };

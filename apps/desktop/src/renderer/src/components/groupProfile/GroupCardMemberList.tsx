@@ -276,6 +276,7 @@ function ScopedMemberList({
               title={`查看 ${displayUserName(member)} 的资料`}
               aria-label={`查看 ${displayUserName(member)} 的资料`}
               disabled={!onOpenMember}
+              data-weq-force-click={generated ? undefined : 'profile'}
               onClick={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
                 const anchor = { x: rect.right, y: rect.bottom, trigger: event.currentTarget };

@@ -339,7 +339,7 @@ html[data-theme='dark'] .weq-group-content-actions button {
   position: absolute;
   grid-area: auto;
   inset: var(--chat-header-height) 0 0 auto;
-  z-index: 8;
+  z-index: var(--weq-chat-side-panel-layer);
   width: min(320px, 100%);
   height: auto;
   overflow-y: auto;

@@ -17,6 +17,7 @@ import {
   resolveExportSaveDirectory,
   resolveExportSaveFile,
   saveExportOutput,
+  type ExportSaveProgress,
 } from '../src/account/export/save_output';
 
 const roots: string[] = [];
@@ -70,6 +71,41 @@ it('JSON 与 HTML 报告一起另存，HTML 重名时回收本轮 JSON 且不覆
   expect(readFileSync(`${saved}.report.json`, 'utf8')).toBe('{}');
   const folder = await saveExportOutput(output, f.target);
   expect(readFileSync(join(folder, 'export-report.html'), 'utf8')).toBe('<html>report</html>');
+});
+
+it('单文件另存按已读取字节报告检查和复制，确认发布前报告校验', async () => {
+  const { source, target } = fixture();
+  const filePath = join(source, 'messages.txt');
+  const bytes = Buffer.alloc(160 * 1024, 0x61);
+  writeFileSync(filePath, bytes);
+  const progress: ExportSaveProgress[] = [];
+  const saved = await saveExportOutput(
+    { name: '消息', filePath },
+    { filePath: join(target, 'messages.txt') },
+    undefined,
+    { onProgress: (item) => progress.push(item) },
+  );
+  expect(readFileSync(saved)).toEqual(bytes);
+  expect(progress).toContainEqual({
+    phase: 'checking-output',
+    received: bytes.length,
+    total: bytes.length,
+  });
+  expect(
+    progress.some(
+      ({ phase, received }) =>
+        phase === 'copying-output' &&
+        received !== undefined &&
+        received > 0 &&
+        received < bytes.length,
+    ),
+  ).toBe(true);
+  expect(progress).toContainEqual({
+    phase: 'copying-output',
+    received: bytes.length,
+    total: bytes.length,
+  });
+  expect(progress.at(-1)?.phase).toBe('verifying-output');
 });
 
 describe('导出保存策略与结果发布', () => {

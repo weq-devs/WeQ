@@ -412,7 +412,20 @@ it.each([
       latest = snapshot;
     },
   });
-  const id = await caller.save({ ...input, savePolicy: { mode: 'before', directory: root } });
+  const messageSource = {
+    kind: 'conversation' as const,
+    conversationKind: 'c2c' as const,
+    conv: 'u_fixture',
+    msgId: source.msgId,
+  };
+  const id = await caller.save({
+    ...input,
+    messageSource,
+    savePolicy: { mode: 'before', directory: root },
+  });
+  expect(manager.listTasks().find((task) => task.id === id)?.resource?.source).toEqual(
+    messageSource,
+  );
   await vi.waitFor(() => expect(stream).toBeDefined());
   try {
     stream.enqueue(new Uint8Array(3));

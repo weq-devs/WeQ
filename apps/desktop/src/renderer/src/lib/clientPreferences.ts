@@ -366,6 +366,11 @@ export function useAccountRecords(namespace: StateNamespace, scope: string) {
       : emptyAccountRecords,
   );
 }
+export function useShowHistoricalNames(conversationKey?: string) {
+  const scope = currentAccountScope();
+  return useAccountRecords('conversationDisplay', scope)[conversationKey ?? ''] === true;
+}
+
 export function bindAccountState(next: Binding | null) {
   binding = next;
   const cached = next

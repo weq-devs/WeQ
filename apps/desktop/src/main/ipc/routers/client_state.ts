@@ -118,6 +118,7 @@ const namespace = z.enum([
   'order',
   'notifications',
   'reads',
+  'conversationDisplay',
 ]);
 export function globalClientState() {
   return { snapshot: preferenceSnapshot, identity: () => store('global').identity() };

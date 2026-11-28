@@ -1,8 +1,9 @@
 import { withQqFileWrite } from '@weq/db';
 import { cp, link, lstat, open, readdir, unlink, writeFile } from 'node:fs/promises';
-import { createReadStream, existsSync, realpathSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { pipeline } from 'node:stream/promises';
 import { fileExtension, sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import { createAtomicExportBundle } from './atomic_bundle';
 import { fileSha256 } from './resume';
@@ -130,14 +131,18 @@ export async function publishVerifiedCopy(
   target: string,
   expectedHash: string,
   signal?: AbortSignal,
+  onProgress?: SaveProgress,
 ): Promise<PublishedFile> {
   assertDestinationCapacity(target, source);
+  const total = onProgress ? (await lstat(source)).size : undefined;
   const handle = await open(target, 'wx');
   const input = createReadStream(source);
   let receipt: PublishedFile | undefined;
   let closed = false;
   try {
     receipt = await handle.stat();
+    let received = 0;
+    onProgress?.({ phase: 'copying-output', received, total });
     for await (const chunk of input) {
       signal?.throwIfAborted();
       if (!Buffer.isBuffer(chunk)) throw new Error('文件流未返回二进制数据。');
@@ -146,9 +151,14 @@ export async function publishVerifiedCopy(
         if (!bytesWritten) throw new Error('文件复制未取得进展。');
         offset += bytesWritten;
       }
+      if (onProgress) {
+        received += chunk.length;
+        onProgress({ phase: 'copying-output', received, total });
+      }
     }
     signal?.throwIfAborted();
     const published = await lstat(target);
+    onProgress?.({ phase: 'verifying-output' });
     if (
       published.dev !== receipt.dev ||
       published.ino !== receipt.ino ||
@@ -206,11 +216,51 @@ export async function publishStagedDownload(
   }
 }
 
+export type ExportSaveProgress = {
+  phase: 'checking-output' | 'copying-output' | 'verifying-output';
+  processed?: number;
+  items?: number;
+  received?: number;
+  total?: number;
+};
+
+type SaveProgress = (progress: ExportSaveProgress) => void;
+
+async function copyForSave(
+  source: string,
+  target: string,
+  signal?: AbortSignal,
+  onProgress?: SaveProgress,
+) {
+  if (!onProgress) {
+    await cp(source, target, { force: false, errorOnExist: true });
+    return;
+  }
+  const stat = await lstat(source);
+  if (!stat.isFile()) throw new Error('导出结果不是普通文件。');
+  const total = stat.size;
+  let received = 0;
+  onProgress({ phase: 'copying-output', received, total });
+  await pipeline(
+    createReadStream(source),
+    async function* (chunks) {
+      for await (const chunk of chunks) {
+        yield chunk;
+        received += chunk.length;
+        onProgress({ phase: 'copying-output', received, total });
+      }
+    },
+    createWriteStream(target, { flags: 'wx', mode: stat.mode }),
+    { signal },
+  );
+}
+
 async function saveSingleExportFile(
   output: SourceOutput,
   selected: string,
   signal?: AbortSignal,
   unique = false,
+  onProgress?: SaveProgress,
 ): Promise<string> {
   if (output.bundleDir) throw new Error('结果包含多个文件，请选择保存文件夹。');
   if (!output.filePath) throw new Error('导出结果不存在。');
@@ -229,10 +279,23 @@ async function saveSingleExportFile(
   try {
     signal?.throwIfAborted();
     const atomic = await supportsFileLinks(bundle.stageDir);
-    const hash = await fileSha256(source, signal);
+    const hash = await fileSha256(
+      source,
+      signal,
+      onProgress &&
+        ((received, total) => onProgress({ phase: 'checking-output', received, total })),
+    );
     if (atomic) {
-      await cp(source, stage, { force: false, errorOnExist: true });
-      if ((await fileSha256(stage, signal)) !== hash) throw new Error('导出文件保存校验失败。');
+      await copyForSave(source, stage, signal, onProgress);
+      if (
+        (await fileSha256(
+          stage,
+          signal,
+          onProgress &&
+            ((received, total) => onProgress({ phase: 'verifying-output', received, total })),
+        )) !== hash
+      )
+        throw new Error('导出文件保存校验失败。');
     }
     const stagedReports: Array<{ path: string; stage: string; extension: string; hash: string }> =
       [];
@@ -271,7 +334,7 @@ async function saveSingleExportFile(
         }
         signal?.throwIfAborted();
         if (atomic) await link(stage, candidate);
-        else await publishVerifiedCopy(source, candidate, hash, signal);
+        else await publishVerifiedCopy(source, candidate, hash, signal, onProgress);
         return candidate;
       } catch (error) {
         for (const report of receipts) await removeOwnPublication(report.target, report.receipt);
@@ -296,6 +359,7 @@ async function saveSingleExportFile(
 export async function inventoryExportOutput(
   root: string,
   signal?: AbortSignal,
+  onFile?: () => void,
 ): Promise<Map<string, string>> {
   const entries = new Map<string, string>();
   async function visit(path: string): Promise<void> {
@@ -307,6 +371,7 @@ export async function inventoryExportOutput(
       for (const name of children.sort()) await visit(join(path, name));
     } else if (info.isFile()) {
       entries.set(relative(root, path), `${info.size}:${await fileSha256(path, signal)}`);
+      onFile?.();
     } else {
       throw new Error('导出结果包含非普通文件，未保存或覆盖目标。');
     }
@@ -320,7 +385,7 @@ export async function saveExportOutput(
   output: SourceOutput,
   directory: string | { filePath: string; unique?: boolean },
   signal?: AbortSignal,
-  options?: { requireExistingDirectory?: boolean },
+  options?: { requireExistingDirectory?: boolean; onProgress?: SaveProgress },
 ): Promise<string> {
   const target = typeof directory === 'string' ? directory : directory.filePath;
   return withQqFileWrite(target, () => publishExportOutput(output, directory, signal, options));
@@ -330,10 +395,16 @@ async function publishExportOutput(
   output: SourceOutput,
   directory: string | { filePath: string; unique?: boolean },
   signal?: AbortSignal,
-  options?: { requireExistingDirectory?: boolean },
+  options?: { requireExistingDirectory?: boolean; onProgress?: SaveProgress },
 ): Promise<string> {
   if (typeof directory !== 'string')
-    return saveSingleExportFile(output, directory.filePath, signal, directory.unique);
+    return saveSingleExportFile(
+      output,
+      directory.filePath,
+      signal,
+      directory.unique,
+      options?.onProgress,
+    );
   if (!isAbsolute(directory)) throw new Error('保存目录必须是绝对路径。');
   const target = resolveThroughExistingParent(directory);
   const source = output.bundleDir || output.filePath;
@@ -359,19 +430,30 @@ async function publishExportOutput(
   );
   try {
     signal?.throwIfAborted();
-    const sourceInventory = await inventoryExportOutput(sourcePath, signal);
+    const onProgress = options?.onProgress;
+    let checked = 0;
+    onProgress?.({ phase: 'checking-output' });
+    const sourceInventory = await inventoryExportOutput(
+      sourcePath,
+      signal,
+      onProgress && (() => onProgress({ phase: 'checking-output', processed: ++checked })),
+    );
     if (output.bundleDir) {
-      for (const name of await readdir(sourcePath)) {
+      const names = await readdir(sourcePath);
+      let processed = 0;
+      onProgress?.({ phase: 'copying-output', processed, items: names.length });
+      for (const name of names) {
         signal?.throwIfAborted();
         await cp(join(sourcePath, name), join(bundle.stageDir, name), {
           recursive: true,
           force: false,
           errorOnExist: true,
         });
+        onProgress?.({ phase: 'copying-output', processed: ++processed, items: names.length });
       }
     } else {
       const name = `${sanitizeSegment(output.name, 'export')}${fileExtension(sourcePath)}`;
-      await cp(sourcePath, join(bundle.stageDir, name), { force: false, errorOnExist: true });
+      await copyForSave(sourcePath, join(bundle.stageDir, name), signal, onProgress);
       for (const report of reportFiles(output)) {
         const reportHash = await fileSha256(report.path, signal);
         const savedReport = join(bundle.stageDir, `export-report.${report.extension}`);
@@ -381,8 +463,13 @@ async function publishExportOutput(
       }
     }
     signal?.throwIfAborted();
+    let verified = 0;
+    const items = output.bundleDir ? checked * 2 : 2;
+    const reportVerified =
+      onProgress && (() => onProgress({ phase: 'verifying-output', processed: ++verified, items }));
+    onProgress?.({ phase: 'verifying-output', processed: 0, items });
     if (output.bundleDir) {
-      const copied = await inventoryExportOutput(bundle.stageDir, signal);
+      const copied = await inventoryExportOutput(bundle.stageDir, signal, reportVerified);
       if (
         sourceInventory.size !== copied.size ||
         [...sourceInventory].some(([path, hash]) => copied.get(path) !== hash)
@@ -396,8 +483,9 @@ async function publishExportOutput(
         sourceInventory.get('')
       )
         throw new Error('导出文件保存校验失败，未发布目标。');
+      reportVerified?.();
     }
-    const after = await inventoryExportOutput(sourcePath, signal);
+    const after = await inventoryExportOutput(sourcePath, signal, reportVerified);
     if (
       sourceInventory.size !== after.size ||
       [...sourceInventory].some(([path, hash]) => after.get(path) !== hash)

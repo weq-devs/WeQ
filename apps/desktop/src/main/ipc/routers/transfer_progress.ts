@@ -119,7 +119,7 @@ function snapshot(services: AccountServices): ActiveTransfer[] {
     const phase =
       task.status === 'pending' || (!task.received && !task.total && !task.files.length)
         ? 'preparing'
-        : task.total && task.received === task.total
+        : !task.itemTransfer && task.total && task.received === task.total
           ? 'confirming'
           : 'download';
     const batch: ActiveTransfer = {
@@ -130,6 +130,7 @@ function snapshot(services: AccountServices): ActiveTransfer[] {
       total: task.total,
       processed: task.processed,
       items: task.items,
+      itemTransfer: task.itemTransfer,
     };
     downloads.push({ ...batch, target: task.targets?.[0] });
     for (const target of task.targets?.slice(1) ?? [])
@@ -144,6 +145,8 @@ function snapshot(services: AccountServices): ActiveTransfer[] {
         total,
       });
   }
+  for (const [id, progress] of services.exportManager.activeSaveTransfers())
+    downloads.push({ id, direction: 'download', ...progress });
   for (const batch of services.flashTransferFiles.downloads.activeDownloadBatches()) {
     const phase = batch.status === 'downloading' ? 'download' : 'preparing';
     downloads.push({

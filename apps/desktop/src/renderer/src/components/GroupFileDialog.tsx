@@ -15,6 +15,10 @@ import type { GroupFileWire, GroupFolderWire } from '../lib/groupFile';
 import '../styles/group-media.css';
 import { useExportReportDialog } from '../views/export/ExportReportControl.shared';
 import { GroupResourceNavigation } from './GroupResourceNavigation';
+import { z } from 'zod/v3';
+import { usePageState } from './PageSnapshots.shared';
+import { PageScrollSnapshot } from './PageScrollSnapshot';
+import { PAGE_REENTRY_STALE_MS } from '../lib/pageDataCache';
 
 export interface Props {
   embedded?: boolean;
@@ -32,6 +36,9 @@ interface Crumb {
   known?: boolean;
 }
 const ROOT: Crumb = { id: '/', name: '全部文件' };
+const folderPathSchema = z
+  .array(z.object({ id: z.string(), name: z.string(), known: z.boolean().optional() }))
+  .min(1);
 function GroupFileDialogBody({
   embedded,
   standalone,
@@ -50,10 +57,14 @@ function GroupFileDialogBody({
     fileId: string;
   } | null>(null);
   const [locatingFile, setLocatingFile] = useState<GroupFileWire | null>(null);
-  const [crumbs, setCrumbs] = useState<Crumb[]>(
+  const [crumbs, setCrumbs] = usePageState<Crumb[]>(
+    `group-files:${groupCode}:path`,
     initialFolderId && initialFolderId !== '/'
       ? [ROOT, { id: initialFolderId, name: '定位目录', known: false }]
       : [ROOT],
+    folderPathSchema,
+    false,
+    !initialFolderId && !initialFileId,
   );
   const root = useRef<HTMLElement | null>(null),
     mounted = useRef(true);
@@ -71,14 +82,21 @@ function GroupFileDialogBody({
   const mediaSave = useMediaSave({ foreground: true, ownerKey: current.id });
   const read = trpc.account.listGroupFiles.useQuery(
     { ...a.binding!, groupCode, folderId: current.id },
-    useQQAutoRefresh(a.available),
+    {
+      ...useQQAutoRefresh(a.available),
+      staleTime: PAGE_REENTRY_STALE_MS,
+      refetchOnMount: initialFileId ? 'always' : true,
+      refetchOnWindowFocus: true,
+    },
   );
   const listing = read.data?.targetDirectory === current.id ? read.data : null;
   const error = read.error?.message ?? (read.data && !listing ? '返回目录与目标不一致' : null);
   const loading = read.isFetching && !listing;
   const searchMissing =
     !!initialFileId &&
-    !loading &&
+    a.available &&
+    read.isFetchedAfterMount &&
+    !read.isFetching &&
     !error &&
     !!listing &&
     current.id === (initialFolderId ?? '/') &&
@@ -90,13 +108,21 @@ function GroupFileDialogBody({
     : current.id === (initialFolderId ?? '/')
       ? initialFileId
       : undefined;
+  const located = useRef('');
   useEffect(() => {
-    if (!focusFile || !listing) return;
+    if (!focusFile) {
+      located.current = '';
+      return;
+    }
+    if (!listing) return;
+    const key = JSON.stringify([current.id, focusFile, transferTarget]);
+    if (located.current === key) return;
     const row = [...(root.current?.querySelectorAll<HTMLElement>('[data-file-id]') ?? [])].find(
       (element) => element.dataset.fileId === focusFile,
     );
+    if (row) located.current = key;
     row?.scrollIntoView({ block: 'center' });
-  }, [focusFile, listing]);
+  }, [current.id, focusFile, listing, transferTarget]);
   const leave = async (action: () => void) => {
     if ((await navigationGuard.current?.()) ?? true) {
       if (mounted.current) action();
@@ -110,6 +136,7 @@ function GroupFileDialogBody({
     kind: 'group-file' as const,
     groupCode,
     fileId: file.fileId,
+    folderId: current.id,
     fileName: file.fileName,
     busId: file.busId,
   });
@@ -210,7 +237,10 @@ function GroupFileDialogBody({
             <X size={18} />
           </button>
         </header>
-        <div className="group-album-body">
+        <PageScrollSnapshot
+          className="group-album-body"
+          snapshotKey={JSON.stringify(['group-files', groupCode, current.id, initialFileId])}
+        >
           {embedded && !standalone && crumbs.length < 2 ? null : (
             <GroupResourceNavigation
               label="群文件目录"
@@ -263,7 +293,7 @@ function GroupFileDialogBody({
             directory={current.id}
             files={listing?.files ?? []}
             folders={listing?.folders ?? []}
-            loading={loading || !!error || !a.available}
+            loading={!listing && (loading || !!error || !a.available)}
             highlightedFileId={focusFile}
             onLocateFile={(directory, fileId) => {
               setTransferTarget({ directory, fileId });
@@ -302,7 +332,7 @@ function GroupFileDialogBody({
               </>
             )}
           />
-        </div>
+        </PageScrollSnapshot>
       </section>
     </ProfileDetailSurface>
   );

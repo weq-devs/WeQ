@@ -47,6 +47,7 @@ import { client, trpc } from '../trpc/client';
 import { z } from 'zod/v3';
 import { PageSnapshotScope } from '../components/PageSnapshots';
 import { usePageDataCache, usePageState } from '../components/PageSnapshots.shared';
+import { isRecentPageRead } from '../lib/pageDataCache';
 import { PageScrollSnapshot } from '../components/PageScrollSnapshot';
 import { TabActivity } from '../components/RetainedTabs';
 import { useTabActive } from '../components/RetainedTabs.shared';
@@ -560,6 +561,11 @@ export function QzoneView({
     [selfUin, nickname, profilesByUin, ownerNames, names, namePriority, request],
   );
   const [albumRequests, setAlbumRequests] = useState<Record<string, QzoneAlbumRequest>>({});
+  const [mediaListRequest, setMediaListRequest] = useState<{
+    uin: string;
+    pane: 'albums' | 'videos';
+    revision: string;
+  }>();
   const [postRequests, setPostRequests] = usePageState(
     'linked-posts',
     {},
@@ -688,6 +694,8 @@ export function QzoneView({
     }
     const target = spaceRequest.target;
     openSpace(spaceRequest.uin, spaceRequest.nickname, requestedOwnerTab(spaceRequest));
+    if (target?.kind === 'media-list')
+      setMediaListRequest({ uin: target.uin, pane: target.pane, revision: spaceRequest.revision });
     if (target?.kind === 'album')
       setAlbumRequests((current) => ({
         ...current,
@@ -990,6 +998,7 @@ export function QzoneView({
             hostUin={selfUin}
             nickname={nickname}
             albumRequest={albumRequests[selfUin]}
+            mediaListRequest={mediaListRequest?.uin === selfUin ? mediaListRequest : undefined}
             publication={publication}
             onSpace={openSpace}
             onOwnerNickname={rememberOwnerName}
@@ -1004,6 +1013,7 @@ export function QzoneView({
             hostUin={uin}
             nickname={spaceNickname(uin)}
             albumRequest={albumRequests[uin]}
+            mediaListRequest={mediaListRequest?.uin === uin ? mediaListRequest : undefined}
             onSpace={openSpace}
             onOwnerNickname={rememberOwnerName}
           />
@@ -1129,6 +1139,7 @@ function SpaceContent({
   hostUin,
   nickname,
   albumRequest,
+  mediaListRequest,
   publication = null,
   onSpace,
   onOwnerNickname,
@@ -1139,6 +1150,7 @@ function SpaceContent({
   hostUin: string;
   nickname: string;
   albumRequest?: QzoneAlbumRequest;
+  mediaListRequest?: { pane: 'albums' | 'videos'; revision: string };
   publication?: QzonePublication | null;
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
@@ -1165,6 +1177,7 @@ function SpaceContent({
   const openProfile = useContext(QzoneProfileContext);
   const openAlbum = useContext(QzoneAlbumNavigationContext);
   const handledAlbum = useRef<string | null>(null);
+  const handledMediaList = useRef<string | null>(null);
   type Pane = 'home' | 'posts' | 'blogs' | 'albums' | QzoneMorePane;
   const [pane, setPane] = useState<Pane>(publication ? 'posts' : 'home');
   const [shownPublication, setShownPublication] = useState(publication);
@@ -1271,6 +1284,12 @@ function SpaceContent({
     handledAlbum.current = albumRequest.revision;
     openPane('albums');
   }, [albumRequest, hostUin, openPane]);
+  useEffect(() => {
+    if (!active || !mediaListRequest || handledMediaList.current === mediaListRequest.revision)
+      return;
+    handledMediaList.current = mediaListRequest.revision;
+    openPane(mediaListRequest.pane);
+  }, [mediaListRequest, openPane, active]);
   const previousRefresh = useRef(refreshKey);
   useEffect(() => {
     if (previousRefresh.current === refreshKey) return;
@@ -3186,6 +3205,7 @@ interface FeedSnapshot {
   pages: string[];
   seenCursors: string[];
   stalledPages: number;
+  headCheckedAt?: number;
   bridge: { cursor: string | undefined; keys: string[]; incomplete: boolean } | null;
 }
 
@@ -3280,6 +3300,7 @@ function FeedTimeline({
   const dataCache = usePageDataCache();
   const cacheKey = JSON.stringify(['feeds', selfUin, scope, kind]);
   const [cached] = useState(() => dataCache.read<FeedSnapshot>(cacheKey));
+  const headCheckedAt = useRef(cached?.headCheckedAt ?? 0);
   const [incomplete, setIncomplete] = useState(cached?.incomplete ?? false);
   const incompleteRef = useRef(incomplete);
   const title = kind === 'friends' ? '好友动态' : '与我相关';
@@ -3287,7 +3308,13 @@ function FeedTimeline({
   const lastRefresh = useRef(refresh);
   const [feeds, setFeeds] = useState<QzoneFeed[] | null>(cached?.feeds ?? null);
   const [error, setError] = useState('');
-  const [interactionTab, setInteractionTab] = useState<RelatedKind>('like');
+  const [interactionTab, setInteractionTab] = usePageState<RelatedKind>(
+    'related:interaction-tab',
+    'like',
+    z.enum(['like', 'comment', 'forward', 'mention', 'push']),
+    false,
+    kind === 'related',
+  );
   const shownInteraction = useRef(interactionTab);
   const suspended = useRef<string | null>(null);
   const readsPaused = kind === 'related' && /HTTP\s*501/i.test(error);
@@ -3298,7 +3325,13 @@ function FeedTimeline({
   const lastCursor = useRef(cursor);
   const headRequest = useRef(Boolean(cached));
   const [pageRequest, setPageRequest] = useState(0);
-  const settledRequest = useRef(cached && kind === 'friends' && refresh === 0 ? '0:0:0' : null);
+  const settledRequest = useRef(
+    kind === 'related' && isRecentPageRead(headCheckedAt.current)
+      ? `${refresh}:0:0`
+      : cached && kind === 'friends' && refresh === 0
+        ? '0:0:0'
+        : null,
+  );
   const loadCursor = useCallback((value: string) => {
     headRequest.current = false;
     setCursor(value);
@@ -3331,6 +3364,7 @@ function FeedTimeline({
       pages: [...fetchedPages.current],
       seenCursors: [...seenCursors.current],
       stalledPages: stalledPages.current,
+      headCheckedAt: headCheckedAt.current,
       bridge: bridge ? { ...bridge, keys: [...bridge.keys] } : null,
     } satisfies FeedSnapshot);
   }, [feeds, incomplete, done, cacheKey, dataCache, snapshotRevision]);
@@ -3376,6 +3410,8 @@ function FeedTimeline({
     )
       .then((page) => {
         if (!live) return;
+        if (kind === 'related' && pageCursor === undefined)
+          headCheckedAt.current = page.incomplete ? 0 : Date.now();
         fetchedPages.current.add(pageCursor ?? 'head');
         let carriedTail = false;
         let pageIncomplete = page.incomplete === true;

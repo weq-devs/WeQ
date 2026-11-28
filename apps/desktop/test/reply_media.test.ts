@@ -29,3 +29,23 @@ it('迟到结果不覆盖编辑或删除后的对象，漫游来源不按本地 
   expect(needsReplyMedia({ ...original, source: 'roaming' })).toBe(false);
   expect(needsReplyMedia({ ...original, msgId: 'not-local' })).toBe(false);
 });
+
+it('引用快照含称呼但没有媒体时仍补称呼，避免匹配到不同发送者', () => {
+  const original = {
+    msgId: '1',
+    elements: [
+      { type: 'reply', data: { origSenderUid: 'u_reply', origMsgSeq: 33, origElements: [] } },
+    ],
+  };
+  const lookup = new Map([['1', original]]);
+  const rows = [original];
+  const sender = { name: '旧名', uid: 'u_reply', seq: '33', msgId: '' };
+  expect(
+    applyReplyMedia(rows, lookup, [{ msgId: '1', elements: [], quotedSender: sender }]),
+  ).toMatchObject([{ elements: [{ data: { origCachedSenderName: '旧名', origElements: [] } }] }]);
+  expect(
+    applyReplyMedia(rows, lookup, [
+      { msgId: '1', elements: [], quotedSender: { ...sender, uid: 'u_other' } },
+    ]),
+  ).toBe(rows);
+});

@@ -6,6 +6,7 @@ import { mediaTransferTarget, messageTransferTarget } from '../../../shared/tran
 import { isChatVideoAttachment, isMovFileName } from '@weq/service/message-filter';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { isChatGalleryImage } from '../lib/chatMediaSize';
+import { cleanNtPath } from './mergeForward/model';
 
 export interface GalleryMessage {
   msgId: string;
@@ -35,13 +36,21 @@ export function useChatMediaItems() {
   return useContext(GalleryItemsContext);
 }
 
+export function chatImageLocalPath(data: Record<string, unknown>) {
+  return cleanNtPath(
+    (typeof data.localPath === 'string' && data.localPath) ||
+      (typeof data.filePath === 'string' && data.filePath) ||
+      '',
+  );
+}
+
 export function chatImagePreviewSources(
   data: Record<string, unknown>,
   params: Record<string, string | number>,
   browseThumbnail = false,
 ): Pick<PreviewMedia, 'src' | 'originalImage'> | undefined {
-  if (data.localPreviewUrl || data.localPath || (!params.token && !params.name && !params.md5))
-    return undefined;
+  if (data.localPreviewUrl || (!params.token && !params.name && !params.md5)) return undefined;
+  const localPath = chatImageLocalPath(data);
   const bytes = Number(data.fileSize);
   const original = { ...params, v: 'original', intent: 'interactive' };
   return {
@@ -51,6 +60,7 @@ export function chatImagePreviewSources(
       ...(browseThumbnail ? { intent: 'interactive' } : { preview: 1 }),
     }),
     originalImage: {
+      localSrc: localPath ? localFileUrl(localPath) : undefined,
       cachedSrc: mediaUrl('pic', { ...original, localOnly: 1 }),
       src: mediaUrl('pic', original),
       bytes: Number.isFinite(bytes) && bytes > 0 ? bytes : undefined,
@@ -93,8 +103,9 @@ export function chatVideoAttachment(
   data: Record<string, unknown>,
   identity: Pick<ChatFileSource, 'msgId' | 'conv' | 'fwdMsgId' | 'fwdKind' | 'fwdResId'>,
 ): ChatVideoAttachment | undefined {
-  const { fileName: name } = data;
-  if (!isMovFileName(name)) return undefined;
+  const { fileName: name, transferErrorText } = data;
+  if (!isMovFileName(name) || (typeof transferErrorText === 'string' && transferErrorText.trim()))
+    return undefined;
   const path =
     !identity.msgId && !identity.fwdResId && typeof data.localPath === 'string' && data.localPath;
   if (path) {
@@ -133,6 +144,12 @@ export function galleryMedia(
         msgSeq: message.msgSeq ?? '0',
         sendTime: String(message.sendTime),
       });
+    const messageSource = {
+      kind: 'conversation' as const,
+      conversationKind: kind,
+      conv,
+      msgId: message.msgId,
+    };
     let mediaIndex = 0;
     return message.elements.flatMap((raw): PreviewMedia[] => {
       if (!raw || typeof raw !== 'object') return [];
@@ -156,7 +173,9 @@ export function galleryMedia(
             ? { fwdMsgId: message.msgId, fwdKind: carrier.kind, fwdResId: carrier.resId }
             : {}),
         });
-        return video ? [{ key, order, kind: 'video', title: String(data.fileName), ...video }] : [];
+        return video
+          ? [{ key, order, messageSource, kind: 'video', title: String(data.fileName), ...video }]
+          : [];
       }
       const token = String(data.fileToken ?? '');
       if (element.type === 'pic' && !isChatGalleryImage(data)) return [];
@@ -183,9 +202,10 @@ export function galleryMedia(
       };
       const proxy = mediaUrl(image ? 'pic' : 'video', params);
       const preview = image ? chatImagePreviewSources(data, params, browseThumbnails) : undefined;
+      const localPath = image ? chatImageLocalPath(data) : String(data.localPath || '');
       const src =
         String(data.localPreviewUrl || '') ||
-        (data.localPath ? localFileUrl(String(data.localPath)) : (preview?.src ?? proxy));
+        (preview?.src ?? (localPath ? localFileUrl(localPath) : proxy));
       const ttl = Number(data.fileTTL),
         uploaded = Number(data.uploadTimestamp);
       const width = Number(data.imgWidth) || 0,
@@ -195,6 +215,7 @@ export function galleryMedia(
         {
           key,
           order,
+          messageSource,
           kind: image ? 'image' : 'video',
           progressTarget: messageTransferTarget(
             image ? 'pic' : 'video',

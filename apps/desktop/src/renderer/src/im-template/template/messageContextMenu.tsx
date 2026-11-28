@@ -17,6 +17,7 @@ import {
   Forward,
   FileSearch,
   ListChecks,
+  LocateFixed,
   Repeat2,
   Reply,
   SmilePlus,
@@ -73,6 +74,7 @@ type Props = {
   metadataPrecision?: 'second' | 'millisecond';
   metadataSequence?: string;
   onClose?: () => void;
+  onLocate?: () => void;
   onCopy: (message: Message) => void | Promise<void>;
   onForward?: (message: Message) => void;
   forwardBlockedReason?: string | null;
@@ -405,6 +407,7 @@ export function MessageContextMenu(props: Props) {
               aria-label="基础操作"
             >
               {render([
+                action('locate', '定位原消息', <LocateFixed {...icon} />, props.onLocate),
                 action('copy', '复制', <Copy {...icon} />, () => void onCopy(message)),
                 action(
                   'reply',

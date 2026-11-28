@@ -27,3 +27,8 @@ export const GroupMessagePreviewContext = createContext<{
   conversationId: string | null;
   content: ReactNode;
 } | null>(null);
+
+export const GroupHistoryNavigationContext = createContext<
+  | ((group: { code: string; name: string }, anchor: { msgId: string; msgSeq: string }) => void)
+  | null
+>(null);

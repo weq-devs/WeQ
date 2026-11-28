@@ -79,6 +79,7 @@ import { videoPreviewResponse } from './video_preview_response';
 import { videoPreviewSource } from './video_preview_source';
 import { resolveRecordedChatFile } from './message_media_local';
 import { isMovFileName } from '@weq/service/message-filter';
+import { taskMessageSourceInput } from './task_message_source';
 import { observeDownload, transferIdInput } from './ipc/routers/transfer_progress';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
@@ -723,10 +724,19 @@ export async function resolveChatImageFile(
       ? await observeDownload(services, transfer.data, (update, setResume) => {
           let paused = false;
           const pageId = opts.reportActivity && page.success ? page.data : undefined;
+          const messageSource = pageId
+            ? taskMessageSourceInput.safeParse({
+                kind: 'conversation',
+                conv: q.get('taskConv'),
+                conversationKind: q.get('taskPeer'),
+                msgId: q.get('taskMsgId'),
+              }).data
+            : undefined;
           return services.mediaDownload.download(
             token,
             {
               ...opts,
+              activityMessageSource: messageSource,
               activity: pageId
                 ? {
                     pageId,

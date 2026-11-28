@@ -1,3 +1,4 @@
+import { useTaskMessageSource } from '../lib/notificationNavigation.shared';
 import * as timeFormat from '@weq/time';
 /**
  * Renderers for QQ rich-media message elements: image, video, file, voice
@@ -42,6 +43,7 @@ import { openMediaPreview } from './mediaPreviewStore.shared';
 import {
   chatBlobImageSaveSource,
   chatFileSaveSource,
+  chatImageLocalPath,
   chatImagePreviewSources,
   type ChatVideoAttachment,
   MediaBrowseContext,
@@ -81,7 +83,6 @@ import { useVideoBuffering } from '../hooks/useVideoBuffering';
 import { useMediaLoadAction } from '../hooks/useMediaLoadAction';
 import { notifyMediaCached, watchMediaCache } from '../lib/mediaCacheArrival';
 import { intrinsicMediaSize, messageMediaSize, type MediaSize } from '../lib/chatMediaSize';
-import { cleanNtPath } from './mergeForward/model';
 import '../styles/media-preview.css';
 
 type Data = Record<string, unknown>;
@@ -225,6 +226,7 @@ export function QqImage({
   gridTile?: boolean;
   preferLocal?: boolean;
 }) {
+  const messageSource = useTaskMessageSource();
   const limited = useDataSaver((state) => state.enabled);
   const behavior = useDataSaver((state) => state.behavior);
   const [requested, setRequested] = useState(false);
@@ -272,7 +274,7 @@ export function QqImage({
   // 老图片 / CDN 抽风都会 onError 落回上面这条代理路径，再失败才是「未找到」占位。
   const cdn = useCdn();
   // 发送中的 Blob 和 QQ 回读带回的本地路径都优先复用，文件仍由主进程校验后读取。
-  const localPath = cleanNtPath(str(data, 'localPath') || str(data, 'filePath'));
+  const localPath = chatImageLocalPath(data);
   const localPreviewUrl = str(data, 'localPreviewUrl');
   const previewSize = useMediaPreviewSize(
     'pic',
@@ -383,6 +385,7 @@ export function QqImage({
                         title: name || '[闪照]',
                         ocr: ocrContext,
                         progressTarget,
+                        messageSource,
                       },
                     ],
                     ownerDocument: event.currentTarget.ownerDocument,
@@ -430,14 +433,14 @@ export function QqImage({
                   if (!loading) retry();
                   return;
                 }
-                const preview =
-                  isAnimatedEmoji || localPath ? undefined : chatImagePreviewSources(data, params);
+                const preview = isAnimatedEmoji ? undefined : chatImagePreviewSources(data, params);
+                const displayedFallback = localSrc && source !== localSrc ? [src] : [];
                 if (
                   galleryOpen?.(previewKey, event.currentTarget.ownerDocument, {
                     src: preview?.src ?? previewSrc,
                     originalImage: preview?.originalImage,
                     ocr: ocrContext,
-                    fallbackSources: preview ? [] : [originalProxySrc, proxySrc],
+                    fallbackSources: preview ? displayedFallback : [originalProxySrc, proxySrc],
                     progressTarget,
                   })
                 )
@@ -453,8 +456,9 @@ export function QqImage({
                       title: name || (isAnimatedEmoji ? '[表情]' : '[图片]'),
                       ocr: ocrContext,
                       progressTarget,
+                      messageSource,
                       fallbackSources: preview
-                        ? []
+                        ? displayedFallback
                         : [
                             ...candidates
                               .slice(srcIndex + 1)
@@ -546,6 +550,7 @@ export function QqVideo({
   interactive?: boolean;
   attachment?: ChatVideoAttachment;
 }) {
+  const messageSource = useTaskMessageSource();
   useDataSaver((state) => state.behavior.dataSaverVideoCovers);
   const browse = useContext(MediaBrowseContext);
   const galleryOpen = useChatMediaOpen();
@@ -686,6 +691,7 @@ export function QqVideo({
             poster: coverSrc,
             title: name,
             progressTarget,
+            messageSource,
             saveSource: attachment?.saveSource,
           },
         ],
@@ -971,6 +977,10 @@ export function QqFile({
   }, [transferring, busy, checkLocal, active, refetchLocations]);
   const working = busy || (downloading && !opensFile);
   const showSave = !opensFile && hasMessage && (!checkLocal || locations.isFetched);
+  const errorText = error
+    ? `${error.action === 'open' ? '打开' : '保存'}失败：${error.message}`
+    : str(data, 'transferErrorText').trim();
+  const showError = !downloading && !working && !paused && Boolean(errorText);
   const onClick = (saveOnly = false): void => {
     if (working) return;
     setError(null);
@@ -1021,7 +1031,7 @@ export function QqFile({
     >
       <MessageLayoutChange
         anchor={fileRef}
-        details={[['.qq-media-file-size', working, downloading, error?.action, error?.message]]}
+        details={[['.qq-media-file-size', working, downloading, showError, errorText]]}
       />
       <button
         type="button"
@@ -1042,7 +1052,8 @@ export function QqFile({
             {name || '[文件]'}
           </span>
           <span
-            className={cn('qq-media-file-size', error && !downloading && 'qq-media-file-error')}
+            className={cn('qq-media-file-size', showError && 'qq-media-file-error')}
+            title={showError ? errorText : undefined}
           >
             {downloading ? (
               <span className="qq-media-file-status">
@@ -1054,8 +1065,8 @@ export function QqFile({
               </span>
             ) : paused ? (
               '下载已暂停'
-            ) : error ? (
-              `${error.action === 'open' ? '打开' : '保存'}失败：${error.message}`
+            ) : showError ? (
+              errorText
             ) : (
               <span className="weq-number">{formatSize(size)}</span>
             )}

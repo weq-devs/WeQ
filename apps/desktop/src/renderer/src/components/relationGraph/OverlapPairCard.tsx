@@ -125,6 +125,7 @@ export function OverlapPairCard({
               key={node.uid}
               type="button"
               className="weq-ov-paircard-row"
+              data-weq-force-click="profile"
               onClick={(event) => {
                 const trigger = event.currentTarget;
                 const rect = trigger.getBoundingClientRect();

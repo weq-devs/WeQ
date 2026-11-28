@@ -149,6 +149,7 @@ it('空间视频从所点封面预览，可切换相邻媒体，导出只提交�
     ),
   );
   markImagesLoaded('.weq-qzal-album-cover img');
+  expect(button('选择视频 乙')).toBeNull();
   const second = [...host.querySelectorAll<HTMLButtonElement>('.weq-qzal-album-open')].find(
     (tile) => tile.textContent?.includes('乙'),
   )!;
@@ -162,6 +163,7 @@ it('空间视频从所点封面预览，可切换相邻媒体，导出只提交�
   act(() => button('上一项媒体').click());
   expect(document.querySelector('[role="dialog"] video')).toBeNull();
   key('Escape');
+  act(() => button('多选').click());
   act(() => button('选择视频 乙').click());
   await act(async () => button('导出所选视频').click());
   expect(mocks.exportVideos).toHaveBeenLastCalledWith({
@@ -171,11 +173,14 @@ it('空间视频从所点封面预览，可切换相邻媒体，导出只提交�
     items: [{ id: '2', name: '乙', url: videos[1]!.videoUrl, video: true }],
     savePolicy: { mode: 'before' },
   });
+  act(() => button('退出多选').click());
+  expect(button('选择视频 乙')).toBeNull();
 });
 
 it('聊天灯箱命中本地原图时不显示下载，缺失时可从缩略图查看原图并重试', async () => {
   const pic = { type: 'pic', data: { fileToken: 'fixture', fileSize: 197453 } };
-  const chat = galleryMedia([{ msgId: '4', sendTime: 1, elements: [pic, pic] }]);
+  const moved = { ...pic, data: { ...pic.data, localPath: '/synthetic/moved.png' } };
+  const chat = galleryMedia([{ msgId: '4', sendTime: 1, elements: [pic, moved] }]);
   const transfers = new TransferActivity();
   act(() =>
     root.render(
@@ -196,6 +201,10 @@ it('聊天灯箱命中本地原图时不显示下载，缺失时可从缩略图�
   load();
   expect(viewOriginal()).toBeUndefined();
   act(() => button('下一项媒体').click());
+  expect(request().get('path')).toBe('/synthetic/moved.png');
+  fail();
+  expect(request().get('localOnly')).toBe('1');
+  expect(viewOriginal()).toBeUndefined();
   fail();
   load();
   expect(request().get('preview')).toBe('1');

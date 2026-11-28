@@ -209,6 +209,7 @@ export async function startChatExportTasks(
       formats: frozenFormats as Exclude<ExportFormat, 'vcard'>[],
       total: t.total ?? 0,
       exportAvatar: frozenOptions.exportAvatar,
+      useRecordedSenderName: t.kind === 'group' && frozenOptions.useRecordedSenderName,
       ...(frozenOptions.dress.bubble || frozenOptions.dress.font || frozenOptions.dress.widget
         ? { dress: frozenOptions.dress }
         : {}),

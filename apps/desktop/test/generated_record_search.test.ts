@@ -35,31 +35,59 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it('会话搜索没有条件时不查历史，清空关键词会清除结果并中止查询', async () => {
+it('会话搜索默认浏览全部消息，清空关键词会中止旧搜索并回到全部消息', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const root = createRoot(document.createElement('div'));
   const pending = Promise.withResolvers<{ items: []; cursor: null; hasMore: false }>();
-  const browse = vi.fn().mockReturnValue(pending.promise);
-  nativeReads.mockImplementation((path: string, input: unknown, options: unknown) =>
-    path === 'account.browseConversation' ? browse(input, options) : undefined,
+  const browse = vi.fn(
+    (input: { filter: { keyword?: string } }, _options: { signal: AbortSignal }) =>
+      input.filter.keyword
+        ? pending.promise
+        : {
+            items: [
+              {
+                msgId: '1',
+                msgSeq: '1',
+                senderUid: 'fixture',
+                senderUin: '',
+                senderName: '成员',
+                sendTime: '1794528000',
+                content: '最近一条消息',
+              },
+            ],
+            cursor: null,
+            hasMore: false,
+          },
+  );
+  nativeReads.mockImplementation((path: string, ...args: Parameters<typeof browse>) =>
+    path === 'account.browseConversation' ? browse(...args) : undefined,
   );
   try {
     await act(async () => root.render(nativeRecords('')));
     const input = document.querySelector<HTMLInputElement>('[aria-label="搜索本会话"]')!;
     const results = () => document.querySelector<HTMLElement>('.weq-chatrecords-body');
+    expect(results()?.textContent).toContain('最近一条消息');
+    expect(browse.mock.calls[0]?.[0]).toMatchObject({
+      filter: { keyword: undefined, recordType: undefined },
+      cursor: undefined,
+      limit: 30,
+    });
     await act(async () => changeInput(input, '  '));
-    expect(results()).toBeNull();
-    expect(browse).not.toHaveBeenCalled();
+    expect(browse).toHaveBeenCalledOnce();
 
     await act(async () => changeInput(input, '合成'));
     expect(browse.mock.lastCall?.[0]).toMatchObject({ filter: { keyword: '合成' } });
     expect(results()?.querySelector('[role="status"]')).not.toBeNull();
 
     await act(async () => changeInput(input, ''));
-    expect(browse.mock.lastCall?.[1].signal.aborted).toBe(true);
+    expect(browse.mock.calls[1]?.[1].signal.aborted).toBe(true);
     await act(async () => pending.resolve({ items: [], cursor: null, hasMore: false }));
-    expect(results()).toBeNull();
-    expect(browse).toHaveBeenCalledOnce();
+    expect(results()?.textContent).toContain('最近一条消息');
+    expect(browse.mock.lastCall?.[0]).toMatchObject({
+      filter: { keyword: undefined, recordType: undefined },
+      cursor: undefined,
+    });
+    expect(browse).toHaveBeenCalledTimes(3);
   } finally {
     act(() => root.unmount());
   }
@@ -132,7 +160,7 @@ it('服务号搜索显示候选截断提示，消息定位保留服务号和消�
   }
 });
 
-it('克隆输入关键词后分页显示本地匹配消息，不查询原生 QQ 记录', async () => {
+it('克隆会话默认分页浏览本地消息，清空关键词恢复全部结果', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -148,7 +176,7 @@ it('克隆输入关键词后分页显示本地匹配消息，不查询原生 QQ 
   const messages = cloneChatMessages(
     Array.from({ length: 61 }, (_, index) => ({
       id: `row-${index}`,
-      text: `合成记录 ${index}`,
+      text: index === 60 ? '最新一条消息' : `合成记录 ${index}`,
       ts: index * 1000,
     })),
     conversation.id,
@@ -177,9 +205,8 @@ it('克隆输入关键词后分页显示本地匹配消息，不查询原生 QQ 
     );
     const input = document.querySelector<HTMLInputElement>('[aria-label="搜索本会话"]')!;
     const results = () => document.querySelector<HTMLElement>('.weq-chatrecords-msgs');
-    expect(results()).toBeNull();
-    await act(async () => changeInput(input, '合成'));
     expect(document.querySelectorAll('.weq-chatrecords-msg')).toHaveLength(30);
+    expect(results()?.textContent).toContain('最新一条消息');
     const list = results()!;
     Object.defineProperties(list, {
       clientHeight: { value: 300 },
@@ -190,8 +217,11 @@ it('克隆输入关键词后分页显示本地匹配消息，不查询原生 QQ 
     list.scrollTop = 700;
     act(() => list.dispatchEvent(new Event('scroll')));
     expect(document.querySelectorAll('.weq-chatrecords-msg')).toHaveLength(60);
+    await act(async () => changeInput(input, '合成记录 0'));
+    expect(document.querySelectorAll('.weq-chatrecords-msg')).toHaveLength(1);
+    expect(results()?.textContent).toContain('合成记录 0');
     await act(async () => changeInput(input, ''));
-    expect(results()).toBeNull();
+    expect(results()?.textContent).toContain('最新一条消息');
     expect(nativeReads).not.toHaveBeenCalled();
   } finally {
     act(() => root.unmount());
@@ -275,6 +305,68 @@ it('换关键词时中止旧搜索，迟到的空批次不会继续分页', asyn
     );
     expect(browse).toHaveBeenCalledTimes(2);
     expect(document.body.textContent).toContain('新词命中的正文');
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it('切换聊天记录分类时等待新首屏，再按新游标续页', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const root = createRoot(document.createElement('div'));
+  const item = (id: string, content: string) => ({
+    msgId: id,
+    msgSeq: id,
+    senderUid: 'fixture',
+    senderUin: '',
+    senderName: '成员',
+    sendTime: '1794528000',
+    content,
+  });
+  const cursor = { time: 1794528000, rowId: '2' };
+  const firstPage = Promise.withResolvers<{
+    items: ReturnType<typeof item>[];
+    cursor: typeof cursor;
+    hasMore: boolean;
+  }>();
+  const browse = vi.fn((input: { filter: { recordType: string }; cursor?: typeof cursor }) => {
+    if (input.filter.recordType === 'file')
+      return {
+        items: [item('3', '文件样本')],
+        cursor: { ...cursor, rowId: '3' },
+        hasMore: true,
+      };
+    if (!input.cursor) return firstPage.promise;
+    return { items: [item('1', '更早的转发记录')], cursor: null, hasMore: false };
+  });
+  nativeReads.mockImplementation((path: string, input: Parameters<typeof browse>[0]) =>
+    path === 'account.browseConversation' ? browse(input) : undefined,
+  );
+  const tab = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>('[aria-label="消息类型"] button')].find(
+      (button) => button.textContent === label,
+    )!;
+  const forwardCursors = () =>
+    browse.mock.calls
+      .filter(([{ filter }]) => filter.recordType === 'forward')
+      .map(([input]) => input.cursor);
+  try {
+    await act(async () => root.render(nativeRecords('')));
+    await act(async () => tab('文件').click());
+    const results = document.querySelector<HTMLDivElement>('.weq-chatrecords-msgs')!;
+    // 切换分类后只显示加载提示，滚动区内容暂时不足一屏。
+    Object.defineProperties(results, {
+      clientHeight: { value: 300 },
+      scrollHeight: { value: 300 },
+    });
+    await act(async () => tab('聊天记录').click());
+    expect(forwardCursors()).toEqual([undefined]);
+
+    await act(async () =>
+      firstPage.resolve({ items: [item('2', '首屏的转发记录')], cursor, hasMore: true }),
+    );
+    expect(forwardCursors()).toEqual([undefined, cursor]);
+    expect(results.textContent?.match(/首屏的转发记录/g)).toHaveLength(1);
+    expect(results.textContent).toContain('更早的转发记录');
   } finally {
     act(() => root.unmount());
   }
@@ -405,7 +497,7 @@ it('图片、视频封面及表情自动加载，可预览和定位原消息', a
   const root = createRoot(document.createElement('div'));
   const { props } = nativeRecords('');
   const jump = vi.fn();
-  const item = (recordType: string) => ({
+  const item = (recordType?: string) => ({
     msgId: '4',
     msgSeq: '4',
     senderUid: 'u_peer',
@@ -423,12 +515,12 @@ it('图片、视频封面及表情自动加载，可预览和定位原消息', a
           ? [{ type: 'mface', data: { emojiPackId: 123, marketEmoticonIdHex: 'abc' } }]
           : [{ type: 'file', data: { fileName: 'fixture-file.txt', fileToken: 'file-token' } }],
   });
-  const browse = vi.fn((input: { filter: { recordType: string } }) => ({
+  const browse = vi.fn((input: { filter: { recordType?: string } }) => ({
     items: [item(input.filter.recordType)],
     cursor: null,
     hasMore: false,
   }));
-  nativeReads.mockImplementation((path: string, input: { filter: { recordType: string } }) =>
+  nativeReads.mockImplementation((path: string, input: Parameters<typeof browse>[0]) =>
     path === 'account.browseConversation' ? browse(input) : undefined,
   );
   const tab = (label: string) =>
@@ -437,7 +529,6 @@ it('图片、视频封面及表情自动加载，可预览和定位原消息', a
     )!;
   try {
     await act(async () => root.render(h(ChatRecordsModal, { ...props, onJumpMessage: jump })));
-    expect(browse).not.toHaveBeenCalled();
     await act(async () => tab('图片/视频').click());
     const previews = [
       ...document.querySelectorAll<HTMLButtonElement>('button.weq-record-media-thumbnail'),
@@ -468,6 +559,7 @@ it('图片、视频封面及表情自动加载，可预览和定位原消息', a
     expect(document.querySelector('.weq-record-media-grid')).toBeNull();
     expect(document.querySelector('.weq-chatrecords-msg')).not.toBeNull();
     expect(browse.mock.calls.map(([input]) => input.filter.recordType)).toEqual([
+      undefined,
       'media',
       'emoji',
       'file',
@@ -498,7 +590,9 @@ it('群发送者打开即使用当前排序读取完整名单，按昵称筛选�
           ],
           total: 2,
         }
-      : { items: [], cursor: null, hasMore: false },
+      : path === 'account.groupSenderNames'
+        ? { rows: [{ name: '旧群名片', senderUin: '20003', senderUid: 'u_legacy' }] }
+        : { items: [], cursor: null, hasMore: false },
   );
   function Fixture() {
     const { changeOrder } = useGroupMemberRosterOrder('10001:source', '12345');
@@ -551,9 +645,39 @@ it('群发送者打开即使用当前排序读取完整名单，按昵称筛选�
     expect(options().map((option) => option.textContent)).toEqual(['群名片']);
     await act(async () => changeInput(input, '昵称样本'));
     expect(options().map((option) => option.textContent)).toEqual(['群名片']);
-    expect(nativeReads.mock.calls.some(([path]) => path === 'account.browseConversation')).toBe(
-      false,
+    const segments = [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="发送者查找范围"] [role="radio"]',
+      ),
+    ];
+    expect(
+      segments.map((button) => [button.textContent, button.getAttribute('aria-checked')]),
+    ).toEqual([
+      ['仅当前称呼', 'true'],
+      ['包含历史称呼', 'false'],
+    ]);
+    await act(async () => changeInput(input, '旧群名片'));
+    expect(nativeReads).not.toHaveBeenCalledWith(
+      'account.groupSenderNames',
+      expect.anything(),
+      expect.anything(),
     );
+    await act(async () => segments[1]!.click());
+    expect(segments[1]!.getAttribute('aria-checked')).toBe('true');
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 220)));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(options().some((option) => option.textContent?.includes('旧群名片'))).toBe(true);
+    expect(nativeReads).toHaveBeenCalledWith(
+      'account.groupSenderNames',
+      { ...binding, groupCode: '12345', keyword: '旧群名片' },
+      expect.anything(),
+    );
+    await act(async () => segments[0]!.click());
+    expect(options()).toHaveLength(0);
+    await act(async () => changeInput(input, '昵称样本'));
+    expect(
+      nativeReads.mock.calls.filter(([path]) => path === 'account.browseConversation'),
+    ).toHaveLength(1);
     await act(async () => options()[0]!.click());
     expect(nativeReads).toHaveBeenCalledWith(
       'account.browseConversation',
@@ -573,5 +697,117 @@ it('群发送者打开即使用当前排序读取完整名单，按昵称筛选�
     act(() => mountedRoot.unmount());
     query.clear();
     host.remove();
+  }
+});
+
+it('会话搜索的消息菜单显示原消息元数据，引用和多选转发保留确切对象', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const root = createRoot(document.createElement('div'));
+  const time = String(Date.parse('2026-11-27T16:05:06Z') / 1000);
+  const makeHit = (id: string, seq: string) => ({
+    msgId: id,
+    msgSeq: seq,
+    clientSeq: String(Number(seq) + 10),
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    senderName: '成员',
+    sendTime: time,
+    content: `合成结果 ${id}`,
+    elements: [{ type: 'text', data: { textContent: `合成结果 ${id}` } }],
+  });
+  const items = [
+    { ...makeHit('920', '35'), source: 'roaming', sourceFormat: 'native' },
+    makeHit('918', '32'),
+    makeHit('910', '14'),
+  ];
+  nativeReads.mockImplementation((path: string) =>
+    path === 'account.browseConversation' ? { items, cursor: null, hasMore: false } : undefined,
+  );
+  const peer = {
+    id: 'u_peer',
+    kind: 'human' as const,
+    username: 'u_peer',
+    identityLabel: 'QQ',
+    identityValue: '20001',
+    displayName: '成员',
+    avatarUrl: null,
+  };
+  const { props } = nativeRecords();
+  const onSuspend = vi.fn();
+  const quote = vi.fn();
+  const forward = vi.fn();
+  const button = (label: string) => {
+    const entry = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (item) => (item.getAttribute('aria-label') ?? item.textContent?.trim()) === label,
+    );
+    expect(entry, label).toBeDefined();
+    return entry!;
+  };
+  const open = async (record: HTMLElement) =>
+    act(async () =>
+      record.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+    );
+  try {
+    await act(async () =>
+      root.render(
+        h(ChatRecordsModal, {
+          ...props,
+          initialHit: { ...props.initialHit, source: 'buddy', targetUid: peer.id },
+          onSuspend,
+          actions: {
+            conversation: {
+              type: 'direct',
+              id: peer.id,
+              otherUser: peer,
+              group: null,
+              members: [],
+              updatedAt: '',
+              lastMessage: null,
+              unreadCount: 0,
+            },
+            quote,
+            forward,
+          },
+        }),
+      ),
+    );
+    const rows = [...document.querySelectorAll<HTMLElement>('.weq-chatrecords-msg')];
+    expect(rows).toHaveLength(3);
+    await open(rows[0]!);
+    const menu = document.querySelector<HTMLElement>('[aria-label="消息操作"]')!;
+    expect(menu.textContent).toContain('2026-11-28 00:05:06');
+    expect(menu.textContent).toContain('QQ 原生漫游');
+    expect(button('复制消息序号 35')).toBeTruthy();
+    expect(button('显示 Markdown')).toBeTruthy();
+    expect(menu.textContent).not.toMatch(/撤回|本地删除|\+1|更多表情/);
+    await act(async () => button('引用').click());
+    expect(onSuspend).toHaveBeenCalledOnce();
+    expect(quote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        msgId: '920',
+        msgSeq: '35',
+        clientSeq: '45',
+        conversationId: peer.id,
+      }),
+    );
+    await open(rows[0]!);
+    await act(async () => button('多选').click());
+    await act(async () =>
+      rows[2]!.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true }),
+      ),
+    );
+    const selection = document.querySelector<HTMLElement>('[aria-label="消息多选操作"]')!;
+    expect(selection.textContent).toContain('3');
+    await act(async () =>
+      selection.querySelector<HTMLButtonElement>('[aria-label="转发"]')!.click(),
+    );
+    expect(forward.mock.lastCall?.[0].map((row: { id: string }) => row.id)).toEqual([
+      '910',
+      '918',
+      '920',
+    ]);
+  } finally {
+    act(() => root.unmount());
   }
 });

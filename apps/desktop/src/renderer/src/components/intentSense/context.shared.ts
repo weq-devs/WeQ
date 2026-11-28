@@ -72,8 +72,9 @@ export function useIntentSenseContext(): IntentSenseContextValue | null {
  * 全局状态查询（React Query 同 key 共享缓存，多处使用只发一次 IPC）。
  * header 好感度胶囊 / 回复建议条在 Provider 外，靠它判断功能是否开启。
  */
-export function useIntentSenseStatus() {
+export function useIntentSenseStatus(enabled = true) {
   return trpc.account.intentSense.getStatus.useQuery(undefined, {
+    enabled,
     refetchOnWindowFocus: false,
     staleTime: 30_000,
   });

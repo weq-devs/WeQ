@@ -227,7 +227,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                 {
                   id: 'same-id',
                   targets: [
-                    { kind: 'group', conv: '123', name: '合成漫游', firstObservedSeq: '22' },
+                    {
+                      kind: 'group',
+                      conv: '123',
+                      name: '合成漫游',
+                      firstObservedSeq: fixture.roamingObserved > 0 ? '22' : undefined,
+                    },
                   ],
                   observed: fixture.roamingObserved,
                   status: fixture.roamingStatus,
@@ -441,6 +446,7 @@ describe('统一当前任务', () => {
             conversationKind: 'group',
             conv: '123',
             seq: '22',
+            dismissTaskPanel: true,
           });
         else {
           expect(navigate).not.toHaveBeenCalled();

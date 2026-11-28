@@ -22,18 +22,11 @@ html[data-weq-mobile-client='true'] .app-shell-root.weq-web-shell {
   padding-right: var(--weq-client-safe-right);
 }
 
-/* 只在「空间不足，群资料进浮层」时渲染（chatPane 里与浮层同条件）。
-   两种布局下群资料都是浮在聊天区上的一层：先给单栏的兜底位置与层级，
-   多栏的覆盖在下面的 1100px 段里。 */
-:where(html[data-weq-layout='single'])
-  .chat-pane.is-mobile-group-info-open
-  > .weq-group-info-scrim {
+/* 群资料在聊天区上方浮出时，遮罩拦住底下的点击，点空白只关闭侧栏。 */
+.chat-pane > .weq-group-info-scrim {
   position: absolute;
-  z-index: 7;
-  top: var(--chat-header-height);
-  right: 0;
-  bottom: 0;
-  left: 0;
+  z-index: calc(var(--weq-chat-side-panel-layer) - 1);
+  inset: var(--chat-header-height) 0 0;
 }
 
 html[data-weq-mobile-client='true'][data-weq-layout='single']
@@ -169,7 +162,7 @@ html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-editor {
        第 2 列只剩一个隐式空列；绝对定位元素的包含块就是那块 grid area，不重置
        grid-area 会让 width:min(100%,300px) 解析成 ~2px —— 浮层"打开"了但看不见。 */
     grid-area: auto;
-    z-index: 20;
+    z-index: var(--weq-chat-side-panel-layer);
     top: var(--chat-header-height);
     right: 0;
     bottom: 0;
@@ -182,17 +175,6 @@ html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-editor {
     border-left-color: var(--weq-border-subtle);
     background: var(--weq-bg-surface);
     box-shadow: var(--weq-shadow-card);
-  }
-
-  /* 吃掉浮层旁边那一侧的指针事件：只关浮层，不穿透到消息。 */
-  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .chat-pane.is-mobile-group-info-open
-    > .weq-group-info-scrim {
-    position: absolute;
-    z-index: 19;
-    top: var(--chat-header-height);
-    right: 0;
-    bottom: 0;
-    left: 0;
   }
 
   html[data-weq-mobile-client='true'][data-weq-layout='wide'] .group-info-toggle {

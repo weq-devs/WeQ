@@ -284,6 +284,10 @@ export function messageReadCursor(position: string) {
   return { msgSeq: msgSeq!, sendTime: sendTime!, msgId: msgId! };
 }
 
+export function conversationDisplayKey(kind: 'c2c' | 'group', conv: string) {
+  return kind === 'group' ? conv : `c2c:${conv}`;
+}
+
 export type StateNamespace =
   | 'pins'
   | 'tasks'
@@ -291,7 +295,8 @@ export type StateNamespace =
   | 'todos'
   | 'order'
   | 'notifications'
-  | 'reads';
+  | 'reads'
+  | 'conversationDisplay';
 export type StateRecords = Partial<Record<StateNamespace, Record<string, unknown>>>;
 export interface SharedDraft {
   version: string | null;

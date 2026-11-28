@@ -65,7 +65,10 @@ export interface C2cMsg {
   decoration?: MsgDecoration;
 }
 
+export type SenderNameAtTime = { name: string; kind: 'display' | 'nickname' };
+
 export interface GroupMsg {
+  senderAtTime?: SenderNameAtTime;
   msgId: bigint;
   /** In-group sequence number (column 40003). */
   msgSeq: bigint;

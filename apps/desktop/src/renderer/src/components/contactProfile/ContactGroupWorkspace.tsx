@@ -13,6 +13,7 @@ import { client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
 import { DraftCloseContext, useDraftClose } from '../../lib/draftClose';
 import { ContactGroupContent } from './ContactContent';
+import { GroupSenderNameHistory } from './GroupSenderNameHistory';
 import { ContactActions } from './ContactActions';
 import { ContactEmptyState, ContactInlineError } from './ContactRow';
 import { GroupProfileSurface } from '../groupProfile/GroupProfileSurface';
@@ -169,6 +170,7 @@ function GroupWorkspace({
                 <button
                   type="button"
                   className="weq-profile-group-link"
+                  data-weq-force-click="profile"
                   title="查看群名片"
                   aria-label="查看群名片"
                   onClick={(event) => {
@@ -239,9 +241,12 @@ function GroupWorkspace({
               {row || source ? (
                 <ContactGroupContent person={person} settings={DEFAULT_CONTACT_CARD} full />
               ) : (
-                <ContactEmptyState>
-                  {groups.isFetching ? '正在读取群内资料…' : '没有已保存的成员资料。'}
-                </ContactEmptyState>
+                <>
+                  <ContactEmptyState>
+                    {groups.isFetching ? '正在读取群内资料…' : '没有已保存的成员资料。'}
+                  </ContactEmptyState>
+                  <GroupSenderNameHistory person={person} groupCode={code} />
+                </>
               )}
             </div>
           ) : !groups.isFetching && !groups.error ? (

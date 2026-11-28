@@ -14,6 +14,7 @@ import { IntentProfileDialog } from './intentSense/IntentProfileDialog';
 import { useIntentSenseStatus } from './intentSense/context.shared';
 import { usePersonRelationship } from '../lib/contactRelationship';
 import { ContactContent } from './contactProfile/ContactContent';
+import { GroupSenderNameHistory } from './contactProfile/GroupSenderNameHistory';
 import { ContactGroupWorkspace } from './contactProfile/ContactGroupWorkspace';
 import { ProfileDisclosure } from './contactProfile/ProfileDisclosure';
 import { ContactSection } from './contactProfile/ContactRow';
@@ -104,6 +105,7 @@ export function ContactWorkspace({
             'botDescription',
             'botFeatures',
           ])}
+          <GroupSenderNameHistory person={contact} />
         </>
       );
     if (key === 'marks')

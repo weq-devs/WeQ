@@ -307,6 +307,19 @@ describe('功能搜索实际导航', () => {
   it('群搜索进入临时会话时分别保留真实群名和备注，供群名片使用', () => {
     const setTemporaryConversations = vi.fn();
     const jumpToSearchConversation = vi.fn();
+    const rememberSearchGroup = sourceHandler<(group: unknown) => void>(
+      '../src/renderer/src/views/MainView.tsx',
+      'rememberSearchGroup',
+      {
+        useStableCallback: (callback: unknown) => callback,
+        conversations: [],
+        hiddenConversationsById: new Map(),
+        deletedConversationsById: new Map(),
+        setTemporaryConversations,
+        groupAvatarSrc: () => null,
+        fallbackPreference: {},
+      },
+    );
     const open = sourceHandler<(hit: unknown) => void>(
       '../src/renderer/src/views/MainView.tsx',
       'openSearchHit',
@@ -316,13 +329,8 @@ describe('功能搜索实际导航', () => {
         setSearchFocused: vi.fn(),
         isContentSearchHit: () => false,
         isGeneratedSearchHit: () => false,
-        conversations: [],
-        hiddenConversationsById: new Map(),
-        deletedConversationsById: new Map(),
-        setTemporaryConversations,
+        rememberSearchGroup,
         jumpToSearchConversation,
-        groupAvatarSrc: () => null,
-        fallbackPreference: {},
         centerWindowOnSeq: vi.fn(),
         pushToast: vi.fn(),
         shell: {},
@@ -333,6 +341,7 @@ describe('功能搜索实际导航', () => {
       },
     );
     open({ category: 'group', groupCode: '20001', name: '真实群名', remark: '群备注' });
+    expect(setTemporaryConversations).toHaveBeenCalledOnce();
     const update = setTemporaryConversations.mock.calls[0]![0];
     expect(update({})['20001'].conversation.group).toMatchObject({
       name: '真实群名',

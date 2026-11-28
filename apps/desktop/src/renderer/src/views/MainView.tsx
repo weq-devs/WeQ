@@ -50,6 +50,7 @@ import type {
   HiddenSessionWire,
   DeletedSessionWire,
   MessageWire,
+  RenderElementWire,
   ChatMsgWire,
   UserProfileWire,
   GroupMemberWire,
@@ -186,6 +187,7 @@ import {
   preferenceValue,
   readingPositionJumpMode,
   accountBinding as sharedAccountBinding,
+  useShowHistoricalNames,
 } from '../lib/clientPreferences';
 import { useWebConnection } from '../state/webConnection';
 import { subscribeWorkspaceRecovery } from '../lib/connectionRecovery';
@@ -266,6 +268,7 @@ import { outgoingMediaSend, useOutgoingTransferTasks } from '../hooks/useOutgoin
 import { newOutgoingRequestId, useOutgoingReceipts } from '../hooks/useOutgoingReceipts';
 import { useTransferActivity } from '../lib/transferActivity';
 import { TransferActivityProvider } from '../components/TransferActivityProvider';
+import { openRosterSort } from '../lib/groupMemberRosterOrder';
 import { readVideoMeta } from '../im-template/template/composerMedia';
 import { releaseObjectUrl, retainObjectUrl } from '../lib/objectUrl';
 import { useDismissUnsentOutgoing } from '../hooks/useDismissUnsentOutgoing';
@@ -321,6 +324,7 @@ import {
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { conversationWindowKey } from '../lib/conversationWindowCache';
 import { firstPageKey } from '../lib/conversationFirstPage';
+import { useRecordedSenderNames } from '../hooks/useRecordedSenderNames';
 import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
 import { messageTemplateContext } from '../lib/messageTemplateContext';
 import { useRecentContactHeadRefresh } from '../hooks/useRecentContactHeadRefresh';
@@ -478,10 +482,15 @@ import type { RoamingTarget } from '@weq/service';
 import {
   conversationAnalysisTarget,
   conversationRoamingTarget,
+  ordinaryQqConversation,
   readonlyConversationKind,
 } from '../lib/conversationActions';
 import { fetchMissingContext } from '../lib/missingMessageFetch';
-import { generatedMuteKey, preferenceDefaults } from '@weq/service/client-preferences';
+import {
+  conversationDisplayKey,
+  generatedMuteKey,
+  preferenceDefaults,
+} from '@weq/service/client-preferences';
 import { createMediaId } from '../im-template/template/composerMedia';
 import type {
   ChatRecordSearchHit,
@@ -553,6 +562,7 @@ import {
   ChatNavigationContext,
   GroupMessagePreviewContext,
   GroupSpeechPreviewContext,
+  GroupHistoryNavigationContext,
   ProfileChatShortcutContext,
   type ProfileChatTarget,
   type ProfileShortcutTarget,
@@ -2138,6 +2148,11 @@ function MainWorkspace(): ReactElement {
     senderMode: 'conversation' | 'global';
     members: MfPerson[];
   } | null>(null);
+  const [taskFlashShare, setTaskFlashShare] = useState<{
+    scope: string;
+    filesetId: string;
+    name: string;
+  } | null>(null);
   const [forwardedConversations, setForwardedConversations] =
     useState<ForwardedConversations | null>(null);
   const compositionWindow = useCompositionWindow();
@@ -2311,7 +2326,9 @@ function MainWorkspace(): ReactElement {
     ) => {
       if (origin !== 'settings') return;
       const binding = messageBindingRef.current;
-      const pending = new Map(rows.filter(needsReplyMedia).map((row) => [row.msgId, row]));
+      const pending = new Map(
+        rows.filter((row) => needsReplyMedia(row)).map((row) => [row.msgId, row]),
+      );
       if (!binding || !pending.size) return;
       const patches = await client.account.replyMedia.query({
         ...convFetchKey(conversation),
@@ -2785,7 +2802,7 @@ function MainWorkspace(): ReactElement {
 
   // 聊天顶栏「搜索聊天记录」：把当前会话固化为搜索目标，打开单会话版聊天记录模态。
   const handleSearchChatRecords = useCallback(
-    (conversation: Conversation) => {
+    (conversation: Conversation, quote?: (message: Message) => void) => {
       const scope = messageScopeRef.current;
       if (!scope) return;
       let hit: ChatRecordSearchHit;
@@ -2818,8 +2835,8 @@ function MainWorkspace(): ReactElement {
         previous?.scope === scope &&
         previous.hit.source === hit.source &&
         previous.hit.targetUid === hit.targetUid
-          ? { ...previous, suspended: false }
-          : { hit, scope, suspended: false },
+          ? { ...previous, conversation, quote, suspended: false }
+          : { hit, scope, conversation, quote, suspended: false },
       );
     },
     [messageScopeRef],
@@ -2954,10 +2971,17 @@ function MainWorkspace(): ReactElement {
   const [chatRecordsTarget, setChatRecordsTarget] = useState<{
     hit: ChatRecordSearchHit;
     scope: string;
+    conversation: Conversation;
+    quote?: (message: Message) => void;
     suspended: boolean;
   } | null>(null);
+  const [searchQuote, setSearchQuote] = useState<{ scope: string; message: Message } | null>(null);
+  const clearSearchQuote = useCallback((message: Message) => {
+    setSearchQuote((previous) => (previous?.message === message ? null : previous));
+  }, []);
   useEffect(() => {
     setChatRecordsTarget((previous) => (previous?.scope === messageScope ? previous : null));
+    setSearchQuote((previous) => (previous?.scope === messageScope ? previous : null));
   }, [messageScope]);
 
   // 统一的 profile 内存缓存：listProfiles 预热 + 缺失项按需批量补全，所有消费方
@@ -4945,20 +4969,56 @@ function MainWorkspace(): ReactElement {
       sendAccess.data.attachEnabled &&
       sendAccess.data.ssoReady === true,
   );
-  // 原行负责定位、撤回和对账，补拉只提供正文。窗口刷新也能继续使用已补回的元素。
-  const loadedMessageWires = useMemo(
-    () =>
-      mergeUnsequencedInteractionRows(
-        loaded.map((row) => {
-          const base = replyMediaRows.get(row) ?? row;
-          const patch = messageElementPatches[row.msgId];
-          if (!patch || !messageFallbackKind(row)) return base;
-          return { ...base, elements: patch.elements, sourceFormat: patch.sourceFormat };
-        }),
-        unsequencedInteractions,
-      ),
-    [loaded, replyMediaRows, replyMediaRevision, messageElementPatches, unsequencedInteractions],
+  const historicalNameTarget =
+    messageElementTarget &&
+    !selectedConversation?.generated &&
+    !isDatalineUid(messageElementTarget.conv)
+      ? messageElementTarget
+      : null;
+  const showHistoricalNames = useShowHistoricalNames(
+    historicalNameTarget
+      ? conversationDisplayKey(historicalNameTarget.kind, historicalNameTarget.conv)
+      : undefined,
   );
+  const recordedSenderNames = useRecordedSenderNames(
+    showHistoricalNames &&
+      messagesTabActive &&
+      messageWindow.loadedWindow.key === selectedMessageWindowKey
+      ? historicalNameTarget
+      : null,
+    pinSession.binding,
+    loaded,
+  );
+  const includeReplySnapshotNames = showHistoricalNames && isGroup;
+  const attemptedReplyNames = useMemo(
+    () => (includeReplySnapshotNames ? new WeakSet<MessageWire>() : undefined),
+    [includeReplySnapshotNames, selectedUid, messageScope],
+  );
+  // 原行负责定位、撤回和对账，补拉只提供正文。窗口刷新也能继续使用已补回的元素。
+  const loadedMessageWires = useMemo(() => {
+    const wires = mergeUnsequencedInteractionRows(
+      loaded.map((row) => {
+        const base = replyMediaRows.get(row) ?? row;
+        const patch = messageElementPatches[row.msgId];
+        if (!patch || !messageFallbackKind(row)) return base;
+        return { ...base, elements: patch.elements, sourceFormat: patch.sourceFormat };
+      }),
+      unsequencedInteractions,
+    );
+    return recordedSenderNames
+      ? wires.map((row) => {
+          const senderAtTime = recordedSenderNames.get(row.msgId);
+          return senderAtTime ? { ...row, senderAtTime } : row;
+        })
+      : wires;
+  }, [
+    loaded,
+    replyMediaRows,
+    replyMediaRevision,
+    messageElementPatches,
+    unsequencedInteractions,
+    recordedSenderNames,
+  ]);
   const messageReplyIndex = useMemo(
     () => createReplyPreviewIndex(loadedMessageWires),
     [loadedMessageWires],
@@ -5469,6 +5529,9 @@ function MainWorkspace(): ReactElement {
         );
         if (cached) {
           let updated = cached.message;
+          const historicalSenderName = showHistoricalNames ? message.senderAtTime?.name : undefined;
+          if (updated.historicalSenderName !== historicalSenderName)
+            updated = { ...updated, historicalSenderName };
           if (cached.identityRevision !== messageIdentityRevision) {
             const sender = replaceEqualDeep(
               updated.sender,
@@ -5500,6 +5563,7 @@ function MainWorkspace(): ReactElement {
                 user,
                 memberMap,
                 replyIndex,
+                showHistoricalNames,
               ),
             );
             if (elements !== updated.qqElements)
@@ -5521,6 +5585,7 @@ function MainWorkspace(): ReactElement {
           replyIndex,
           profileByUid,
           lookupByUin,
+          showHistoricalNames,
         );
         messageTemplateCache.set(message, {
           message: mapped,
@@ -5539,12 +5604,13 @@ function MainWorkspace(): ReactElement {
         .filter(isPending)
         .map((item) => optimisticArkToTemplate(item, selectedConversation, optimisticSender)),
       ...optimisticMessages
-        .filter((item) => !item.preparingFont && isPending(item))
+        .filter(isPending)
         .map((item) => optimisticMessageToTemplate(item, selectedConversation, optimisticSender)),
     ]);
     recordMessagePhase('mapping', performance.now() - mappingStarted);
     return mapped;
   }, [
+    showHistoricalNames,
     messageScope,
     loadedMessageWires,
     selectedConversation,
@@ -6563,10 +6629,16 @@ function MainWorkspace(): ReactElement {
     const binding = messageBindingRef.current;
     const scope = messageScopeRef.current;
     if (!selection || !binding || !scope || !messagesTabActive) return;
-    const pending = loaded.filter((row) => needsReplyMedia(row) && !attemptedReplyMedia.has(row));
+    const attempted = attemptedReplyNames ?? attemptedReplyMedia;
+    const pending = loaded.filter(
+      (row) => needsReplyMedia(row, includeReplySnapshotNames) && !attempted.has(row),
+    );
     if (!pending.length) return;
-    for (const row of pending) attemptedReplyMedia.add(row);
-    const current = () => messageScopeRef.current === scope && selectionRef.current === selection;
+    for (const row of pending) attempted.add(row);
+    let active = true;
+    let completed = 0;
+    const current = () =>
+      active && messageScopeRef.current === scope && selectionRef.current === selection;
     void (async () => {
       for (let offset = 0; offset < pending.length && current(); offset += 200) {
         const page = pending.slice(offset, offset + 200);
@@ -6576,9 +6648,11 @@ function MainWorkspace(): ReactElement {
             kind: selection.kind === 'group' ? 'group' : 'c2c',
             conv: selection.id,
             readWindow: selection.readWindow,
+            ...(includeReplySnapshotNames ? { includeHistoricalNames: true } : {}),
             msgIds: page.map((row) => row.msgId),
           });
           if (!current()) return;
+          completed = offset + page.length;
           const originals = new Map(page.map((row) => [row.msgId, row]));
           const rows = loadedRef.current;
           const next = applyReplyMedia(rows, originals, patches);
@@ -6593,12 +6667,19 @@ function MainWorkspace(): ReactElement {
         }
       }
     })();
+    if (includeReplySnapshotNames)
+      return () => {
+        active = false;
+        for (const row of pending.slice(completed)) attempted.delete(row);
+      };
   }, [
     loaded,
     messageScope,
     messagesTabActive,
     selectedUid,
     attemptedReplyMedia,
+    attemptedReplyNames,
+    includeReplySnapshotNames,
     replyMediaRows,
     selectionRef,
     messageBindingRef,
@@ -7258,6 +7339,72 @@ function MainWorkspace(): ReactElement {
     [messageScope, messageScopeRef, openGroupResourceWindow, jumpToConvSeq],
   );
 
+  const rememberSearchGroup = useStableCallback(
+    ({
+      code,
+      name,
+      remark,
+      view,
+    }: {
+      code: string;
+      name: string;
+      remark?: string | null;
+      view?: ConversationView;
+    }) => {
+      const known =
+        conversations.some((conversation) => conversation.id === code) ||
+        hiddenConversationsById.has(code) ||
+        deletedConversationsById.has(code);
+      if (!known)
+        setTemporaryConversations((current) =>
+          current[code]
+            ? current
+            : {
+                ...current,
+                [code]: {
+                  appearedAt: Date.now(),
+                  conversation: {
+                    id: code,
+                    type: 'group',
+                    updatedAt: new Date(0).toISOString(),
+                    hidden: view === 'hidden',
+                    deleted: view === 'deleted',
+                    otherUser: null,
+                    group: {
+                      id: code,
+                      name: name || code,
+                      remark: remark || null,
+                      identityLabel: 'Group',
+                      identityValue: code,
+                      avatarUrl: groupAvatarSrc(code),
+                      announcement: null,
+                      memberCount: 0,
+                      role: 'member',
+                    },
+                    members: [],
+                    preference: fallbackPreference,
+                    unreadCount: 0,
+                    lastMessage: null,
+                  },
+                },
+              },
+        );
+    },
+  );
+
+  const openGroupHistoryMessage = useStableCallback(
+    (group: { code: string; name: string }, anchor: { msgId: string; msgSeq: string }) => {
+      rememberSearchGroup(group);
+      setMemberCard(null);
+      jumpToSearchConversation(
+        'group',
+        group.code,
+        anchor.msgSeq === '0' ? undefined : anchor.msgSeq,
+        anchor.msgId,
+      );
+    },
+  );
+
   // Click a search hit: resolve conversation key + kind,
   // then jump. Files additionally carry a seq anchor.
   const openSearchHit = useCallback(
@@ -7443,44 +7590,12 @@ function MainWorkspace(): ReactElement {
         return;
       }
       if (hit.category === 'group') {
-        const known =
-          conversations.some((conversation) => conversation.id === hit.groupCode) ||
-          hiddenConversationsById.has(hit.groupCode) ||
-          deletedConversationsById.has(hit.groupCode);
-        if (!known)
-          setTemporaryConversations((current) =>
-            current[hit.groupCode]
-              ? current
-              : {
-                  ...current,
-                  [hit.groupCode]: {
-                    appearedAt: Date.now(),
-                    conversation: {
-                      id: hit.groupCode,
-                      type: 'group',
-                      updatedAt: new Date(0).toISOString(),
-                      hidden: hit.conversationView === 'hidden',
-                      deleted: hit.conversationView === 'deleted',
-                      otherUser: null,
-                      group: {
-                        id: hit.groupCode,
-                        name: hit.name || hit.groupCode,
-                        remark: hit.remark || null,
-                        identityLabel: 'Group',
-                        identityValue: hit.groupCode,
-                        avatarUrl: groupAvatarSrc(hit.groupCode),
-                        announcement: null,
-                        memberCount: 0,
-                        role: 'member',
-                      },
-                      members: [],
-                      preference: fallbackPreference,
-                      unreadCount: 0,
-                      lastMessage: null,
-                    },
-                  },
-                },
-          );
+        rememberSearchGroup({
+          code: hit.groupCode,
+          name: hit.name,
+          remark: hit.remark,
+          view: hit.conversationView,
+        });
         jumpToSearchConversation(
           'group',
           hit.groupCode,
@@ -7519,6 +7634,7 @@ function MainWorkspace(): ReactElement {
     },
     [
       jumpToSearchConversation,
+      rememberSearchGroup,
       shell,
       user.identityValue,
       conversations,
@@ -8345,7 +8461,7 @@ function MainWorkspace(): ReactElement {
     if (!resolved) return font;
 
     const lease = injectFontCss(font.fontId, resolved, true);
-    // 发送中的行与 QQ 回读共用同一字形，首帧之后由消息行接手续持。
+    // 字形就绪后由已经回显的消息行接续持有，QQ 回读复用同一字形。
     await lease.ready;
     if (!isCurrent()) {
       lease();
@@ -8385,7 +8501,7 @@ function MainWorkspace(): ReactElement {
     const target = sendTargetOf(conversation);
     const fontRequest = outgoingFontRequest(target, render.elements);
     const expectedAccountConfigId = pinSession.binding?.expectedAccountConfigId;
-    const preparingFont = Boolean(
+    const needsFontPreparation = Boolean(
       fontRequest && sendAccess.data?.qqOnline && sendAccess.data.attachEnabled,
     );
     submission.mediaSend = outgoingMediaSend(
@@ -8409,13 +8525,12 @@ function MainWorkspace(): ReactElement {
         ...render,
         composerDraft: submission.draft,
         mediaSend: submission.mediaSend,
-        preparingFont,
         state: 'queued',
         at: submission.at ?? Date.now(),
       },
     ]);
     function prepareQueuedFont() {
-      if (!preparingFont || !target || !fontRequest) return;
+      if (!needsFontPreparation || !target || !fontRequest) return;
       return prepareOutgoingFont(
         target,
         fontRequest,
@@ -8424,13 +8539,12 @@ function MainWorkspace(): ReactElement {
         expectedAccountConfigId,
       ).then(
         (font) => {
-          setOptimisticMessages((current) =>
-            current.map((item) =>
-              item.id === submission.id
-                ? { ...item, preparingFont: false, decoration: outgoingFontDecoration(font) }
-                : item,
-            ),
-          );
+          if (font) {
+            const decoration = outgoingFontDecoration(font);
+            setOptimisticMessages((current) =>
+              current.map((item) => (item.id === submission.id ? { ...item, decoration } : item)),
+            );
+          }
           return { font };
         },
         (error: unknown) => ({ error }),
@@ -8444,7 +8558,6 @@ function MainWorkspace(): ReactElement {
             ? {
                 ...item,
                 state: 'sending',
-                preparingFont: item.preparingFont || (preparingFont && !fontPreparation),
                 hostReceived: false,
                 transferId: undefined,
                 error: undefined,
@@ -8486,7 +8599,6 @@ function MainWorkspace(): ReactElement {
               ? {
                   ...item,
                   state: 'failed',
-                  preparingFont: false,
                   error: composerSendError(error),
                 }
               : item,
@@ -10296,12 +10408,15 @@ function MainWorkspace(): ReactElement {
   const [specialPreview, setSpecialPreview] = useState<ConcreteConversation | null>(null);
   const [privatePreview, setPrivatePreview] = useState<{
     account: string;
+    scope: string;
     source: PreviewSource;
     contactScope: string | null;
     conversation: Conversation;
     sender?: string;
     cursor?: ProfilePreviewCursor;
     rows: MessageWire[];
+    deletedIds?: ReadonlySet<string>;
+    hiddenIds?: ReadonlySet<string>;
     loading: boolean;
     loadingMore: boolean;
     error: string | null;
@@ -10362,7 +10477,7 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     previewRequest.current++;
     setPrivatePreview(null);
-  }, [memberCard?.member.id, memberCard?.member.identityValue, user.identityValue]);
+  }, [memberCard?.member.id, memberCard?.member.identityValue, user.identityValue, messageScope]);
   useEffect(() => {
     if (
       (privatePreview?.source !== 'contact' && privatePreview?.source !== 'group-profile') ||
@@ -10417,6 +10532,7 @@ function MainWorkspace(): ReactElement {
       useViewState.getState().openedUin === account;
     setPrivatePreview({
       account,
+      scope,
       source,
       contactScope,
       conversation,
@@ -10453,21 +10569,24 @@ function MainWorkspace(): ReactElement {
         conversation = { ...conversation, otherUser: localProfileUser(peer, local ?? undefined) };
       }
       if (!isCurrent()) return;
-      const page = await readProfilePreviewPage({
-        binding,
-        kind: conversation.type === 'group' ? 'group' : 'c2c',
-        conv: conversation.id,
-        sender,
-      });
+      const target = convFetchKey(conversation);
+      const [page, deleted, hidden] = await Promise.all([
+        readProfilePreviewPage({ ...target, binding, sender }),
+        client.account.deletedMsgIds.query(target),
+        client.account.hiddenDeletedMsgIds.query(target),
+      ]);
       if (!isCurrent()) return;
       setPrivatePreview({
         account,
+        scope,
         source,
         contactScope,
         conversation,
         sender,
         cursor: page.cursor,
         rows: page.rows.map(toMessageWire),
+        deletedIds: new Set(deleted.map(deletionIdentity)),
+        hiddenIds: new Set(hidden.map(deletionIdentity)),
         loading: false,
         loadingMore: false,
         error: null,
@@ -10489,16 +10608,17 @@ function MainWorkspace(): ReactElement {
 
   async function loadPrivatePreview() {
     const snapshot = privatePreview;
-    if (!snapshot || snapshot.loadingMore || !snapshot.hasMore) return;
+    if (!snapshot || snapshot.scope !== messageScope || snapshot.loadingMore || !snapshot.hasMore)
+      return;
     const request = previewRequest.current;
     const first = snapshot.rows[0];
     if (!first && !snapshot.sender) return;
     setPrivatePreview({ ...snapshot, loadingMore: true, error: null });
     try {
+      const target = convFetchKey(snapshot.conversation);
       const page = await readProfilePreviewPage({
         binding: messageBindingRef.current ?? undefined,
-        kind: snapshot.conversation.type === 'group' ? 'group' : 'c2c',
-        conv: snapshot.conversation.id,
+        ...target,
         beforeSeq: first?.msgSeq,
         sender: snapshot.sender,
         cursor: snapshot.cursor,
@@ -10531,7 +10651,7 @@ function MainWorkspace(): ReactElement {
   }, [loaded, resolveProfiles]);
 
   useEffect(() => {
-    if (!privatePreview) return;
+    if (!privatePreview || privatePreview.scope !== messageScope) return;
     resolveProfiles([
       ...privatePreview.rows.map((row) => row.senderUid),
       ...(privatePreview.conversation.type === 'direct'
@@ -10549,6 +10669,11 @@ function MainWorkspace(): ReactElement {
     const uids = privatePreview.rows.flatMap((row) => [
       row.senderUid,
       ...extractGrayTipUids(row.elements),
+      ...row.elements.flatMap((element) => {
+        const reply = element as RenderElementWire | null | undefined;
+        const uid = reply?.type === 'reply' ? reply.data?.origSenderUid : undefined;
+        return typeof uid === 'string' ? [uid] : [];
+      }),
     ]);
     resolveProfiles(uids);
     resolvePreviewMembers(
@@ -10557,8 +10682,23 @@ function MainWorkspace(): ReactElement {
       known,
       () => useViewState.getState().openedUin === account,
     );
-  }, [privatePreview, currentGroupMembers, selectedUid, resolvePreviewMembers, resolveProfiles]);
+  }, [
+    privatePreview,
+    messageScope,
+    currentGroupMembers,
+    selectedUid,
+    resolvePreviewMembers,
+    resolveProfiles,
+  ]);
 
+  const previewEssence = trpc.account.listGroupEssenceSeqs.useQuery(
+    { groupCode: privatePreviewGroup },
+    {
+      enabled: Boolean(privatePreviewGroup && privatePreview?.scope === messageScope),
+      staleTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+    },
+  );
   const resolvedPreviewConversation = useMemo(() => {
     const conversation = privatePreview?.conversation;
     if (conversation?.type === 'direct')
@@ -10577,7 +10717,17 @@ function MainWorkspace(): ReactElement {
         ...Object.values(missingMembers[conversation.id] ?? {}).map(mapGroupMemberWire),
       ].map((member) => [member.id, member]),
     );
-    return { ...conversation, members: [...members.values()] };
+    return {
+      ...conversation,
+      members: [...members.values()],
+      group: {
+        ...conversation.group,
+        essenceSeqs:
+          selectedUid === conversation.id
+            ? effectiveEssenceSeqs
+            : (previewEssence.data ?? conversation.group.essenceSeqs),
+      },
+    };
   }, [
     privatePreview?.conversation,
     selectedUid,
@@ -10585,6 +10735,8 @@ function MainWorkspace(): ReactElement {
     missingMembers,
     mapGroupMemberWire,
     profileByUid,
+    effectiveEssenceSeqs,
+    previewEssence.data,
   ]);
 
   const previewMemberMap = useMemo(
@@ -10593,12 +10745,37 @@ function MainWorkspace(): ReactElement {
   );
   const previewRows = privatePreview?.rows;
   const previewAccount = privatePreview?.account;
+  const previewScope = privatePreview?.scope;
+  const previewTarget = resolvedPreviewConversation
+    ? convFetchKey(resolvedPreviewConversation)
+    : null;
+  const showPreviewHistoricalNames = useShowHistoricalNames(
+    previewTarget && !isDatalineUid(previewTarget.conv)
+      ? conversationDisplayKey(previewTarget.kind, previewTarget.conv)
+      : undefined,
+  );
+  const previewRecordedSenderNames = useRecordedSenderNames(
+    showPreviewHistoricalNames && previewScope === messageScope ? previewTarget : null,
+    pinSession.binding,
+    previewRows ?? [],
+  );
   const previewTemplateMessages = useMemo(() => {
-    if (!previewRows || !resolvedPreviewConversation || previewAccount !== user.identityValue)
+    if (
+      !previewRows ||
+      !resolvedPreviewConversation ||
+      previewAccount !== user.identityValue ||
+      previewScope !== messageScope
+    )
       return [];
-    const replyIndex = createReplyPreviewIndex(previewRows);
+    const rows = previewRecordedSenderNames
+      ? previewRows.map((row) => {
+          const senderAtTime = previewRecordedSenderNames.get(row.msgId);
+          return senderAtTime ? { ...row, senderAtTime } : row;
+        })
+      : previewRows;
+    const replyIndex = createReplyPreviewIndex(rows);
     const lookupByUin = createMemberUinLookup(previewMemberMap);
-    return previewRows.map((row) =>
+    return rows.map((row) =>
       messageToTemplate(
         row,
         resolvedPreviewConversation,
@@ -10608,27 +10785,84 @@ function MainWorkspace(): ReactElement {
         replyIndex,
         profileByUid,
         lookupByUin,
+        showPreviewHistoricalNames,
       ),
     );
   }, [
     previewRows,
     previewAccount,
+    previewScope,
+    messageScope,
     resolvedPreviewConversation,
     user,
     previewMemberMap,
     botUids,
     profileByUid,
+    previewRecordedSenderNames,
+    showPreviewHistoricalNames,
   ]);
   const floatingPreview =
     privatePreview?.source === 'latest' ||
     privatePreview?.source === 'speech' ||
     privatePreview?.source === 'menu';
+  function locatePreviewMessage(target: ReplyJumpTarget) {
+    const conversation = resolvedPreviewConversation;
+    if (!conversation || previewScope !== messageScopeRef.current || (!target.seq && !target.msgId))
+      return false;
+    if (
+      !conversations.some((item) => item.id === conversation.id) &&
+      !hiddenConversationsById.has(conversation.id) &&
+      !deletedConversationsById.has(conversation.id)
+    )
+      setTemporaryConversations((current) => ({
+        ...current,
+        [conversation.id]: { conversation, appearedAt: Date.now() },
+      }));
+    closePrivatePreview();
+    setMemberCard(null);
+    setNumberGroupCard(null);
+    const { kind, conv } = convFetchKey(conversation);
+    jumpToConvSeq(
+      kind,
+      conv,
+      target.seq == null ? undefined : String(target.seq),
+      true,
+      undefined,
+      target.msgId,
+    );
+    return true;
+  }
+  async function locatePreviewReply(target: ReplyJumpTarget) {
+    if (!previewTarget || previewScope !== messageScopeRef.current) return false;
+    const request = previewRequest.current;
+    const positive = (value: unknown) =>
+      /^[1-9]\d*$/.test(String(value)) ? String(value) : undefined;
+    const index = positive(target.index);
+    const clientSeq = positive(target.clientSeq);
+    const seq =
+      previewTarget.kind === 'group'
+        ? (positive(target.seq) ?? index)
+        : (index ??
+          (clientSeq && !target.msgId
+            ? await client.account.resolveReplySeq.query({
+                conv: previewTarget.conv,
+                clientSeq,
+                senderUin: positive(target.senderUin),
+                sendTime: positive(target.sendTime),
+              })
+            : positive(target.seq)));
+    if (request !== previewRequest.current) return false;
+    return locatePreviewMessage({ seq: seq ?? undefined, msgId: target.msgId });
+  }
   const conversationPreviewContent =
     privatePreview &&
     resolvedPreviewConversation &&
+    previewScope === messageScope &&
     privatePreview.account === user.identityValue ? (
       <GapMessagesModal
+        key={`${previewScope}:${resolvedPreviewConversation.id}:${privatePreview.source}:${privatePreview.sender ?? ''}`}
         preview
+        independent={Boolean(privatePreview.sender)}
         embedded={!floatingPreview}
         title={
           privatePreview.sender
@@ -10641,7 +10875,10 @@ function MainWorkspace(): ReactElement {
         }
         conversation={resolvedPreviewConversation}
         user={user}
+        detailsBinding={pinSession.binding}
         messages={previewTemplateMessages}
+        deletedIds={privatePreview.deletedIds}
+        hiddenIds={privatePreview.hiddenIds}
         renderers={messageRenderers}
         loading={privatePreview.loading}
         loadingMore={privatePreview.loadingMore}
@@ -10659,27 +10896,27 @@ function MainWorkspace(): ReactElement {
         }
         onClose={closePrivatePreview}
         onLocateMessage={(target) => {
-          const conversation = resolvedPreviewConversation;
-          if (
-            !conversations.some((item) => item.id === conversation.id) &&
-            !hiddenConversationsById.has(conversation.id) &&
-            !deletedConversationsById.has(conversation.id)
-          )
-            setTemporaryConversations((current) => ({
-              ...current,
-              [conversation.id]: { conversation, appearedAt: Date.now() },
-            }));
-          closePrivatePreview();
-          setMemberCard(null);
-          setNumberGroupCard(null);
-          jumpToConvSeq(
-            conversation.type === 'group' ? 'group' : 'c2c',
-            conversation.id,
-            target.seq == null ? undefined : String(target.seq),
-            true,
-            undefined,
-            target.msgId,
-          );
+          locatePreviewMessage(target);
+        }}
+        onLocateReply={locatePreviewReply}
+        actions={{
+          conversation: resolvedPreviewConversation,
+          sendBlockedReason: sendAvailable && !qqReadOnly ? undefined : 'QQ 在线能力暂不可用',
+          quote:
+            !qqReadOnly &&
+            ordinaryQqConversation(resolvedPreviewConversation) &&
+            previewTarget &&
+            !isDatalineUid(previewTarget.conv)
+              ? (message) => {
+                  if (locatePreviewMessage({ seq: message.msgSeq, msgId: message.id }))
+                    setSearchQuote({ scope: previewScope, message });
+                }
+              : undefined,
+          forward: (messages) => void openSequentialForward(messages, resolvedPreviewConversation),
+          merge: (messages) => handleMergeForward(messages, resolvedPreviewConversation),
+          addMaterial: pinSession.binding
+            ? (messages) => handleAddToComposition(messages, resolvedPreviewConversation)
+            : undefined,
         }}
       />
     ) : null;
@@ -11026,6 +11263,8 @@ function MainWorkspace(): ReactElement {
             undefined,
             target.msgId,
           );
+        } else if (target.kind === 'flash-share') {
+          setTaskFlashShare({ ...target, scope: messageScope });
         } else if (target.kind === 'mail') {
           setMailOpenTarget({
             id: target.mailId,
@@ -11081,6 +11320,15 @@ function MainWorkspace(): ReactElement {
             shell.switchView('agentlab');
           }
         } else if (target.kind === 'group') {
+          if (target.memberSort) {
+            const binding = sharedAccountBinding();
+            if (binding)
+              openRosterSort(
+                `${binding.expectedAccountUin}:${binding.expectedAccountConfigId}`,
+                target.id,
+                target.memberSort,
+              );
+          }
           const group = contactDirectoryConversations.find(
             (conversation) => conversation.type === 'group' && conversation.id === target.id,
           );
@@ -12029,6 +12277,10 @@ function MainWorkspace(): ReactElement {
                             onOpenGapMessages={handleOpenGapMessages}
                             onLoadSelectionMessages={loadSelectionMessages}
                             onSearchChatRecords={handleSearchChatRecords}
+                            searchQuote={
+                              searchQuote?.scope === messageScope ? searchQuote.message : undefined
+                            }
+                            onSearchQuoteHandled={clearSearchQuote}
                             onOpenRoamingBackfill={(conversation) => {
                               const target = conversationRoamingTarget(conversation);
                               if (target) handleRoamingTargets([target]);
@@ -12447,9 +12699,20 @@ function MainWorkspace(): ReactElement {
               onForward={forwardMergeDraft}
             />
           ) : null}
+          {taskFlashShare?.scope === messageScope && !interactionViewportLocked ? (
+            <Suspense fallback={null}>
+              <SearchFlashTransferViewer
+                key={taskFlashShare.filesetId}
+                filesetId={taskFlashShare.filesetId}
+                title={taskFlashShare.name}
+                onClose={() => setTaskFlashShare(null)}
+              />
+            </Suspense>
+          ) : null}
           {forwardedConversations && !interactionViewportLocked ? (
             <ForwardedConversationsDialog
               targets={forwardedConversations.targets}
+              title={forwardedConversations.title}
               onOpenTarget={(target) =>
                 openNotificationTarget({ ...forwardedConversations, targets: [target] })
               }
@@ -12617,6 +12880,35 @@ function MainWorkspace(): ReactElement {
               initialKeyword=""
               fixed
               accountBinding={pinSession.binding ?? undefined}
+              actions={{
+                conversation: chatRecordsTarget.conversation,
+                sendBlockedReason: sendAvailable && !qqReadOnly ? undefined : 'QQ 在线能力暂不可用',
+                quote: chatRecordsTarget.quote
+                  ? (message) => {
+                      if (selectedConversation?.id === chatRecordsTarget.conversation.id) {
+                        chatRecordsTarget.quote?.(message);
+                        return;
+                      }
+                      const { source, targetUid } = chatRecordsTarget.hit;
+                      setSearchQuote({ scope: chatRecordsTarget.scope, message });
+                      jumpToConvSeq(
+                        source === 'group' ? 'group' : 'c2c',
+                        targetUid,
+                        undefined,
+                        false,
+                        undefined,
+                        undefined,
+                        { retainChatRecords: true },
+                      );
+                    }
+                  : undefined,
+                forward: (messages) =>
+                  void openSequentialForward(messages, chatRecordsTarget.conversation),
+                merge: (messages) => handleMergeForward(messages, chatRecordsTarget.conversation),
+                addMaterial: pinSession.binding
+                  ? (messages) => handleAddToComposition(messages, chatRecordsTarget.conversation)
+                  : undefined,
+              }}
               suspended={chatRecordsTarget.suspended}
               renderers={messageRenderers}
               user={user}
@@ -13241,6 +13533,7 @@ function MainWorkspace(): ReactElement {
                       </QzoneCardNavigationContext.Provider>
                       <ForwardWindowHost
                         key={messageScope}
+                        viewer={user}
                         actions={{
                           binding: pinSession.binding,
                           sendAvailable,
@@ -13307,7 +13600,9 @@ function MainWorkspace(): ReactElement {
     <ProfileChatShortcutContext.Provider value={profileChatShortcut}>
       <GrayTipNamesContext.Provider value={previewDisplayNames}>
         <FileTransferTipScopeContext.Provider value={fileTransferTipScope}>
-          {workspace}
+          <GroupHistoryNavigationContext.Provider value={openGroupHistoryMessage}>
+            {workspace}
+          </GroupHistoryNavigationContext.Provider>
         </FileTransferTipScopeContext.Provider>
       </GrayTipNamesContext.Provider>
     </ProfileChatShortcutContext.Provider>

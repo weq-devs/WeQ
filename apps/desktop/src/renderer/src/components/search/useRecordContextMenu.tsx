@@ -2,8 +2,15 @@ import { useCallback, useEffect, useRef, useState, type HTMLAttributes } from 'r
 import { LocateFixed } from 'lucide-react';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 
-export function useRecordContextMenu(label: string) {
-  const [menu, setMenu] = useState<{ x: number; y: number; action: () => void }>();
+export type RecordMenuTrigger = {
+  x: number;
+  y: number;
+  originElement: HTMLElement;
+  target: EventTarget | null;
+  variant: 'desktop' | 'mobile';
+};
+
+export function useRecordMenuTrigger() {
   const press = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout> }>(null);
   const suppressClick = useRef(0);
 
@@ -14,24 +21,47 @@ export function useRecordContextMenu(label: string) {
 
   useEffect(() => cancelPress, [cancelPress]);
 
-  function trigger<T extends HTMLElement>(action: () => void): HTMLAttributes<T> {
+  function trigger<T extends HTMLElement>(
+    open: (point: RecordMenuTrigger) => void,
+    ignore?: (target: EventTarget | null) => boolean,
+  ): HTMLAttributes<T> {
     return {
       onContextMenuCapture: (event) => {
+        const { target, currentTarget: originElement } = event;
+        if (!(target instanceof Node) || !originElement.contains(target) || ignore?.(target))
+          return;
         event.preventDefault();
         event.stopPropagation();
         cancelPress();
         if (Date.now() < suppressClick.current) return;
         const rect = event.currentTarget.getBoundingClientRect();
-        setMenu({ x: event.clientX || rect.left, y: event.clientY || rect.bottom, action });
+        open({
+          x: event.clientX || rect.left,
+          y: event.clientY || rect.bottom,
+          originElement,
+          target,
+          variant: 'desktop',
+        });
       },
       onKeyDownCapture: (event) => {
+        const { target, currentTarget: originElement } = event;
+        if (
+          event.defaultPrevented ||
+          !(target instanceof Node) ||
+          !originElement.contains(target) ||
+          ignore?.(target)
+        )
+          return;
         if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
         const rect = event.currentTarget.getBoundingClientRect();
         event.preventDefault();
         event.stopPropagation();
-        setMenu({ x: rect.left, y: rect.bottom, action });
+        open({ x: rect.left, y: rect.bottom, originElement, target, variant: 'desktop' });
       },
       onPointerDownCapture: (event) => {
+        const { target, currentTarget: originElement } = event;
+        if (!(target instanceof Node) || !originElement.contains(target) || ignore?.(target))
+          return;
         if (event.pointerType === 'mouse' || event.button !== 0) return;
         cancelPress();
         suppressClick.current = 0;
@@ -42,7 +72,7 @@ export function useRecordContextMenu(label: string) {
           timer: setTimeout(() => {
             press.current = null;
             suppressClick.current = Date.now() + 1000;
-            setMenu({ x, y, action });
+            if (originElement.isConnected) open({ x, y, originElement, target, variant: 'mobile' });
           }, 460),
         };
       },
@@ -63,8 +93,16 @@ export function useRecordContextMenu(label: string) {
     };
   }
 
+  return { trigger, cancelPress };
+}
+
+export function useRecordContextMenu(label: string) {
+  const { trigger } = useRecordMenuTrigger();
+  const [menu, setMenu] = useState<{ x: number; y: number; action: () => void }>();
+
   return {
-    trigger,
+    trigger: <T extends HTMLElement>(action: () => void) =>
+      trigger<T>(({ x, y }) => setMenu({ x, y, action })),
     menu: menu ? (
       <ConversationActionsMenu
         x={menu.x}

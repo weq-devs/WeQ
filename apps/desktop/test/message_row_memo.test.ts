@@ -8,12 +8,16 @@ import {
 } from '../src/renderer/src/components/MessageProvenance.shared';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { ChatMainContent } from '../src/renderer/src/im-template/template/chatMainContent';
+import { MessageRow } from '../src/renderer/src/im-template/template/messageRow';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { messagePerformanceSnapshot } from '../src/renderer/src/lib/messagePerformance';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { useStableCallback } from '../src/renderer/src/hooks/useStableCallback';
 import { mergeRefreshedWindow } from '../src/renderer/src/lib/conversationRefresh';
-import { messageGroups } from '../src/renderer/src/im-template/template/chatTimelineModel';
+import {
+  messageGroups,
+  selectedMessageLayout,
+} from '../src/renderer/src/im-template/template/chatTimelineModel';
 import type { Message } from '../src/renderer/src/im-template/template/types';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -76,8 +80,16 @@ it('连续分组纳入本地发送占位，仍按身份、时间与时间线分�
       row(3, { msgSeq: '', optimistic: 'sent', optimisticRejected: true }),
     ]),
   ).toEqual(['first', 'middle', 'last']);
+  expect(
+    positions([
+      row(1, { historicalSenderName: '旧称呼' }),
+      row(2, { optimistic: 'sending' }),
+      row(3, { historicalSenderName: '新称呼' }),
+    ]),
+  ).toEqual(['first', 'last', undefined]);
   for (const separated of [
     [row(1), row(2, { senderUid: 'uid-b' })],
+    [row(1, { historicalSenderName: '旧称呼' }), row(2)],
     [row(1), row(2, { createdAt: '2026-11-21T00:00:00+08:00' })],
     [row(1), row(2, { createdAt: '2026-11-20T23:59:58+08:00' })],
     [row(1), row(2, { createdAt: '2026-11-20T23:54:59+08:00', optimistic: 'queued' })],
@@ -89,77 +101,151 @@ it('连续分组纳入本地发送占位，仍按身份、时间与时间线分�
     expect(positions(separated)).toEqual(separated.map(() => undefined));
 });
 
-it('排队消息逐条收到 QQ 回声时，只有组首显示头像和元数据', () => {
+it('聊天长图从实际选区重建组首和时间分隔', () => {
+  const [first, second, third, fourth] = ['1', '2', '3', '4'].map(
+    (id): Message => ({
+      id,
+      conversationId: 'fixture',
+      senderId: 'author',
+      body: id,
+      createdAt: '2026-11-20T23:59:59+08:00',
+    }),
+  ) as [Message, Message, Message, Message];
+  const layout = (selection: Message[]) =>
+    selectedMessageLayout(selection, [first, second, third, fourth], {
+      group: true,
+      standalone: () => false,
+      breakBefore: () => false,
+    });
+
+  expect(layout([second, third])).toEqual([
+    { groupPosition: 'first', showTime: true },
+    { groupPosition: 'last', showTime: false },
+  ]);
+  expect(layout([second, fourth])).toEqual([
+    { groupPosition: undefined, showTime: true },
+    { groupPosition: undefined, showTime: true },
+  ]);
+});
+
+it('独立消息预览从会话解析实际作者，沿用聊天的时间标签', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
-  vi.stubGlobal('matchMedia', (query: string) =>
-    Object.assign(new EventTarget(), { matches: query === '(prefers-reduced-motion: reduce)' }),
-  );
-  const demo = createTemplateDemoData();
-  const conversation = demo.conversations.find((row) => row.type === 'group')!;
-  const queued = [1, 2, 3].map(
-    (id): Message => ({
-      id: `local-${id}`,
-      conversationId: conversation.id,
-      senderId: demo.user.id,
-      body: `消息 ${id}`,
-      createdAt: `2026-11-20T23:00:00.${id}00+08:00`,
-      optimistic: id === 1 ? 'sending' : 'queued',
-    }),
-  );
-  const confirmed = queued.map(
-    (message, index): Message => ({
-      ...message,
-      id: `qq-${index + 1}`,
-      outgoingId: message.id,
-      msgSeq: String(index + 11),
-      createdAt: `2026-11-20T23:00:0${index + 1}+08:00`,
-      optimistic: undefined,
-    }),
-  );
+  const { user, conversations } = createTemplateDemoData();
+  const conversation = conversations.find((row) => row.type === 'direct')!;
+  const sender = conversation.otherUser!;
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const props = {
-    user: demo.user,
-    conversation,
-    groupConsecutiveMessages: true,
-    loading: false,
-    draft: '',
-    onSend: vi.fn(),
-    onDraftChange: vi.fn(),
-    onDraftClear: vi.fn(),
-    onBack: vi.fn(),
-  };
   try {
-    for (const messages of [
-      queued,
-      [confirmed[0]!, ...queued.slice(1)],
-      [confirmed[0]!, { ...queued[1]!, optimistic: 'sent' as const, msgSeq: '12' }, queued[2]!],
-      [...confirmed.slice(0, 2), { ...queued[2]!, optimistic: 'sending' as const }],
-      confirmed,
-    ]) {
-      act(() =>
-        root.render(
-          h(
-            ShowMessageTimeContext.Provider,
-            { value: true },
-            h(ShowMessageSeqContext.Provider, { value: true }, h(ChatPane, { ...props, messages })),
-          ),
-        ),
-      );
-      for (const [index, message] of messages.entries()) {
-        const row = host.querySelector(`[data-message-id="${message.id}"]`)!;
-        expect(row.textContent).toContain(message.body);
-        expect(Boolean(row.querySelector('.weq-message-provenance')), message.id).toBe(index === 0);
-        expect(Boolean(row.querySelector('.avatar')), message.id).toBe(index === 0);
-      }
-    }
+    act(() =>
+      root.render(
+        h(MessageRow, {
+          user,
+          conversation,
+          alwaysShowSenderName: true,
+          alwaysShowTime: true,
+          message: {
+            id: 'm1',
+            conversationId: conversation.id,
+            senderId: sender.id,
+            body: '对方消息',
+            createdAt: '2026-11-20T23:59:59+08:00',
+          },
+        }),
+      ),
+    );
+    expect(host.querySelector('.message-name')?.textContent).toBe(sender.displayName);
+    expect(host.querySelector('.weq-message-provenance time')?.textContent).toBe('23:59:59');
   } finally {
     act(() => root.unmount());
     host.remove();
   }
 });
+
+it.each([undefined, '当时的群名片'])(
+  '排队消息逐条收到 QQ 回声时，只有组首显示发送者和元数据（历史称呼 %s）',
+  (historicalSenderName) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    vi.stubGlobal('matchMedia', (query: string) =>
+      Object.assign(new EventTarget(), { matches: query === '(prefers-reduced-motion: reduce)' }),
+    );
+    const demo = createTemplateDemoData();
+    const conversation = demo.conversations.find((row) => row.type === 'group')!;
+    const queued = [1, 2, 3].map(
+      (id): Message => ({
+        id: `local-${id}`,
+        conversationId: conversation.id,
+        senderId: demo.user.id,
+        body: `消息 ${id}`,
+        createdAt: `2026-11-20T23:00:00.${id}00+08:00`,
+        optimistic: id === 1 ? 'sending' : 'queued',
+      }),
+    );
+    const confirmed = queued.map(
+      (message, index): Message => ({
+        ...message,
+        id: `qq-${index + 1}`,
+        outgoingId: message.id,
+        msgSeq: String(index + 11),
+        createdAt: `2026-11-20T23:00:0${index + 1}+08:00`,
+        optimistic: undefined,
+        historicalSenderName,
+      }),
+    );
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const props = {
+      user: demo.user,
+      conversation,
+      groupConsecutiveMessages: true,
+      loading: false,
+      draft: '',
+      onSend: vi.fn(),
+      onDraftChange: vi.fn(),
+      onDraftClear: vi.fn(),
+      onBack: vi.fn(),
+    };
+    try {
+      for (const messages of [
+        queued,
+        [confirmed[0]!, ...queued.slice(1)],
+        [confirmed[0]!, { ...queued[1]!, optimistic: 'sent' as const, msgSeq: '12' }, queued[2]!],
+        [confirmed[0]!, { ...confirmed[1]!, historicalSenderName: undefined }, queued[2]!],
+        [...confirmed.slice(0, 2), { ...queued[2]!, optimistic: 'sending' as const }],
+        confirmed,
+      ]) {
+        act(() =>
+          root.render(
+            h(
+              ShowMessageTimeContext.Provider,
+              { value: true },
+              h(
+                ShowMessageSeqContext.Provider,
+                { value: true },
+                h(ChatPane, { ...props, messages }),
+              ),
+            ),
+          ),
+        );
+        for (const [index, message] of messages.entries()) {
+          const row = host.querySelector(`[data-message-id="${message.id}"]`)!;
+          expect(row.textContent).toContain(message.body);
+          expect(Boolean(row.querySelector('.message-name')), message.id).toBe(index === 0);
+          expect(Boolean(row.querySelector('.weq-message-provenance')), message.id).toBe(
+            index === 0,
+          );
+          expect(Boolean(row.querySelector('.avatar')), message.id).toBe(index === 0);
+        }
+      }
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  },
+);
 
 it('输入草稿不重画未变消息，编辑和前插只重画变化行', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

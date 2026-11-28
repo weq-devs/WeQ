@@ -473,6 +473,7 @@ export async function downloadMailFile(
   signal: AbortSignal,
   request: MailDownloadRequest = requestMailDownload,
   maxBytes = MAIL_MAX_FILE_BYTES,
+  onProgress?: (received: number, total?: number) => void,
 ): Promise<void> {
   const source = registry.get(id);
   const check =
@@ -519,10 +520,12 @@ export async function downloadMailFile(
         throw new MailFailure('business', '附件下载失败，文件可能已过期。');
       }
       let bytes = 0;
+      onProgress?.(0, source.size || undefined);
       const hash = expected ? createHash(algorithm) : null;
       const inspect = new Transform({
         transform(chunk: Buffer, _encoding, done) {
           bytes += chunk.length;
+          onProgress?.(bytes, source.size >= bytes ? source.size : undefined);
           hash?.update(chunk);
           done(
             bytes > Math.min(maxBytes, MAIL_MAX_FILE_BYTES)

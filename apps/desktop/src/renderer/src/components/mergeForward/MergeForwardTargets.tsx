@@ -204,10 +204,12 @@ function TargetIdentity({
 
 export function ForwardedConversationsDialog({
   targets,
+  title = '选择转发会话',
   onOpenTarget,
   onClose,
 }: {
   targets: readonly ForwardedConversationTarget[];
+  title?: string;
   onOpenTarget: (target: ForwardedConversationTarget) => void;
   onClose: () => void;
 }): ReactElement {
@@ -221,7 +223,7 @@ export function ForwardedConversationsDialog({
       focusContainerOnOpen
     >
       <header className="weq-mf-picker-head">
-        <strong id={titleId}>选择转发会话</strong>
+        <strong id={titleId}>{title}</strong>
         <span className="weq-mf-picker-spacer" />
         <CompositionButton type="button" className="weq-mf-icon-btn" title="关闭" onClick={onClose}>
           <X size={16} aria-hidden />

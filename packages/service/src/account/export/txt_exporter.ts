@@ -51,7 +51,7 @@ export async function exportConversationToTxt(
   let count = 0;
   try {
     for await (const message of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
-      const exported = toExportedMessage(message);
+      const exported = toExportedMessage(message, opts.useRecordedSenderName);
       opts.collectSenders?.add(exported.senderUin);
       if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
       await expandForwards(msgs, opts.kind, exported);
@@ -59,7 +59,9 @@ export async function exportConversationToTxt(
       if (opts.withMediaPaths) annotateExportPaths(exported.elements);
       const body = messageToText(
         exported,
-        resolveSender(exported.senderUid, exported.senderUin),
+        exported.senderAtTime
+          ? { name: exported.senderAtTime.name, uin: exported.senderUin }
+          : resolveSender(exported.senderUid, exported.senderUin),
         resolveSender,
       );
       await writer.write(`${count ? '\n\n' : ''}${body}`);

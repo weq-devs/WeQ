@@ -69,6 +69,7 @@ type MessageGroupKey = {
   senderId?: string;
   senderUid?: string;
   senderSnapshotId?: string;
+  historicalSenderName?: string | null;
   time: number;
   provisionalTime?: boolean;
 };
@@ -94,6 +95,9 @@ export function consecutiveMessageGroups<T>(
         (!key.senderSnapshotId ||
           !previous.senderSnapshotId ||
           key.senderSnapshotId === previous.senderSnapshotId) &&
+        (key.historicalSenderName === undefined ||
+          previous.historicalSenderName === undefined ||
+          key.historicalSenderName === previous.historicalSenderName) &&
         // 排队占位用本地提交时间，逐条换成 QQ 时间时，相邻两条可能短暂倒序。
         (key.time >= previous.time || key.provisionalTime || previous.provisionalTime) &&
         !shouldShowMessageTime(
@@ -110,6 +114,10 @@ export function consecutiveMessageGroups<T>(
           senderId: key.senderId || previous.senderId,
           senderUid: key.senderUid || previous.senderUid,
           senderSnapshotId: key.senderSnapshotId || previous.senderSnapshotId,
+          historicalSenderName:
+            key.historicalSenderName === undefined
+              ? previous.historicalSenderName
+              : key.historicalSenderName,
         };
         continue;
       }
@@ -146,6 +154,10 @@ export function messageGroups(
         return {
           senderId: message.senderId,
           senderUid: message.senderUid,
+          // 发送占位没有历史称呼，QQ 回声也可能先于历史称呼读回。
+          historicalSenderName:
+            message.historicalSenderName ??
+            (message.optimistic || message.outgoingId ? undefined : null),
           time,
           provisionalTime: Boolean(message.optimistic),
         };
@@ -153,4 +165,41 @@ export function messageGroups(
     },
     breakBefore,
   );
+}
+
+/** Rebuild the visible group heads after the user omits rows from a chat image. */
+export function selectedMessageLayout(
+  selection: readonly Message[],
+  timeline: readonly Message[],
+  {
+    group,
+    standalone,
+    breakBefore,
+  }: {
+    group: boolean;
+    standalone: (message: Message) => boolean;
+    breakBefore: (message: Message) => boolean;
+  },
+) {
+  const positions = new Map(timeline.map(({ id }, index) => [id, index]));
+  const separated = (previous: Message, message: Message) => {
+    const position = positions.get(previous.id);
+    return position === undefined || positions.get(message.id) !== position + 1;
+  };
+  const groups = group
+    ? messageGroups(selection, {
+        standalone,
+        breakBefore: (previous, message) => separated(previous, message) || breakBefore(message),
+      })
+    : undefined;
+  return selection.map((message, index) => {
+    const previous = selection[index - 1];
+    return {
+      groupPosition: groups?.[index],
+      showTime:
+        !previous ||
+        separated(previous, message) ||
+        shouldShowMessageTime(previous.createdAt, message.createdAt),
+    };
+  });
 }

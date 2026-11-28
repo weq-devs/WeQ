@@ -51,6 +51,7 @@ export interface ScheduleRange {
 
 /** Media / content switches baked into the schedule template. */
 export interface ScheduleOptions {
+  useRecordedSenderName?: boolean;
   content?: import('../../common/export_content').ExportContentPolicy;
   completeAvatar?: boolean;
   completeDressKinds?: DressExportKinds;
@@ -638,6 +639,7 @@ export class ExportScheduler extends EventEmitter {
           exportAvatar: carryResources && Boolean(t.options.exportAvatar),
           ...(carryResources && t.options.dress ? { dress: t.options.dress } : {}),
           ...(t.chatlab ? { chatlab: true } : {}),
+          useRecordedSenderName: t.options.useRecordedSenderName,
           ...(carryResources &&
           (t.options.exportMedia ||
             t.options.exportAvatar ||

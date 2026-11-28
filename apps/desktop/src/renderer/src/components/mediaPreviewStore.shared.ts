@@ -63,7 +63,7 @@ export function openMediaPreview(options: OpenMediaPreviewOptions) {
   sessions.set(owner, {
     ...options,
     items: options.items.map((item) =>
-      item.saveSource !== undefined || item.load
+      item.saveSource !== undefined || item.load || item.originalImage
         ? item
         : {
             ...item,

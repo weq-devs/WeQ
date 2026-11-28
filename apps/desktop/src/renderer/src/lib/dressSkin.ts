@@ -127,12 +127,15 @@ export interface FontSkinCss {
   fx: FontFx | null;
 }
 
+// 组合出作者集合，保持单个选择器，便于气泡九宫格规则为它追加伪元素。
+const OWN_AUTHOR_LINE = '.message-line:not(:not(.mine):not([data-weq-dress-mine]))';
+
 /** 生效的挂件在消息头像上的叠加层选择器。 */
 function pendantSelector(scope: DressScope): string {
   const filter = scopeFilter(scope, 'widget');
   return scope !== 'mine'
     ? `.message-line${filter} .weq-avatar-pendant-img, .weq-forward-row${filter} .weq-avatar-pendant-img`
-    : '.message-line.mine .weq-avatar-pendant-img';
+    : `${OWN_AUTHOR_LINE} .weq-avatar-pendant-img`;
 }
 
 export type { DressScope } from '@weq/service';
@@ -179,7 +182,7 @@ export const BUBBLE_FRAME_Z_INDEX = 1;
  * `data-fontfx` 在行上，独立绘制层在 `.message-content` 内，样式从行限定作用范围。
  */
 function bubbleLineSelector(scope: DressScope, kind: 'bubble' | 'font' = 'bubble'): string {
-  return scope === 'mine' ? '.message-line.mine' : `.message-line${scopeFilter(scope, kind)}`;
+  return scope === 'mine' ? OWN_AUTHOR_LINE : `.message-line${scopeFilter(scope, kind)}`;
 }
 
 /**
@@ -196,10 +199,11 @@ function bubbleSelector(scope: DressScope): string {
  *
  * QQ 的九宫格素材按「自己的右侧气泡」绘制(尖角/装饰朝左);放在左侧的对方消息上
  * 必须左右镜像,尖角才朝右指向会话中心。所以 scope=all 时对 `.message-line.theirs`
- * 额外注入一组镜像规则。
+ * 额外注入一组镜像规则。自己发出的转发记录也在左侧。
  */
-function theirsBubbleSelector(scope: DressScope): string {
-  return `.message-line.theirs${scopeFilter(scope, 'bubble')} ${BUBBLE_CONTENT}`;
+function leftDressLineSelector(scope: DressScope, kind: 'bubble' | 'font'): string {
+  const filter = scope === 'mine' ? '[data-weq-dress-mine]' : scopeFilter(scope, kind);
+  return `.message-line.theirs${filter}`;
 }
 
 export function bubbleMenuHighlightCss(line: string, textColor: string): string {
@@ -738,7 +742,7 @@ ${ninePatchLayer(m, appendToSelectors(sel, '::before'), {
 
 function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): string {
   const sel = bubbleSelector(scope);
-  const theirsSel = scope !== 'mine' ? theirsBubbleSelector(scope) : null;
+  const theirsSel = `${leftDressLineSelector(scope, 'bubble')} ${BUBBLE_CONTENT}`;
   const m = bubbleMetrics(skin);
 
   const rules = [
@@ -772,33 +776,31 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
   // 就是把素材左右镜像后贴到对方消息上的。不能对整个 .message-content 做
   // scaleX(-1) —— 文字会跟着镜像;所以两层贴图都挪到伪元素上翻转,文字留在元素
   // 自身不动：底图 `::before` 在后，动效层 `::after` 在前。
-  if (theirsSel) {
-    rules.push(
-      `${theirsSel} {`,
-      `  border-image-source: none;`,
-      `}`,
-      ninePatchLayer(m, `${theirsSel}::before`, {
-        imageUrl: m.imageUrl,
-        zIndex: -2,
-        mirror: true,
-      }),
-      m.frameAnim
-        ? ninePatchLayer(m, `${theirsSel}::after`, {
-            imageUrl: frameOverlayUrl(skin.itemId),
-            zIndex: BUBBLE_FRAME_Z_INDEX,
-            mirror: true,
-            animation: animated ? m.frameAnim.animation : undefined,
-          })
-        : '',
-    );
-  }
+  rules.push(
+    `${theirsSel} {`,
+    `  border-image-source: none;`,
+    `}`,
+    ninePatchLayer(m, `${theirsSel}::before`, {
+      imageUrl: m.imageUrl,
+      zIndex: -2,
+      mirror: true,
+    }),
+    m.frameAnim
+      ? ninePatchLayer(m, `${theirsSel}::after`, {
+          imageUrl: frameOverlayUrl(skin.itemId),
+          zIndex: BUBBLE_FRAME_Z_INDEX,
+          mirror: true,
+          animation: animated ? m.frameAnim.animation : undefined,
+        })
+      : '',
+  );
 
   // 减少动态效果偏好:定格在第一帧,不循环切换。
   if (m.frameAnim) {
     rules.push(
       `@media (prefers-reduced-motion: reduce) {`,
       `  ${sel}::after { animation: none; }`,
-      theirsSel ? `  ${theirsSel}::after { animation: none; }` : '',
+      `  ${theirsSel}::after { animation: none; }`,
       `}`,
     );
   }
@@ -896,14 +898,11 @@ export function fontRules(font: FontSkinCss, scope: DressScope, animated = true)
       fontFamilyFor(font.itemId),
     ),
     // 炫彩帧:属性挂在**行**上(渲染侧量完气泡尺寸才挂)。帧图层按我方/对方挑不同的
-    // 绘制层(见 fontFxRules),所以这里要分开传两套行选择器 —— scope=mine 时对方
-    // 行根本没换上这款字,不用给。
+    // 绘制层(见 fontFxRules)。转发记录统一左对齐，自己发出的记录也用左侧的绘制层。
     fxSkin && animated
       ? fontFxRules(fxSkin, {
           mine: `.message-line.mine${scopeFilter(scope, 'font')}`,
-          ...(scope !== 'mine'
-            ? { theirs: `.message-line.theirs${scopeFilter(scope, 'font')}` }
-            : {}),
+          theirs: leftDressLineSelector(scope, 'font'),
         })
       : '',
   ]

@@ -1,6 +1,6 @@
+import { messageDetailsTarget } from '../../lib/messageDetailsTarget';
 import { NumericText } from '../NumericText';
 import { EmptyState } from '../EmptyState';
-import { eventTimeFormatter } from '@weq/time';
 /** 会话消息搜索：全局搜索内嵌展示，会话顶栏入口使用单会话浮窗。 */
 
 import {
@@ -11,6 +11,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type HTMLAttributes,
   type ReactElement,
 } from 'react';
 import { CalendarDays, LocateFixed, Search, SearchX, X } from 'lucide-react';
@@ -18,17 +19,23 @@ import { ChatRecordsHeader } from './ChatRecordsHeader';
 import { RecordSearchCalendar } from './RecordSearchCalendar';
 import { RecordSenderAvatar, RecordSenderPicker, type RecordSender } from './RecordSenderPicker';
 import { RecordMediaResults } from './RecordMediaResults';
-import { useRecordContextMenu } from './useRecordContextMenu';
+import { useReadonlyMessageMenu } from '../../hooks/useReadonlyMessageMenu';
+import { useRecordMenuTrigger } from './useRecordContextMenu';
+import { RecordMessageMenu, type RecordMenuMessage } from './RecordMessageMenu';
+import { RecordSelectionBar } from './RecordSelectionBar';
+import type { RecordMessageActions } from './recordMessageActions';
+import { useRecordTransforms } from './useRecordTransforms';
 import { daySeconds, pickCalendarRange } from '../../lib/messageCalendar';
 import { RecordDayHeading } from './recordDays';
 import { recordDay, groupRecordDays } from './recordDays.shared';
+import { conversationDisplayKey } from '@weq/service/client-preferences';
 import { matchesConversationRecordType } from '@weq/service/message-filter';
 import { Modal } from '../Dialog';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { SearchListSkeleton } from './SearchSkeleton';
-import { c2cAvatarSrc, groupAvatarSrc, highlightText } from './SearchResultCard.shared';
+import { c2cAvatarSrc, createSearchHighlighter, groupAvatarSrc } from './SearchResultCard.shared';
 import type { ChatRecordSearchHit, ConversationRecordHit } from './types';
-import { client } from '../../trpc/client';
+import { client, trpc } from '../../trpc/client';
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import {
   ConvContext,
@@ -38,19 +45,44 @@ import {
 } from '../../state/messageContext';
 import { closeForwardWindows } from '../../state/forwardWindow';
 import { ChatMediaGallery } from '../ChatMediaGallery';
-import { MessageBubble } from '../../im-template/template/messageBubble';
+import { MessageRow } from '../../im-template/template/messageRow';
+import { grayTipOf } from '../../im-template/template/messageRow.shared';
 import { displayUserName } from '../../im-template/template/user';
+import type { MessageDetailsSelection } from '../../im-template/template/messageContextMenu';
+import { messageNodeClipboard, selectedMessageClipboard } from '../../lib/messageClipboard';
+import { selectMessageIds, type SelectionModifiers } from '../../lib/messageSelection';
+import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
+import { MessageSelectionMark } from '../MessageSelectionMark';
+import { MessageTranslationResult } from '../MessageTextResult';
+import { IntentSenseContext } from '../intentSense/context.shared';
+import { MessageDetails } from '../lazyMainPanels';
+import { MessageProvenance } from '../MessageProvenance';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, GroupMember, Message, User } from '../../im-template/template/types';
 import '../../styles/qzone.css';
 import '../../styles/chat-records.css';
+import { useRecordedSenderNames } from '../../hooks/useRecordedSenderNames';
+import { useShowHistoricalNames } from '../../lib/clientPreferences';
 import { createReplyPreviewIndex } from '../../lib/replyPreview';
-import { enrichReplyElements } from '../../views/workspace/messageProjection';
+import {
+  enrichReplyElements,
+  extractGrayTipUids,
+  resolveRecallRevokerName,
+} from '../../views/workspace/messageProjection';
+import { createMemberUinLookup, messageSender } from '../../lib/messageSender';
+import { useRecordMatchHighlight } from './useRecordMatchHighlight';
 import type { RenderElement } from '../QqMessageContent.shared';
 import type { ConversationRecordType } from '@weq/service';
 import type { GlobalChatRecordFilter } from '@weq/service/search-policy';
 
-const noop = (): void => {};
+const emptySelf: User = {
+  id: '',
+  username: '',
+  displayName: '',
+  identityLabel: '',
+  identityValue: '',
+  avatarUrl: null,
+};
 type BrowseCursor = { time: number; rowId: string };
 const tabs = [
   ['', '全部'],
@@ -79,6 +111,7 @@ export function ChatRecordsModal({
   resolveGroupMembers,
   localSource,
   embeddedKeyword,
+  actions,
 }: {
   /** 非 QQ 数据源复用同一搜索页面；不向原生记录接口提交本地身份。 */
   localSource?: {
@@ -97,6 +130,7 @@ export function ChatRecordsModal({
    */
   fixed?: boolean;
   accountBinding?: QQWriteBinding;
+  actions?: RecordMessageActions;
   globalRecordFilter?: GlobalChatRecordFilter;
   suspended?: boolean;
   onClose: () => void;
@@ -131,7 +165,21 @@ export function ChatRecordsModal({
   const expectedAccountConfigId = accountBinding?.expectedAccountConfigId;
   const [ownUin, setOwnUin] = useState('');
   const [category, setCategory] = useState<ConversationRecordType | ''>('');
-  const recordMenu = useRecordContextMenu('定位原消息');
+  const { trigger: recordTrigger, cancelPress: cancelRecordPress } = useRecordMenuTrigger();
+  const [contextMenu, setContextMenu] = useState<RecordMenuMessage | null>(null);
+  const [details, setDetails] = useState<MessageDetailsSelection | null>(null);
+  const [recordBodies, setRecordBodies] = useState<
+    ReadonlyMap<string, NonNullable<Message['qqElements']>>
+  >(() => new Map());
+  const resolveRecordBody = useCallback((id: string, body: NonNullable<Message['qqElements']>) => {
+    setRecordBodies((previous) =>
+      previous.get(id) === body ? previous : new Map(previous).set(id, body),
+    );
+  }, []);
+  const [selection, setSelection] = useState<ReadonlySet<string> | null>(null);
+  const selectionAnchor = useRef<string | null>(null);
+  const currentSelection = useRef(selection);
+  currentSelection.current = selection;
   const [msgError, setMsgError] = useState('');
   const [settledFilter, setSettledFilter] = useState<typeof filter>();
   const [browseHasMore, setBrowseHasMore] = useState(false);
@@ -149,7 +197,13 @@ export function ChatRecordsModal({
     [senders, trimmedKeyword, category, startDay, endDay],
   );
   const refreshing = fixed && settledFilter !== filter;
-  const hasSearch = Boolean(filter.keyword || (fixed && (senders.length || category || startDay)));
+  const hasSearch = fixed || Boolean(filter.keyword);
+  useLayoutEffect(() => {
+    setContextMenu(null);
+    setSelection(null);
+    selectionAnchor.current = null;
+    cancelRecordPress();
+  }, [filter, cancelRecordPress]);
   useEffect(() => {
     let active = true;
     if (localSource) {
@@ -172,13 +226,16 @@ export function ChatRecordsModal({
     };
   }, [fixed, localSource, user]);
   const selected = initialHit;
+  const { source: searchSource, targetUid } = selected;
+  const localMessages = localSource?.messages;
+  const localMode = Boolean(localMessages);
   const [messages, setMessages] = useState<ConversationRecordHit[]>([]);
   const [msgLoading, setMsgLoading] = useState(() => !localSource && hasSearch);
   const [msgLoadingMore, setMsgLoadingMore] = useState(false);
   const [atResultsEnd, setAtResultsEnd] = useState(false);
   const [msgTotal, setMsgTotal] = useState(0);
   const [msgLimited, setMsgLimited] = useState(false);
-  const msgRunRef = useRef<{ controller: AbortController; loadingMore: boolean } | null>(null);
+  const msgRunRef = useRef<{ controller: AbortController; requestPending: boolean } | null>(null);
   const msgScrollRef = useRef<HTMLDivElement | null>(null);
   const savedScrollTop = useRef<number | null>(null);
   const bindMsgScroll = useCallback((element: HTMLDivElement | null) => {
@@ -188,13 +245,49 @@ export function ChatRecordsModal({
     savedScrollTop.current = null;
   }, []);
   const isGroup = selected.source === 'group';
+  const kind = isGroup ? 'group' : 'c2c';
+  const essence = trpc.account.listGroupEssenceSeqs.useQuery(
+    {
+      groupCode: selected.targetUid,
+      expectedAccountUin,
+      expectedAccountConfigId,
+    },
+    { enabled: isGroup && !localSource && !suspended && messages.length > 0, staleTime: 300_000 },
+  );
+  const showHistorical = useShowHistoricalNames(
+    localSource ? undefined : conversationDisplayKey(kind, selected.targetUid),
+  );
+  const recordedSenderNames = useRecordedSenderNames(
+    showHistorical && !suspended ? { kind, conv: selected.targetUid } : null,
+    accountBinding,
+    messages,
+  );
   const members = useMemo(
     () => (isGroup && !localSource ? groupMembers?.(selected.targetUid) : undefined),
     [isGroup, localSource, groupMembers, selected.targetUid],
   );
+  const memberByUin = useMemo(() => members && createMemberUinLookup(members), [members]);
+  const recordUser = useMemo(() => {
+    if (localSource) return localSource.user;
+    if (user) return user;
+    return ownUin
+      ? {
+          ...emptySelf,
+          id: `self:${ownUin}`,
+          identityLabel: 'QQ',
+          identityValue: ownUin,
+          displayName: '你',
+          avatarUrl: c2cAvatarSrc(ownUin),
+        }
+      : emptySelf;
+  }, [localSource, user, ownUin]);
+  const localMessagesById = useMemo(
+    () => new Map(localMessages?.map((message) => [message.id, message])),
+    [localMessages],
+  );
   const localRows = useMemo(() => {
-    if (!localSource) return [];
-    return localSource.messages
+    if (!localMessages) return [];
+    return localMessages
       .filter((message) => !message.generatedPending)
       .map(
         (message): ConversationRecordHit => ({
@@ -211,7 +304,7 @@ export function ChatRecordsModal({
         }),
       )
       .sort((a, b) => Number(b.sendTime) - Number(a.sendTime));
-  }, [localSource]);
+  }, [localMessages]);
   const localDays = useMemo(
     () =>
       localSource
@@ -273,6 +366,8 @@ export function ChatRecordsModal({
     const uids = new Set<string>();
     for (const row of messages) {
       if (row.senderUid) uids.add(row.senderUid);
+      if (row.recall?.revokeUid) uids.add(row.recall.revokeUid);
+      for (const uid of extractGrayTipUids(row.elements ?? [])) uids.add(uid);
       for (const element of (row.elements ?? []) as RenderElement[]) {
         const uid = element?.type === 'reply' ? element.data?.origSenderUid : undefined;
         if (typeof uid === 'string' && uid) uids.add(uid);
@@ -285,35 +380,43 @@ export function ChatRecordsModal({
       createReplyPreviewIndex(
         messages
           .filter((row) => row.elements?.length)
-          .map((row) => ({ ...row, elements: row.elements! })),
+          .map((row) => ({
+            ...row,
+            elements: row.elements!,
+            ...(recordedSenderNames
+              ? { senderAtTime: recordedSenderNames.get(row.msgId) ?? undefined }
+              : {}),
+          })),
       ),
-    [messages],
+    [messages, recordedSenderNames],
   );
 
-  // A minimal conversation view for the selected hit — enough for MessageBubble.
+  // 共享灰条和昵称解析需要这次搜索的会话及已取得的成员资料。
   const conversation = useMemo(
-    () => localSource?.conversation ?? (selected ? conversationFromHit(selected) : null),
-    [selected, localSource],
+    () => localSource?.conversation ?? conversationFromHit(selected, members, essence.data),
+    [selected, localSource, members, essence.data],
   );
+  const actionConversation = actions?.conversation ?? conversation;
+  const transforms = useRecordTransforms({
+    binding: accountBinding,
+    conversation: actionConversation,
+    active: fixed && hasSearch && !suspended,
+  });
 
   const queryMessages = useCallback(
     async (offset: number, signal: AbortSignal) => {
       if (!fixed) {
         return client.account.searchConversationRecords.query(
           {
-            source: selected.source,
-            conv: selected.targetUid,
+            source: searchSource,
+            conv: targetUid,
             keyword: filter.keyword ?? '',
             offset,
             limit: 30,
             lookAhead: true,
-            ...(globalRecordFilter
-              ? {
-                  recordFilter: globalRecordFilter,
-                  expectedAccountUin,
-                  expectedAccountConfigId,
-                }
-              : {}),
+            recordFilter: globalRecordFilter,
+            expectedAccountUin,
+            expectedAccountConfigId,
           },
           { signal },
         );
@@ -324,8 +427,8 @@ export function ChatRecordsModal({
         const cursor = browseCursor.current;
         const page = await client.account.browseConversation.query(
           {
-            kind: selected.source === 'group' ? 'group' : 'c2c',
-            conv: selected.targetUid,
+            kind,
+            conv: targetUid,
             filter,
             expectedAccountUin,
             expectedAccountConfigId,
@@ -348,7 +451,16 @@ export function ChatRecordsModal({
           return { items: page.items, total: undefined, limited: false };
       }
     },
-    [fixed, selected, filter, expectedAccountUin, expectedAccountConfigId, globalRecordFilter],
+    [
+      fixed,
+      searchSource,
+      kind,
+      targetUid,
+      filter,
+      expectedAccountUin,
+      expectedAccountConfigId,
+      globalRecordFilter,
+    ],
   );
 
   // Fetch messages for the selected conversation.
@@ -369,11 +481,12 @@ export function ChatRecordsModal({
       setMsgLoading(false);
       return;
     }
-    const controller = new AbortController();
-    const { signal } = controller;
-    msgRunRef.current = { controller, loadingMore: false };
-    const cancel = () => controller.abort();
-    if (localSource) {
+    // 筛选切换时滚动回调仍可能看到上一轮的分页状态，首屏和续页共用这个同步标记。
+    const run = { controller: new AbortController(), requestPending: !localMode };
+    const { signal } = run.controller;
+    msgRunRef.current = run;
+    const cancel = () => run.controller.abort();
+    if (localMode) {
       const selectedSenders = new Set(filter.senders);
       const keyword = filter.keyword?.toLocaleLowerCase();
       const rows = localRows.filter((message) => {
@@ -413,13 +526,14 @@ export function ChatRecordsModal({
         if (!signal.aborted) setMsgError(String(err));
       })
       .finally(() => {
+        run.requestPending = false;
         if (!signal.aborted) {
           setSettledFilter(filter);
           setMsgLoading(false);
         }
       });
     return cancel;
-  }, [hasSearch, filter, localRows, localSource, queryMessages]);
+  }, [hasSearch, filter, localRows, localMode, queryMessages]);
 
   const loadMoreMessages = useCallback(() => {
     if (localSource) {
@@ -430,10 +544,10 @@ export function ChatRecordsModal({
       return;
     }
     const run = msgRunRef.current;
-    if (!run || run.loadingMore || msgLoading) return;
+    if (!run || run.requestPending || msgLoading) return;
     const { signal } = run.controller;
     if (signal.aborted) return;
-    run.loadingMore = true;
+    run.requestPending = true;
     setMsgLoadingMore(true);
     setMsgError('');
     void queryMessages(messages.length, signal)
@@ -447,8 +561,8 @@ export function ChatRecordsModal({
         if (!signal.aborted) setMsgError(String(err));
       })
       .finally(() => {
+        run.requestPending = false;
         if (!signal.aborted) setMsgLoadingMore(false);
-        run.loadingMore = false;
       });
   }, [messages.length, msgLoading, localSource, queryMessages]);
 
@@ -491,12 +605,22 @@ export function ChatRecordsModal({
     return () => observer.disconnect();
   }, [fixed, browseHasMore, msgLoading, msgLoadingMore, msgError, onMsgScroll, suspended]);
 
+  const suspendSearch = useCallback(() => {
+    if (onSuspend) {
+      savedScrollTop.current = msgScrollRef.current?.scrollTop ?? null;
+      setCalendarOpen(false);
+      setSenderOpen(false);
+    }
+    setContextMenu(null);
+    (onSuspend ?? onClose)();
+  }, [onClose, onSuspend]);
+
   const jumpTo = useCallback(
     (msg: Pick<ConversationRecordHit, 'msgSeq' | 'msgId'>) => {
       if (localSource) {
         closeForwardWindows();
         localSource.onJump(msg.msgId);
-        onClose();
+        suspendSearch();
         return;
       }
       if (!selected) return;
@@ -507,11 +631,6 @@ export function ChatRecordsModal({
         setDayNotice('该消息没有可定位的原生序号。');
         return;
       }
-      if (onSuspend) {
-        savedScrollTop.current = msgScrollRef.current?.scrollTop ?? null;
-        setCalendarOpen(false);
-        setSenderOpen(false);
-      }
       closeForwardWindows();
       onJumpMessage({
         source: selected.source,
@@ -519,9 +638,9 @@ export function ChatRecordsModal({
         msgSeq: msg.msgSeq,
         msgId: msg.msgId,
       });
-      (onSuspend ?? onClose)();
+      suspendSearch();
     },
-    [onJumpMessage, onClose, onSuspend, selected, localSource],
+    [onJumpMessage, selected, localSource, suspendSearch],
   );
 
   const jumpToReply = useCallback(
@@ -552,6 +671,115 @@ export function ChatRecordsModal({
     },
     [isGroup, jumpTo, localSource, selected.targetUid],
   );
+
+  const recordMenu = useReadonlyMessageMenu({
+    conversation,
+    user: recordUser,
+    detailsBinding: localSource ? null : accountBinding,
+    scope: JSON.stringify([
+      expectedAccountUin,
+      expectedAccountConfigId,
+      kind,
+      selected.targetUid,
+      filter,
+      suspended,
+    ]),
+    onLocate: (message) =>
+      jumpTo({
+        msgSeq: message.msgSeq ?? '',
+        msgId: localSource ? message.id : (message.msgId ?? message.id),
+      }),
+  });
+  function recordMessage(hit: ConversationRecordHit): Message {
+    const body = recordBodies.get(hit.msgId);
+    return (
+      localMessagesById.get(hit.msgId) ??
+      messageFromHit(
+        body ? { ...hit, elements: body } : hit,
+        actionConversation,
+        recordUser,
+        members,
+        memberByUin,
+        replyIndex,
+        showHistorical,
+        recordedSenderNames?.get(hit.msgId)?.name,
+      )
+    );
+  }
+
+  function exitSelection() {
+    selectionAnchor.current = null;
+    setSelection(null);
+  }
+
+  function toggleSelection(id: string, modifiers: SelectionModifiers) {
+    const anchor = selectionAnchor.current;
+    if (!modifiers.shiftKey || !anchor) selectionAnchor.current = id;
+    setSelection((selected) =>
+      selectMessageIds(
+        selected ?? new Set(),
+        modifiers.shiftKey ? messages.map((row) => row.msgId) : [],
+        id,
+        anchor,
+        modifiers,
+      ),
+    );
+  }
+
+  function resultActions<T extends HTMLElement>(
+    message: Message,
+    elementIndex?: number,
+  ): HTMLAttributes<T> {
+    if (!fixed) return recordMenu.rowProps<T>(message);
+    const context = recordTrigger<T>(
+      (point) => {
+        const selectedText = point.originElement.ownerDocument.getSelection();
+        const selected =
+          selectedText?.rangeCount && selectedText.getRangeAt(0).intersectsNode(point.originElement)
+            ? selectedMessageClipboard(msgScrollRef.current)
+            : null;
+        const quote =
+          point.target instanceof Element ? point.target.closest('.qq-reply-quote') : null;
+        selectedText?.removeAllRanges();
+        setContextMenu({
+          ...point,
+          message,
+          elementIndex,
+          clipboard: selected ?? (quote ? messageNodeClipboard(quote) : undefined),
+        });
+      },
+      (target) => target instanceof Element && Boolean(target.closest('.qq-message-text-result')),
+    );
+    return {
+      ...context,
+      onClickCapture: (event) => {
+        context.onClickCapture?.(event);
+        if (
+          !selection ||
+          event.defaultPrevented ||
+          !(event.target instanceof Node) ||
+          !event.currentTarget.contains(event.target)
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        toggleSelection(message.id, event);
+      },
+      onKeyDownCapture: (event) => {
+        context.onKeyDownCapture?.(event);
+        if (
+          !selection ||
+          event.defaultPrevented ||
+          event.target !== event.currentTarget ||
+          (event.key !== 'Enter' && event.key !== ' ')
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        toggleSelection(message.id, event);
+      },
+    };
+  }
 
   const convKey = isGroup ? selected.targetUid : '';
   const browseRecords = fixed && !localSource;
@@ -608,9 +836,13 @@ export function ChatRecordsModal({
     setLocateDay('');
     setDayNotice('');
   };
-  if (suspended) return null;
-
   const mediaType = category === 'media' || category === 'emoji' ? category : undefined;
+  const highlightRichText = useRecordMatchHighlight(
+    msgScrollRef,
+    hasSearch && !mediaType && !suspended ? trimmedKeyword : '',
+  );
+  const highlighter = useMemo(() => createSearchHighlighter(trimmedKeyword), [trimmedKeyword]);
+  if (suspended) return null;
   const dateLabel = startDay
     ? endDay && endDay !== startDay
       ? `${startDay} 至 ${endDay}`
@@ -661,7 +893,8 @@ export function ChatRecordsModal({
           onLocate={(day) => {
             setCalendarOpen(false);
             setDayNotice('');
-            if (!hasSearch || (startDay && (day < startDay || (endDay && day > endDay))))
+            const unfiltered = !trimmedKeyword && !senders.length && !category && !startDay;
+            if (unfiltered || (startDay && (day < startDay || (endDay && day > endDay))))
               setRange({ start: day, end: day });
             setLocateDay(day);
           }}
@@ -770,7 +1003,15 @@ export function ChatRecordsModal({
       ) : null}
       {hasSearch || !fixed ? (
         <div className="weq-chatrecords-body is-fixed">
-          <div className="weq-chatrecords-msgs" ref={bindMsgScroll} onScroll={onMsgScroll}>
+          <div
+            className="weq-chatrecords-msgs"
+            ref={bindMsgScroll}
+            onScroll={() => {
+              cancelRecordPress();
+              setContextMenu(null);
+              onMsgScroll();
+            }}
+          >
             <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
               <ConvContext.Provider value={convKey}>
                 <ChatMediaGallery
@@ -823,139 +1064,130 @@ export function ChatRecordsModal({
                           <RecordMediaResults
                             groups={resultsByDay}
                             type={mediaType}
-                            contextProps={(message) => recordMenu.trigger(() => jumpTo(message))}
+                            selection={selection}
+                            contextProps={(message, index) =>
+                              resultActions(recordMessage(message), index)
+                            }
                           />
                         ) : (
                           [...resultsByDay].map(([day, rows]) => (
                             <Fragment key={day}>
                               {fixed ? <RecordDayHeading day={day} /> : null}
-                              {rows.map((msg) => {
-                                const elements = msg.elements;
-                                if (elements?.length && conversation) {
-                                  const message =
-                                    localSource?.messages.find(
-                                      (message) => message.id === msg.msgId,
-                                    ) ??
-                                    messageFromHit(
-                                      msg,
-                                      conversation,
-                                      user
-                                        ? enrichReplyElements(
-                                            elements,
-                                            conversation,
-                                            user,
-                                            members,
-                                            replyIndex,
-                                          )
-                                        : elements,
-                                    );
-                                  const mine = localSource
-                                    ? message.senderId === localSource.user.id
-                                    : Boolean(
-                                        (user?.uid && user.uid === msg.senderUid) ||
-                                          (ownUin && ownUin === msg.senderUin),
-                                      );
-                                  const sender =
-                                    members?.get(msg.senderUid) ??
-                                    (mine && !isGroup ? (localSource?.user ?? user) : undefined) ??
-                                    message.sender ??
-                                    senderUserFromHit(msg);
-                                  return (
-                                    <div
-                                      key={msg.msgId}
-                                      className="weq-chatrecords-msg is-bubble"
-                                      {...(fixed ? recordMenu.trigger(() => jumpTo(msg)) : {})}
-                                      role={fixed ? 'group' : 'button'}
-                                      tabIndex={0}
-                                      onClick={(event) => {
-                                        if (
-                                          fixed ||
-                                          event.defaultPrevented ||
-                                          (event.target instanceof Element &&
-                                            event.target !== event.currentTarget &&
-                                            event.target.closest(
-                                              'button, a[href], input, video, audio',
-                                            ))
-                                        )
-                                          return;
-                                        jumpTo(msg);
-                                      }}
-                                      onKeyDown={(event) => {
-                                        if (
-                                          !fixed &&
-                                          event.target === event.currentTarget &&
-                                          (event.key === 'Enter' || event.key === ' ')
-                                        ) {
-                                          event.preventDefault();
-                                          jumpTo(msg);
-                                        }
-                                      }}
-                                      title={fixed ? undefined : '点击跳转到该消息'}
-                                    >
-                                      <MessageBubble
-                                        message={message}
-                                        conversation={conversation}
-                                        sender={sender}
-                                        mine={mine}
-                                        senderName={displayUserName(sender)}
-                                        senderAvatarUrl={sender.avatarUrl}
-                                        senderSeed={sender.identityValue}
-                                        senderKind={sender.kind}
-                                        showSenderName
-                                        active={false}
-                                        renderers={renderers}
-                                        onContextMenu={noop}
-                                        onLongPress={noop}
-                                      />
-                                    </div>
-                                  );
-                                }
-                                const Container = fixed ? 'div' : 'button';
+                              {rows.map((hit) => {
+                                const message = recordMessage(hit);
+                                const rich = Boolean(
+                                  localSource || message.qqElements?.length || hit.deletedKind,
+                                );
+                                const selected = selection?.has(message.id) ?? false;
+                                const translation =
+                                  transforms.translation?.id === message.id
+                                    ? transforms.translation
+                                    : null;
                                 return (
-                                  <Container
-                                    {...(fixed
-                                      ? recordMenu.trigger<HTMLElement>(() => jumpTo(msg))
-                                      : {})}
-                                    type={fixed ? undefined : 'button'}
-                                    tabIndex={fixed ? 0 : undefined}
-                                    key={msg.msgId}
-                                    className="weq-chatrecords-msg"
-                                    onClick={fixed ? undefined : () => jumpTo(msg)}
-                                  >
-                                    <img
-                                      className="weq-chatrecords-msg-avatar"
-                                      src={
-                                        msg.senderUin && msg.senderUin !== '0'
-                                          ? (c2cAvatarSrc(msg.senderUin) ?? undefined)
-                                          : isGroup
-                                            ? (groupAvatarSrc(selected?.targetUid ?? '') ??
-                                              undefined)
-                                            : (c2cAvatarSrc(selected?.targetUin ?? '') ?? undefined)
+                                  <div
+                                    key={hit.msgId}
+                                    className={`weq-chatrecords-msg${rich ? ' is-bubble' : ''}${selection ? ' weq-message-selectable selection-mode' : ''}${selected ? ' is-selected' : ''}`}
+                                    data-weq-record-match={rich || undefined}
+                                    {...resultActions(message)}
+                                    role={selection ? 'checkbox' : fixed ? 'group' : 'button'}
+                                    aria-checked={selection ? selected : undefined}
+                                    tabIndex={0}
+                                    onClick={(event) => {
+                                      if (
+                                        fixed ||
+                                        event.defaultPrevented ||
+                                        (event.target instanceof Element &&
+                                          event.target !== event.currentTarget &&
+                                          event.target.closest(
+                                            'button, a[href], [role="button"], input, video, audio',
+                                          )) ||
+                                        event.currentTarget.ownerDocument.getSelection()
+                                          ?.isCollapsed === false
+                                      )
+                                        return;
+                                      jumpTo(hit);
+                                    }}
+                                    onKeyDown={(event) => {
+                                      if (
+                                        !fixed &&
+                                        event.target === event.currentTarget &&
+                                        (event.key === 'Enter' || event.key === ' ')
+                                      ) {
+                                        event.preventDefault();
+                                        jumpTo(hit);
                                       }
-                                      alt=""
-                                      loading="lazy"
-                                    />
-                                    <span className="weq-chatrecords-msg-text">
-                                      <span className="weq-chatrecords-msg-meta">
-                                        {msg.senderName ? (
-                                          <>
-                                            <span data-privacy-sensitive>{msg.senderName}</span>
-                                            {' · '}
-                                          </>
+                                    }}
+                                    title={fixed ? undefined : '点击跳转到该消息'}
+                                  >
+                                    {selection ? (
+                                      <MessageSelectionMark selected={selected} />
+                                    ) : null}
+                                    {rich ? (
+                                      <>
+                                        <MessageRow
+                                          message={message}
+                                          conversation={conversation}
+                                          user={recordUser}
+                                          sender={message.sender}
+                                          renderers={renderers}
+                                          alwaysShowSenderName
+                                          alwaysShowTime
+                                          alwaysShowDate={!fixed}
+                                          deletedKind={message.deletedKind}
+                                          recallRevokerName={message.recallRevokerName}
+                                          textResult={
+                                            translation ? (
+                                              <MessageTranslationResult
+                                                {...translation}
+                                                onCollapse={transforms.collapseTranslation}
+                                              />
+                                            ) : undefined
+                                          }
+                                          textResultRevision={translation}
+                                        />
+                                        {!highlightRichText &&
+                                        !message.deletedKind &&
+                                        !grayTipOf(message) &&
+                                        highlighter.matches(hit.content) ? (
+                                          <span
+                                            className="weq-chatrecords-msg-content weq-record-match-excerpt"
+                                            data-privacy-sensitive
+                                          >
+                                            {highlighter.render(hit.content)}
+                                          </span>
                                         ) : null}
-                                        <span className="weq-number weq-number-inherit">
-                                          {formatTime(msg.sendTime)}
-                                        </span>{' '}
-                                        · seq{' '}
-                                        <span className="weq-number weq-number-inherit">
-                                          {msg.msgSeq}
+                                      </>
+                                    ) : (
+                                      <>
+                                        <RecordSenderAvatar
+                                          sender={{
+                                            id: message.senderId,
+                                            label: message.sender?.displayName ?? '',
+                                            avatar: message.sender?.avatarUrl,
+                                          }}
+                                        />
+                                        <span className="weq-chatrecords-msg-text">
+                                          <span className="weq-chatrecords-msg-meta weq-message-heading">
+                                            <span data-privacy-sensitive>
+                                              {message.historicalSenderName ||
+                                                message.sender?.displayName}
+                                            </span>
+                                            <MessageProvenance
+                                              message={message}
+                                              alwaysShowTime
+                                              alwaysShowDate={!fixed}
+                                            />
+                                          </span>
+                                          <span
+                                            className="weq-chatrecords-msg-content"
+                                            data-privacy-sensitive
+                                          >
+                                            {highlighter.render(hit.content)}
+                                          </span>
                                         </span>
-                                      </span>
-                                      <span className="weq-chatrecords-msg-content">
-                                        {highlightText(msg.content, trimmedKeyword)}
-                                      </span>
-                                    </span>
-                                  </Container>
+                                      </>
+                                    )}
+                                  </div>
                                 );
                               })}
                             </Fragment>
@@ -986,7 +1218,76 @@ export function ChatRecordsModal({
           ) : null}
         </div>
       ) : null}
-      {recordMenu.menu}
+      {selection ? (
+        <RecordSelectionBar
+          count={selection.size}
+          conversation={actionConversation}
+          binding={accountBinding}
+          actions={actions}
+          pick={() =>
+            messages
+              .filter((row) => selection.has(row.msgId))
+              .reverse()
+              .map(recordMessage)
+          }
+          isCurrent={() => currentSelection.current === selection}
+          onExit={exitSelection}
+        />
+      ) : null}
+      {!fixed ? recordMenu.menu : null}
+      {contextMenu ? (
+        <RecordMessageMenu
+          key={contextMenu.message.id}
+          menu={contextMenu}
+          conversation={actionConversation}
+          binding={accountBinding}
+          mediaSave={recordMenu.mediaSave}
+          actions={
+            actions?.quote
+              ? {
+                  ...actions,
+                  quote: (message) => {
+                    suspendSearch();
+                    actions.quote?.(message);
+                  },
+                }
+              : actions
+          }
+          intentAvailable={transforms.intentAvailable}
+          intentPending={Boolean(transforms.pendingIntent)}
+          onAnalyze={(message) => void transforms.analyze(message)}
+          onTranslate={(message, text) => void transforms.translate(message, text)}
+          onLocate={() => {
+            setContextMenu(null);
+            jumpTo({
+              msgId: contextMenu.message.msgId ?? contextMenu.message.id,
+              msgSeq: contextMenu.message.msgSeq ?? '',
+            });
+          }}
+          onSelect={() => {
+            setContextMenu(null);
+            selectionAnchor.current = contextMenu.message.id;
+            setSelection((selected) => new Set([...(selected ?? []), contextMenu.message.id]));
+          }}
+          onDetails={setDetails}
+          onResolveBody={resolveRecordBody}
+          onClose={() => setContextMenu(null)}
+        />
+      ) : null}
+      {details ? (
+        <MessageDetails
+          key={details.message.id}
+          selection={details}
+          conversation={actionConversation}
+          user={recordUser}
+          target={messageDetailsTarget(accountBinding, actionConversation, details.message)}
+          isSender={isSelfIdentity(
+            new Set(selfIdentityValues(recordUser)),
+            details.message.senderId,
+          )}
+          onClose={() => setDetails(null)}
+        />
+      ) : null}
     </div>
   );
   if (embedded) return content;
@@ -996,34 +1297,27 @@ export function ChatRecordsModal({
       centered
       resizeEdges
       onClose={() => {
-        if (calendarOpen) setCalendarOpen(false);
+        if (contextMenu) setContextMenu(null);
+        else if (calendarOpen) setCalendarOpen(false);
         else if (senderOpen) setSenderOpen(false);
+        else if (selection) exitSelection();
         else onClose();
       }}
       width={960}
       labelledBy="weq-chatrecords-title"
     >
-      {content}
+      <IntentSenseContext.Provider value={transforms.intentContext}>
+        {content}
+      </IntentSenseContext.Provider>
     </Modal>
   );
 }
 
-/** Build a sender User from the search hit's resolved identity. */
-function senderUserFromHit(hit: ConversationRecordHit): User {
-  const uin = hit.senderUin && hit.senderUin !== '0' ? hit.senderUin : '';
-  return {
-    id: hit.senderUid || `sender:${uin}`,
-    identityLabel: uin ? 'QQ' : 'UID',
-    identityValue: uin || hit.senderUid,
-    username: hit.senderUid || uin,
-    displayName: hit.senderName || uin || hit.senderUid || '成员',
-    avatarUrl: uin ? c2cAvatarSrc(uin) : null,
-    kind: 'human',
-  };
-}
-
-/** A minimal Conversation view for the target hit — enough for MessageBubble. */
-function conversationFromHit(hit: ChatRecordSearchHit): Conversation {
+function conversationFromHit(
+  hit: ChatRecordSearchHit,
+  members?: ReadonlyMap<string, GroupMember>,
+  essenceSeqs?: string[],
+): Conversation {
   if (hit.source === 'group') {
     const code = hit.targetUid;
     return {
@@ -1042,9 +1336,10 @@ function conversationFromHit(hit: ChatRecordSearchHit): Conversation {
         announcement: null,
         memberCount: 0,
         role: 'member',
+        essenceSeqs,
       },
-      members: [],
-    } as unknown as Conversation;
+      members: [...(members?.values() ?? [])],
+    };
   }
   const uin = hit.targetUin && hit.targetUin !== '0' ? hit.targetUin : '';
   const otherUser: User = {
@@ -1064,47 +1359,67 @@ function conversationFromHit(hit: ChatRecordSearchHit): Conversation {
     otherUser,
     group: null,
     members: [],
-  } as unknown as Conversation;
+  };
 }
 
-/** Build the template Message the bubble renders from a search hit. */
 function messageFromHit(
   hit: ConversationRecordHit,
   conversation: Conversation,
-  elements: unknown[],
+  user: User,
+  members: ReadonlyMap<string, GroupMember> | undefined,
+  memberByUin: ReturnType<typeof createMemberUinLookup> | undefined,
+  replyIndex: ReturnType<typeof createReplyPreviewIndex>,
+  showHistorical: boolean,
+  historicalSenderName?: string,
 ): Message {
-  const sender = senderUserFromHit(hit);
+  const record = { ...hit, elements: hit.elements ?? [] };
+  const sender = messageSender(
+    record,
+    conversation,
+    user,
+    members,
+    undefined,
+    undefined,
+    memberByUin,
+  );
+  const knownMember = members?.has(hit.senderUid) || Boolean(memberByUin?.(hit.senderUin));
   return {
     id: hit.msgId,
-    conversationId: conversation.id,
-    senderId: sender.id,
-    sender,
-    body: hit.content,
-    createdAt: toIsoTime(hit.sendTime),
-    qqElements: elements,
-    ...(hit.setEmojiList ? { setEmojiList: hit.setEmojiList } : {}),
-    ...(hit.decoration ? { decoration: hit.decoration } : {}),
     msgId: hit.msgId,
     msgSeq: hit.msgSeq,
-  } as Message & {
-    qqElements: unknown[];
-    setEmojiList?: unknown;
-    msgId: string;
-    msgSeq: string;
-    decoration?: unknown;
+    clientSeq: hit.clientSeq,
+    conversationId: conversation.id,
+    senderId: sender.id,
+    senderUid: hit.senderUid,
+    sender:
+      conversation.type === 'group' && !knownMember && hit.senderName
+        ? { ...sender, displayName: hit.senderName }
+        : sender,
+    historicalSenderName,
+    body: hit.content,
+    sendTime: hit.sendTime,
+    createdAt: toIsoTime(hit.sendTime),
+    qqElements: enrichReplyElements(
+      record.elements,
+      conversation,
+      user,
+      members,
+      replyIndex,
+      showHistorical,
+    ) as Message['qqElements'],
+    setEmojiList: hit.setEmojiList,
+    decoration: hit.decoration,
+    deletedKind: hit.deletedKind,
+    recall: hit.recall,
+    recallRevokerName: resolveRecallRevokerName(record, conversation, members),
+    source: hit.source,
+    sourceFormat: hit.sourceFormat,
   };
 }
 
 function toIsoTime(seconds: string): string {
-  const secs = Number(seconds);
-  if (!Number.isFinite(secs) || secs <= 0) return new Date(0).toISOString();
-  return new Date(secs * 1000).toISOString();
-}
-
-function formatTime(sendTimeSeconds: string): string {
-  const secs = Number(sendTimeSeconds);
-  if (!Number.isFinite(secs) || secs <= 0) return '';
-  const d = new Date(secs * 1000);
-  if (!Number.isFinite(d.getTime())) return '时间未核验';
-  return `${eventTimeFormatter.format(d)} +08`;
+  const time = Number(seconds);
+  if (!Number.isFinite(time) || time <= 0) return '';
+  const date = new Date(time * 1000);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : '';
 }

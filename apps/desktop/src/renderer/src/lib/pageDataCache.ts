@@ -1,3 +1,11 @@
+/** 快速往返列表时复用刚完成的读取，手动刷新仍可立即发起。 */
+export const PAGE_REENTRY_STALE_MS = 15_000;
+
+export function isRecentPageRead(checkedAt: number, now = Date.now()): boolean {
+  const age = now - checkedAt;
+  return checkedAt > 0 && age >= 0 && age < PAGE_REENTRY_STALE_MS;
+}
+
 /** 仅保存服务器 DTO，不保留页面、DOM 或媒体节点；账号切换随 Provider 一起释放。 */
 export class PageDataCache {
   private readonly entries = new Map<string, { value: unknown; bytes: number; savedAt: number }>();

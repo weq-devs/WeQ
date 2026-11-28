@@ -1,5 +1,7 @@
-.weq-private-preview-scroll {
-  overflow-anchor: none;
+.weq-preview-message-row:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+  border-radius: 6px;
 }
 .weq-group-page.is-previewing-chat {
   overflow: hidden;
@@ -7,6 +9,19 @@
 }
 .weq-group-page.is-previewing-chat > .weq-contact-chat-preview {
   padding: 0;
+}
+.weq-preview-message-row > .message-time-divider {
+  display: flex;
+  width: fit-content;
+  margin-inline: auto;
+}
+.weq-preview-message-row.selection-mode {
+  padding-inline-end: var(--weq-message-selection-lane);
+}
+.weq-deleted > .selection-bar {
+  flex: none;
+  padding: 6px 26px 8px 18px;
+  border-top: 1px solid var(--weq-border-subtle);
 }
 .weq-preview-message-note {
   margin: 4px 16px 12px;
@@ -18,7 +33,6 @@
 .weq-preview-system-row {
   width: 100%;
   min-width: 0;
-  margin: 8px 0;
   overflow-wrap: anywhere;
 }
 .weq-preview-system-row .weq-system-message-content {

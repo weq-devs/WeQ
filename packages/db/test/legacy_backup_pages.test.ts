@@ -3,6 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
+import { C2cMsgDb } from '../src/msg/c2c';
+import { GroupMsgDb } from '../src/msg/group';
+import { withRecordedGroupSenderNames } from '../src/msg/group_sender_history';
 import { GroupMemberDb } from '../src/group_info/member';
 import { GroupEssenceDb } from '../src/group_info/essence';
 import { GroupExtDb } from '../src/group_info/ext';
@@ -121,4 +124,166 @@ it('存在但结构错误的表不能被兼容路径吞成空数据', async () =
     opts,
   );
   await expect(broken.listAll()).rejects.toThrow('malformed');
+});
+
+it.each([false, true])('群消息历史称呼与旧表兼容（有历史字段 %s）', async (hasNames) => {
+  const { sql, nt, opts } = fixture();
+  sql.exec(`CREATE TABLE group_msg_table (
+    "40001" INTEGER PRIMARY KEY, "40002" INTEGER, "40003" INTEGER, "40011" INTEGER,
+    "40012" INTEGER, "40020" TEXT, "40027" TEXT, "40033" INTEGER,
+    "40050" INTEGER, "40062" BLOB, "40800" BLOB, "40801" BLOB
+    ${hasNames ? ', "40090" TEXT, "40093" TEXT' : ''});
+    INSERT INTO group_msg_table VALUES (9007199254740993,0,0,2,0,'u_a','777',11111,10,NULL,NULL,NULL
+      ${hasNames ? ",' 旧称呼 ',NULL" : ''});`);
+  if (hasNames)
+    sql.exec(`INSERT INTO group_msg_table VALUES
+    (9007199254740994,0,2,2,0,'u_a','777',11111,20,NULL,NULL,NULL,'旧称呼',NULL),
+    (9007199254740995,0,3,2,0,'u_a','777',11111,22,NULL,NULL,NULL,'','旧昵称'),
+    (9007199254740996,0,4,2,0,'u_b','777',22222,21,NULL,NULL,NULL,'旧称呼',NULL),
+    (9007199254740997,0,5,2,0,'u_a','888',11111,24,NULL,NULL,NULL,'另一个群的称呼',NULL),
+    (9007199254740998,0,6,5,0,'u_a','777',11111,25,NULL,NULL,NULL,'灰条上的名字',NULL);`);
+  const statements: string[] = [];
+  const db = new GroupMsgDb(
+    {
+      ...nt,
+      async executeSql(...args) {
+        statements.push(args[1]);
+        return nt.executeSql(...args);
+      },
+    },
+    opts,
+  );
+  try {
+    expect((await db.listByMsgIds([9007199254740993n]))[0]?.senderAtTime).toBeUndefined();
+    await db.listNewestHistory('777', 10);
+    await db.browse('777', {});
+    await db.exportSourceRows('777', ['9007199254740993'], false);
+    expect(statements.length).toBeGreaterThan(0);
+    expect(statements.every((sql) => !/40090|40093|pragma_table_info/.test(sql))).toBe(true);
+    expect(await db.recordedSenderNames('777', ['9007199254740993'])).toEqual(
+      hasNames ? [{ msgId: '9007199254740993', sender: { name: '旧称呼', kind: 'display' } }] : [],
+    );
+    expect(await db.recordedSenderNames('888', ['9007199254740993'])).toEqual([]);
+    const matches = await db.senderNames({
+      groupCode: '777',
+      keyword: '旧称呼',
+      limit: 10,
+      distinctSenders: true,
+    });
+    if (!hasNames) {
+      expect(matches).toEqual([]);
+      expect((await db.browse('777', {}))[0]?.message.senderAtTime).toBeUndefined();
+      return;
+    }
+    expect(matches.map((row) => row.senderUid)).toEqual(['u_b', 'u_a']);
+    expect(matches[1]).toMatchObject({
+      first: { msgId: '9007199254740993', msgSeq: '0' },
+      last: { msgId: '9007199254740994', msgSeq: '2' },
+    });
+    const aliases = await db.senderNames({ senderUid: 'u_a', limit: 10 });
+    expect(aliases.map(({ groupCode, kind, name }) => [groupCode, kind, name])).toEqual([
+      ['888', 'display', '另一个群的称呼'],
+      ['777', 'nickname', '旧昵称'],
+      ['777', 'display', '旧称呼'],
+    ]);
+    const exported = await withRecordedGroupSenderNames(() =>
+      db.exportSourceRows('777', ['9007199254740995'], false),
+    );
+    expect(exported[0]?.message.senderAtTime).toEqual({ name: '旧昵称', kind: 'nickname' });
+    const [regular, historical] = await Promise.all([
+      db.listAfter('777', 1n),
+      withRecordedGroupSenderNames(() => db.listAfter('777', 1n)),
+    ]);
+    expect(regular.every((row) => row.senderAtTime === undefined)).toBe(true);
+    expect(historical[0]?.senderAtTime?.name).toBe('旧称呼');
+  } finally {
+    db.close();
+  }
+});
+
+it.each([true, false])(
+  '私聊按原消息读取历史昵称，兼容缺列的备份（昵称列 %s）',
+  async (hasNickname) => {
+    const { sql, nt, opts } = fixture();
+    sql.exec(`CREATE TABLE c2c_msg_table (
+    "40001" INTEGER PRIMARY KEY, "40021" TEXT, "40090" TEXT${hasNickname ? ', "40093" TEXT' : ''});
+    INSERT INTO c2c_msg_table ("40001","40021","40090") VALUES
+      (9007199254740993,'u_peer','另一种名称'),
+      (9007199254740994,'u_peer','另一种名称'),
+      (9007199254740995,'u_other','另一种名称'),
+      (9007199254740996,'u_peer','另一种名称');`);
+    if (hasNickname) {
+      sql.exec(`UPDATE c2c_msg_table SET "40093" = ' 旧昵称 ' WHERE "40001"=9007199254740993;
+      UPDATE c2c_msg_table SET "40093" = '   ' WHERE "40001"=9007199254740994;
+      UPDATE c2c_msg_table SET "40093" = '另一个会话的昵称' WHERE "40001"=9007199254740995;`);
+    }
+    const db = new C2cMsgDb(nt, opts);
+    try {
+      expect(
+        await db.recordedSenderNames('u_peer', [
+          '9007199254740993',
+          '9007199254740994',
+          '9007199254740995',
+          '9007199254740996',
+        ]),
+      ).toEqual(
+        hasNickname
+          ? [{ msgId: '9007199254740993', sender: { name: '旧昵称', kind: 'nickname' } }]
+          : [],
+      );
+    } finally {
+      db.close();
+    }
+  },
+);
+
+it('历史称呼索引先返回可用结果，索引可以复用并接续新增消息', async () => {
+  const { sql, nt, opts } = fixture();
+  sql.exec(`CREATE TABLE group_msg_table (
+    "40001" INTEGER PRIMARY KEY, "40003" INTEGER, "40011" INTEGER,
+    "40020" TEXT, "40027" TEXT, "40033" INTEGER, "40050" INTEGER, "40090" TEXT, "40093" TEXT);
+    INSERT INTO group_msg_table VALUES (1,1,2,'u_speaker','777',10001,10,'旧称呼',NULL);`);
+  let indexPathReads = 0;
+  const config = {
+    ...opts,
+    senderNameIndexPath: () => {
+      indexPathReads++;
+      return opts.dbPath + '.names.sqlite';
+    },
+  };
+  const filter = { keyword: '称呼', distinctSenders: true, limit: 10 };
+  const first = new GroupMsgDb(nt, config);
+  try {
+    expect(await first.senderNames({ ...filter, groupCode: '777' })).toMatchObject([
+      { name: '旧称呼' },
+    ]);
+    expect(indexPathReads).toBe(0);
+    const reader = new AbortController();
+    const request = first.senderNames({ ...filter, signal: reader.signal });
+    reader.abort();
+    await expect(request).resolves.toEqual([]);
+    await expect.poll(() => first.senderNamesPending).toBe(false);
+    expect(await first.senderNames(filter)).toEqual([]);
+    expect(first.senderNamesPending).toBe(true);
+    await expect.poll(() => first.senderNamesPending).toBe(false);
+    expect(await first.senderNames(filter)).toMatchObject([
+      { name: '旧称呼', last: { msgId: '1' } },
+    ]);
+  } finally {
+    first.close();
+  }
+  fixtureDb(opts.dbPath).exec(
+    `INSERT INTO group_msg_table VALUES (2,2,2,'u_speaker','777',10001,20,'新称呼',NULL)`,
+  );
+  const reopened = new GroupMsgDb(nt, config);
+  try {
+    expect(await reopened.senderNames(filter)).toMatchObject([{ name: '旧称呼' }]);
+    await expect.poll(async () => (await reopened.senderNames(filter))[0]?.name).toBe('新称呼');
+    expect(await reopened.senderNames({ senderUid: 'u_speaker', limit: 10 })).toMatchObject([
+      { name: '新称呼' },
+      { name: '旧称呼' },
+    ]);
+  } finally {
+    reopened.close();
+  }
 });

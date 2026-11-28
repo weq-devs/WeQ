@@ -85,6 +85,7 @@ const GroupMemberRow = memo(function GroupMemberRow({
         member.role === 'admin' && 'is-admin',
       )}
       role={events.open ? 'button' : undefined}
+      data-weq-force-click={events.open ? 'profile' : undefined}
       tabIndex={events.open ? 0 : undefined}
       title={events.open ? `查看 ${displayUserName(member)} 的资料` : undefined}
       aria-label={events.open ? `查看 ${displayUserName(member)} 的资料` : undefined}

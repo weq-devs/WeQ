@@ -11,6 +11,7 @@ export { C2cMsgDb, CONVERSATION_GAP_SECONDS } from './c2c';
 export type { C2cMsgDbOptions, C2cPartition } from './c2c';
 
 export { GroupMsgDb } from './group';
+export { withRecordedGroupSenderNames } from './group_sender_history';
 export { isSenderUid } from './group';
 export type { GroupMsgDbOptions } from './group';
 

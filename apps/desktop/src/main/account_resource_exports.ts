@@ -441,7 +441,7 @@ export async function exportGroupAlbums(
     signal: AbortSignal;
     progress(current: number, total: number): void;
     folder?: string;
-  },
+  } & Pick<ResourceExportRunContext, 'transferProgress' | 'transferItemFinished'>,
 ): Promise<AlbumExportResult> {
   requireFreshClientKeyForAlbum(services);
   const work: AlbumDownloadWork[] = [];
@@ -490,9 +490,14 @@ export async function exportGroupAlbums(
     work,
     input.concurrency ?? 4,
     async (item) => {
+      const target = albumMediaTransferTarget(input.groupCode, item.albumId, item.fileName);
+      let success = false;
       try {
         await mkdir(dirname(item.targetPath), { recursive: true });
-        await downloadAlbumUrl(item.url, item.targetPath, context?.signal);
+        await downloadAlbumUrl(item.url, item.targetPath, context?.signal, (received, total) =>
+          context?.transferProgress?.(received, total || undefined, target),
+        );
+        success = true;
         ok += 1;
       } catch (e) {
         context?.signal.throwIfAborted();
@@ -503,6 +508,8 @@ export async function exportGroupAlbums(
           url: item.url,
           error: e instanceof Error ? e.message : String(e),
         });
+      } finally {
+        context?.transferItemFinished?.(target, success);
       }
       context?.progress(ok + failed.length, work.length + missing);
     },
@@ -1039,7 +1046,13 @@ export async function runResumableAlbumResource(
                 albums: selection,
                 concurrency: request.type === 'group-albums' ? request.concurrency : undefined,
               },
-              { signal, progress, folder: fixedFolder },
+              {
+                signal,
+                progress,
+                folder: fixedFolder,
+                transferProgress: context.transferProgress,
+                transferItemFinished: context.transferItemFinished,
+              },
             )
           : await exportSelectedQzoneAlbums(
               services,

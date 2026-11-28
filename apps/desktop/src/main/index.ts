@@ -94,6 +94,7 @@ import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { windowControlsStyle, type WindowControlsStyle } from '../shared/window_controls';
 import { installWindowChrome, publishWindowChrome, registerWindowChromeIpc } from './window_chrome';
+import { installMacForceClick } from './force_click';
 import {
   registerWindowControlsRefresh,
   registerWindowControlsPreference,
@@ -911,6 +912,11 @@ function createWindow(
   updateMainWindowControls(win, layout);
 
   installWindowChrome(win, () => windowStyles.get(win) ?? 'windows');
+  installMacForceClick(
+    win,
+    app.isPackaged ? join(process.resourcesPath, 'out/main') : moduleDir,
+    (error) => logger.warn('触控板重按初始化失败', { error: String(error) }),
+  );
 
   const recovery = createRendererRecovery({
     automatic: true,

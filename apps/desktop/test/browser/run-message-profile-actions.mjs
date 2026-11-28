@@ -56,7 +56,11 @@ try {
           name: '群资料',
           exact: true,
         });
-        await profile.getByRole('button', { name: '查看消息', exact: true }).waitFor();
+        const openChat = profile.getByRole('button', {
+          name: popover ? '查看消息' : '打开会话',
+          exact: true,
+        });
+        await openChat.waitFor();
         await profile.getByRole('button', { name: '预览消息', exact: true }).click();
         await profile.getByRole('button', { name: '返回资料', exact: true }).waitFor();
         assert.equal(await profile.locator('[aria-label="合成群详情"]').count(), 0);
@@ -65,7 +69,7 @@ try {
         const preview = await profile.locator('.weq-contact-chat-preview').boundingBox();
         assert(preview && preview.height > 100 && preview.y + preview.height <= 845);
         if (!popover) {
-          assert.equal(await profile.locator('.weq-profile-page-header').count(), 0);
+          assert.equal(await profile.locator('.weq-profile-page-header').isVisible(), false);
           assert(
             Math.abs(bounds.height - preview.height) <= 1 && Math.abs(bounds.y - preview.y) <= 1,
           );
@@ -89,11 +93,11 @@ try {
             ),
           });
         await member.getByRole('button', { name: '关闭', exact: true }).click();
-        assert.equal(await member.count(), 0);
+        await member.waitFor({ state: 'hidden' });
         assert.equal(await scroll.evaluate((element) => element.scrollTop), scrollTop);
         await profile.getByRole('button', { name: '返回资料', exact: true }).click();
         assert.equal(await profile.locator('.weq-contact-chat-preview').count(), 0);
-        await profile.getByRole('button', { name: '查看消息', exact: true }).click();
+        await openChat.click();
         await page.getByText('已查看群消息', { exact: true }).waitFor();
         cases++;
       }

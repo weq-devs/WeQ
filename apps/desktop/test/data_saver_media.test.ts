@@ -125,6 +125,12 @@ it('省流量不自动联网时仍可凭内容哈希读取此前已发的图片'
   const response = await handleMediaRequest(new Request(url));
   expect(response.status).toBe(200);
   expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+
+  state.thumb = join(root, 'qq-thumbnail.png');
+  await writeFile(state.thumb, await sharp(bytes).resize(1, 1).png().toBuffer());
+  const cachedOriginal = await handleMediaRequest(new Request(`${url}&v=original&localOnly=1`));
+  expect(cachedOriginal.status).toBe(200);
+  expect(Buffer.from(await cachedOriginal.arrayBuffer())).toEqual(bytes);
   expect(fetch).not.toHaveBeenCalled();
 });
 it('选择自动原图时使用完整在线下载链路，不再强制仅小图', async () => {

@@ -16,6 +16,7 @@ import {
   type GroupMemberOrderValue,
   type GroupMemberOnlineSort,
   type GroupMemberSort,
+  type GroupMemberSortView,
 } from '../../shared/group_member_order';
 import {
   birthReference,
@@ -249,6 +250,8 @@ const pendingTasks = new WeakMap<AccountServices, Map<string, string>>();
 const groupMemberOrderRequest = z.object({
   groupCode: z.string().regex(/^[1-9]\d{0,9}$/),
   sort: z.enum(GROUP_MEMBER_ONLINE_SORTS),
+  descending: z.boolean().optional(),
+  prioritizeAdmins: z.boolean().optional(),
 });
 
 export function retryGroupMemberOrderTask(
@@ -256,7 +259,7 @@ export function retryGroupMemberOrderTask(
   scope: { uin: string; configId?: string },
   raw: unknown,
 ) {
-  const { groupCode, sort } = groupMemberOrderRequest.parse(raw);
+  const { groupCode, sort, ...order } = groupMemberOrderRequest.parse(raw);
   const { account, services } = getAppContext();
   const configId = scope.configId;
   const checkAccount = () => {
@@ -282,6 +285,7 @@ export function retryGroupMemberOrderTask(
     checkAccount,
     undefined,
     id,
+    order,
   );
 }
 
@@ -293,6 +297,7 @@ export function startGroupMemberOrderTask(
   checkAccount: () => void,
   pageId?: string,
   existingId?: string,
+  order?: GroupMemberSortView,
 ) {
   const directory = services.contactDirectory;
   if (!directory) throw new Error('好友/群信息缓存尚未就绪');
@@ -313,10 +318,11 @@ export function startGroupMemberOrderTask(
       name: `读取群 ${groupCode} 成员的${GROUP_MEMBER_SORTS[sort]}`,
       kind: 'contacts',
       scope,
+      groupMemberOrder: { groupCode, sort, ...order },
       foreground,
       statusLabel: '读取成员名单',
     });
-  const request = { groupCode, sort };
+  const request = { groupCode, sort, ...order };
   const archiveRoot = getAppContext().platform?.appDataRoot?.();
   const save = recordAccountTask(taskId, scope, request);
   const retry = {

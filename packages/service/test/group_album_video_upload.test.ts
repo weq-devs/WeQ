@@ -65,10 +65,17 @@ describe('群相册视频分片与封面关联', () => {
     try {
       const path = join(dir, 'video.mp4');
       await writeFile(path, video(size));
-      expect(await uploadGroupAlbumVideo(cred, params(path))).toEqual({
+      const onVideoProgress = vi.fn();
+      expect(await uploadGroupAlbumVideo(cred, { ...params(path), onVideoProgress })).toEqual({
         videoId: 'synthetic-video-id',
       });
       expect(uploadOffset).toBe(size);
+      expect(onVideoProgress.mock.calls).toEqual([
+        [0, size],
+        [1024 * 1024, size],
+        [2 * 1024 * 1024, size],
+        [size, size],
+      ]);
       const last = (bodies.at(-1)!.control_req as Array<Record<string, unknown>>)[0]!;
       expect(last.biz_req).toMatchObject({
         sAlbumID: 'synthetic-album',

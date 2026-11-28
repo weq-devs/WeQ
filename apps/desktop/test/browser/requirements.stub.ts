@@ -1,26 +1,9 @@
-import { useState, useSyncExternalStore } from 'react';
-const listeners = new Set<() => void>();
-const values: Record<string, unknown> = { messageNotifications: false, applicationBadge: true };
-let tick = 0;
-export const PREFERENCES_CHANGED = 'test-preferences';
-export const preferenceValue = (key: string) => values[key];
-export function useClientPreferences() {
-  return useSyncExternalStore(
-    (fn) => {
-      listeners.add(fn);
-      return () => {
-        listeners.delete(fn);
-      };
-    },
-    () => tick,
-  );
-}
-export async function changePreference(key: string, value: unknown) {
-  values[key] = value;
-  tick++;
-  for (const fn of listeners) fn();
-  return true;
-}
+import { useState } from 'react';
+let preferences = {
+  revision: 0,
+  values: { messageNotifications: false, applicationBadge: true },
+  records: {},
+};
 export const accountBinding = () => ({
   expectedAccountUin: '10001',
   expectedAccountConfigId: 'fixture',
@@ -104,7 +87,15 @@ const proxy = (path = ''): unknown =>
           refetch: async () => ({ data: undefined }),
         });
       if (key === 'mutate')
-        return async (input: unknown) => {
+        return async (input: Record<string, unknown>) => {
+          if (path.endsWith('.clientState.patch')) {
+            preferences = {
+              ...preferences,
+              revision: preferences.revision + 1,
+              values: { ...preferences.values, ...input },
+            };
+            return preferences;
+          }
           if (path.endsWith('.startAlbumReferenceExport')) qa.exports.push(input);
           return 'task-fixture';
         };

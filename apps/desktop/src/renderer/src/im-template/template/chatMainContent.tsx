@@ -126,6 +126,8 @@ export function ChatMainContent({
   onOpenGapMessages,
   onLoadSelectionMessages,
   onSearchChatRecords,
+  searchQuote,
+  onSearchQuoteHandled,
   onOpenRoamingBackfill,
   deletedIds,
   hiddenDeletedIds,
@@ -223,6 +225,8 @@ export function ChatMainContent({
   | 'onOpenGapMessages'
   | 'onLoadSelectionMessages'
   | 'onSearchChatRecords'
+  | 'searchQuote'
+  | 'onSearchQuoteHandled'
   | 'onOpenRoamingBackfill'
   | 'deletedIds'
   | 'hiddenDeletedIds'
@@ -440,6 +444,8 @@ export function ChatMainContent({
       onOpenGapMessages={onOpenGapMessages}
       onLoadSelectionMessages={onLoadSelectionMessages}
       onSearchChatRecords={onSearchChatRecords}
+      searchQuote={searchQuote}
+      onSearchQuoteHandled={onSearchQuoteHandled}
       onOpenRoamingBackfill={onOpenRoamingBackfill}
       deletedIds={deletedIds}
       hiddenDeletedIds={hiddenDeletedIds}

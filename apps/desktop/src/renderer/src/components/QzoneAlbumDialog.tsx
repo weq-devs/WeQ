@@ -1,7 +1,9 @@
 import { ToolbarLabel } from './CompactToolbar';
 import { observeCompactToolbar } from './CompactToolbar.shared';
-import { usePageDataCache } from './PageSnapshots.shared';
-import { PageDataCache } from '../lib/pageDataCache';
+import { usePageDataCache, usePageState } from './PageSnapshots.shared';
+import { PageScrollSnapshot } from './PageScrollSnapshot';
+import { pageValue } from '../lib/pageSnapshots';
+import { isRecentPageRead, PageDataCache } from '../lib/pageDataCache';
 import { NumericText } from './NumericText';
 /**
  * QzoneAlbumDialog — 左栏「更多功能 → 空间相册」查看器（大灯箱卡片）。
@@ -28,6 +30,8 @@ import {
   useEffect,
   useRef,
   useState,
+  type Dispatch,
+  type PointerEvent,
   type ReactElement,
   type ReactNode,
   type SetStateAction,
@@ -62,6 +66,7 @@ import { useDebouncedLoading } from '../hooks/useDebouncedLoading';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { useMultiSelection } from '../hooks/useMultiSelection';
+import { useAlbumGridMarquee } from '../hooks/useAlbumGridMarquee';
 import { QzonePageButton } from '../views/QzonePagination';
 import { hasNewQzoneItems, useQzoneRefreshRequest } from '../views/qzoneRefresh';
 import { QZONE_ALBUM_PAGE_SIZE as PAGE_NUM } from '../../../shared/qzone_album_export';
@@ -327,8 +332,108 @@ export function QzoneAlbumDestination({
   );
 }
 
-export function QzoneAlbumDialog({
-  open,
+type QzoneAlbumDialogProps = {
+  open: boolean;
+  onClose: () => void;
+  hostUin: string;
+  selfUin: string;
+  embedded?: boolean;
+  active?: boolean;
+  refreshKey?: number;
+  albumTarget?: QzoneAlbumRequest;
+  presentation?: 'page' | 'panel';
+  onJumpToAlbum?: (name: string) => void;
+};
+
+type AlbumListSnapshot = {
+  albums: QzoneAlbumWire[];
+  nextOffset: number | null;
+  total: number | null;
+  pages: number[];
+  checkedAt: number;
+};
+type AlbumMediaSnapshot = AlbumMediaPage & { pages: number[]; checkedAt: number };
+
+type AlbumPage<T> = {
+  items: T[];
+  nextOffset: number | null;
+  total: number | null;
+  warning?: string | null;
+};
+
+/** 首页衔接未变时沿用旧分页，变化时重验已浏览的范围及继续加载的位置。 */
+async function revalidateAlbumPages<T>(
+  readPage: (offset: number) => Promise<AlbumPage<T>>,
+  key: (item: T) => string,
+  previous?: AlbumPage<T> & { pages: number[] },
+) {
+  const first = await readPage(0);
+  if (previous && first.warning) throw new Error(first.warning);
+  const pages = [0];
+  if (!previous || previous.pages.length < 2) return { ...first, pages };
+  let { items, total, nextOffset } = first;
+  if (
+    total === previous.total &&
+    nextOffset === previous.pages[1] &&
+    items.length === nextOffset &&
+    items.every((item, index) => {
+      const old = previous.items[index];
+      return old !== undefined && key(item) === key(old);
+    })
+  )
+    return {
+      ...first,
+      items: [...items, ...previous.items.slice(items.length)],
+      nextOffset: previous.nextOffset,
+      pages: previous.pages,
+    };
+
+  const known = new Set(items.map(key));
+  while (pages.length < previous.pages.length && nextOffset !== null) {
+    const offset = nextOffset;
+    const page = await readPage(offset);
+    if (
+      page.warning ||
+      !page.items.length ||
+      (total !== null && page.total !== null && page.total !== total) ||
+      (page.nextOffset !== null && page.nextOffset <= offset) ||
+      page.items.some((item) => known.has(key(item)))
+    )
+      throw new Error(page.warning || '相册目录已变化，请重试。');
+    for (const item of page.items) known.add(key(item));
+    pages.push(offset);
+    items = [...items, ...page.items];
+    nextOffset = page.nextOffset;
+    total = page.total ?? total;
+  }
+  return { ...first, items, nextOffset, total, pages };
+}
+
+function mediaPage(photos: QzoneAlbumPhotoWire[], total: number, offset = 0) {
+  const end = offset + photos.length;
+  return { items: photos, total, nextOffset: end < total ? end : null };
+}
+
+function readAlbumMedia(hostUin: string, topicId: string, signal?: AbortSignal) {
+  return async (pageStart: number) => {
+    signal?.throwIfAborted();
+    const page = await client.account.qzoneAlbumMedia.query(
+      { hostUin, topicId, pageStart, pageNum: PAGE_NUM },
+      { signal },
+    );
+    signal?.throwIfAborted();
+    if (!page || !Array.isArray(page.photos)) throw new Error('未取得相册媒体列表。');
+    return mediaPage(page.photos, page.totalInAlbum, pageStart);
+  };
+}
+
+export function QzoneAlbumDialog({ open, ...props }: QzoneAlbumDialogProps): ReactElement | null {
+  return open ? (
+    <OpenQzoneAlbumDialog key={JSON.stringify([props.selfUin, props.hostUin])} {...props} />
+  ) : null;
+}
+
+function OpenQzoneAlbumDialog({
   onClose,
   hostUin,
   selfUin,
@@ -338,87 +443,147 @@ export function QzoneAlbumDialog({
   albumTarget,
   presentation = 'page',
   onJumpToAlbum,
-}: {
-  open: boolean;
-  onClose: () => void;
-  /** 当前账号的 QQ 号（自己空间的相册）。 */
-  hostUin: string;
-  selfUin: string;
-  embedded?: boolean;
-  active?: boolean;
-  refreshKey?: number;
-  albumTarget?: QzoneAlbumRequest;
-  presentation?: 'page' | 'panel';
-  onJumpToAlbum?: (name: string) => void;
-}): ReactElement | null {
+}: Omit<QzoneAlbumDialogProps, 'open'>): ReactElement {
   const titleId = useId();
-  const activity = useQQReadActivity(open && requestedActive);
+  const activity = useQQReadActivity(requestedActive);
   const active = activity.enabled;
   const refreshKey = requestedRefreshKey + activity.revision;
+  const [fallbackCache] = useState(() => new PageDataCache());
+  const pageCache = usePageDataCache(fallbackCache);
+  const listKey = JSON.stringify(['qzone-albums', selfUin, hostUin]);
+  const [cachedList] = useState(() => pageCache.read<AlbumListSnapshot>(listKey));
+  const listCheckedAt = useRef(cachedList?.checkedAt ?? 0);
   const [access, setAccess] = useState<{
     qqOnline: boolean;
     attachEnabled: boolean;
   } | null>(null);
-  const [albums, setAlbums] = useState<QzoneAlbumWire[] | null>(null);
+  const [albums, setAlbums] = useState<QzoneAlbumWire[] | null>(cachedList?.albums ?? null);
   const [albumsLoading, setAlbumsLoading] = useState(false);
   const [albumsError, setAlbumsError] = useState<string | null>(null);
-  const [albumNext, setAlbumNext] = useState<number | null>(null);
-  const [albumTotal, setAlbumTotal] = useState<number | null>(null);
-  const albumPages = useRef(new Set<number>());
+  const [albumNext, setAlbumNext] = useState<number | null>(cachedList?.nextOffset ?? null);
+  const [albumTotal, setAlbumTotal] = useState<number | null>(cachedList?.total ?? null);
+  const albumPages = useRef(new Set(cachedList?.pages));
   const albumLoaded = useRef(false);
   const [albumRetry, setAlbumRetry] = useState(0);
   const albumPageLock = useRef<AbortController | null>(null);
   const albumSentinel = useRef<HTMLDivElement>(null);
   const { run: runAlbums, cancel: cancelAlbums } = useQzoneRequests();
   /** 选中的相册：null = 相册列表页。 */
-  const [selected, setSelected] = useState<QzoneAlbumWire | null>(null);
+  const [lastAlbumId, setLastAlbumId] = usePageState<string | null>(
+    `${listKey}:selected`,
+    null,
+    pageValue.optionalString,
+    false,
+    !albumTarget,
+  );
+  const [restoredAlbum] = useState(
+    () => cachedList?.albums.find((album) => album.id === lastAlbumId) ?? null,
+  );
+  const [selected, setSelected] = useState<QzoneAlbumWire | null>(restoredAlbum);
   const refreshRequest = useQzoneRefreshRequest(
     embedded && active && access?.qqOnline === true,
     selected?.id,
   );
-  const [media, setMedia] = useState<QzoneAlbumPhotoWire[]>([]);
-  const [hasMedia, setHasMedia] = useState(false);
-  const [mediaCache] = useState(() => new PageDataCache());
-  const pageCache = usePageDataCache(mediaCache);
-  const [mediaTotal, setMediaTotal] = useState(0);
+  const mediaKey = useCallback(
+    (id: string) => JSON.stringify(['qzone-album-media', selfUin, hostUin, id]),
+    [selfUin, hostUin],
+  );
+  const [cachedMedia] = useState(() =>
+    restoredAlbum ? pageCache.read<AlbumMediaSnapshot>(mediaKey(restoredAlbum.id)) : undefined,
+  );
+  const [media, setMedia] = useState<QzoneAlbumPhotoWire[]>(cachedMedia?.photos ?? []);
+  const [hasMedia, setHasMedia] = useState(Boolean(cachedMedia));
+  const [mediaTotal, setMediaTotal] = useState(cachedMedia?.totalInAlbum ?? 0);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [mediaLoadingMore, setMediaLoadingMore] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const runRef = useRef(0);
+  const mediaRead = useRef<AbortController | null>(null);
+  const pendingMedia = useRef(Boolean(restoredAlbum));
   const lastRefresh = useRef(refreshKey);
   const [refreshing, setRefreshing] = useState(false);
   /** 与 media 同步的下一页偏移：哨兵回调持旧闭包时也拿得到正确 pageStart。 */
-  const mediaLenRef = useRef(0);
-  const mediaPages = useRef(new Set<number>());
+  const mediaLenRef = useRef(cachedMedia?.photos.length ?? 0);
+  const mediaPages = useRef(new Set(cachedMedia?.pages));
+  const mediaCheckedAt = useRef(cachedMedia?.checkedAt ?? 0);
+  const readAlbumPage = useCallback(
+    async (offset: number, signal?: AbortSignal): Promise<AlbumPage<QzoneAlbumWire>> => {
+      const page = await runAlbums(
+        (requestId) =>
+          client.account.qzone.albumPage.query({ selfUin, hostUin, requestId, offset }),
+        false,
+        signal,
+      );
+      signal?.throwIfAborted();
+      return { ...page, items: page.albums };
+    },
+    [selfUin, hostUin, runAlbums],
+  );
+
+  useEffect(() => {
+    if (albums && albumPages.current.size)
+      pageCache.write(listKey, {
+        albums,
+        nextOffset: albumNext,
+        total: albumTotal,
+        pages: [...albumPages.current],
+        checkedAt: listCheckedAt.current,
+      } satisfies AlbumListSnapshot);
+  }, [albums, albumNext, albumTotal, listKey, pageCache]);
+
+  useEffect(() => {
+    if (selected && hasMedia)
+      pageCache.write(mediaKey(selected.id), {
+        photos: media,
+        totalInAlbum: mediaTotal,
+        pages: [...mediaPages.current],
+        checkedAt: mediaCheckedAt.current,
+      } satisfies AlbumMediaSnapshot);
+  }, [selected, hasMedia, media, mediaTotal, mediaKey, pageCache]);
 
   /** 打开某相册：拉第一页媒体。 */
   const openAlbum = useCallback(
     (album: QzoneAlbumWire) => {
       const run = ++runRef.current;
+      mediaRead.current?.abort();
+      mediaRead.current = null;
+      pendingMedia.current = true;
       setSelected(album);
-      const key = JSON.stringify(['qzone-album-media', selfUin, hostUin, album.id]);
-      const cached = pageCache.read<AlbumMediaPage>(key);
+      setLastAlbumId(album.id);
+      const cached = pageCache.read<AlbumMediaSnapshot>(mediaKey(album.id));
       mediaLenRef.current = cached?.photos.length ?? 0;
-      mediaPages.current = new Set(cached ? [0] : []);
+      mediaPages.current = new Set(cached?.pages);
+      mediaCheckedAt.current = cached?.checkedAt ?? 0;
       setMediaLoadingMore(false);
       setHasMedia(Boolean(cached));
       setMedia(cached?.photos ?? []);
       setMediaTotal(cached?.totalInAlbum ?? 0);
       setMediaError(null);
+      setMediaLoading(false);
+      if (!active || !access?.qqOnline) return;
+      lastRefresh.current = refreshKey;
+      if (cached && isRecentPageRead(cached.checkedAt)) {
+        pendingMedia.current = false;
+        return;
+      }
+      const controller = new AbortController();
+      mediaRead.current = controller;
       setMediaLoading(true);
-      void client.account.qzoneAlbumMedia
-        .query({ hostUin, topicId: album.id, pageStart: 0, pageNum: PAGE_NUM })
-        .then((res) => {
+      void revalidateAlbumPages(
+        readAlbumMedia(hostUin, album.id, controller.signal),
+        photoKey,
+        cached
+          ? { ...mediaPage(cached.photos, cached.totalInAlbum), pages: cached.pages }
+          : undefined,
+      )
+        .then(({ items, total, pages }) => {
           if (run !== runRef.current) return;
-          const page = res as AlbumMediaPage | null;
-          if (!page || !Array.isArray(page.photos)) throw new Error('未取得相册媒体列表。');
-          const photos = page.photos;
-          pageCache.write(key, page);
           setHasMedia(true);
-          mediaPages.current.add(0);
-          mediaLenRef.current = photos.length;
-          setMedia(photos);
-          setMediaTotal(Number(page?.totalInAlbum ?? 0));
+          mediaCheckedAt.current = Date.now();
+          mediaPages.current = new Set(pages);
+          mediaLenRef.current = items.length;
+          setMedia(items);
+          setMediaTotal(total ?? items.length);
         })
         .catch((e: unknown) => {
           if (run !== runRef.current) return;
@@ -426,33 +591,18 @@ export function QzoneAlbumDialog({
         })
         .finally(() => {
           if (run !== runRef.current) return;
+          mediaRead.current = null;
+          pendingMedia.current = false;
           setMediaLoading(false);
         });
     },
-    [selfUin, hostUin, pageCache],
+    [active, access, hostUin, mediaKey, pageCache, refreshKey, setLastAlbumId],
   );
 
   useEffect(() => {
-    if (!open) return;
-    runRef.current++;
-    setAccess(null);
-    setAlbums(null);
-    setAlbumNext(null);
-    setAlbumTotal(null);
-    albumPages.current.clear();
-    albumLoaded.current = false;
-    setSelected(null);
-    setMedia([]);
-    setMediaTotal(0);
-    setMediaLoading(false);
-    setMediaLoadingMore(false);
-    setMediaError(null);
-    setAlbumsError(null);
-    setAlbumsLoading(false);
-    return () => {
-      runRef.current += 1;
-    };
-  }, [open, selfUin, hostUin]);
+    if (active && access?.qqOnline && selected && pendingMedia.current && !mediaRead.current)
+      openAlbum(selected);
+  }, [active, access?.qqOnline, selected, openAlbum]);
 
   // Remote 可能先挂载页面再允许读取，在线检查和相册首页须一起暂停、恢复。
   useEffect(() => {
@@ -470,16 +620,23 @@ export function QzoneAlbumDialog({
       if (signal.aborted) return;
       setAccess({ qqOnline, attachEnabled });
       if (!qqOnline) return;
-      const page = await runAlbums((requestId) =>
-        client.account.qzone.albumPage.query({ selfUin, hostUin, requestId, offset: 0 }),
+      if (albumRetry === 0 && cachedList && isRecentPageRead(cachedList.checkedAt)) {
+        albumLoaded.current = true;
+        return;
+      }
+      const page = await revalidateAlbumPages(
+        (offset) => readAlbumPage(offset, signal),
+        (album) => album.id,
+        cachedList ? { ...cachedList, items: cachedList.albums } : undefined,
       );
-      if (signal.aborted) return;
-      setAlbums(page.albums);
+      signal.throwIfAborted();
+      setAlbums(page.items);
       albumLoaded.current = true;
+      listCheckedAt.current = page.warning ? 0 : Date.now();
       setAlbumNext(page.nextOffset);
       setAlbumTotal(page.total);
-      setAlbumsError(page.warning);
-      albumPages.current.add(0);
+      setAlbumsError(page.warning ?? null);
+      albumPages.current = new Set(page.pages);
     })()
       .catch((e: unknown) => {
         if (signal.aborted) return;
@@ -493,15 +650,20 @@ export function QzoneAlbumDialog({
       controller.abort();
       cancelAlbums();
     };
-  }, [active, selfUin, hostUin, albumRetry, runAlbums, cancelAlbums]);
+  }, [active, albumRetry, cachedList, readAlbumPage, cancelAlbums]);
 
   useEffect(() => {
     if (!active) {
       runRef.current++;
       cancelAlbums();
       setAlbumsLoading(false);
+      setMediaLoading(false);
+      setMediaLoadingMore(false);
     }
     return () => {
+      runRef.current++;
+      mediaRead.current?.abort();
+      mediaRead.current = null;
       albumPageLock.current?.abort();
       albumPageLock.current = null;
       cancelAlbums();
@@ -509,7 +671,15 @@ export function QzoneAlbumDialog({
   }, [active, selfUin, hostUin, cancelAlbums]);
 
   const loadAlbumPage = useCallback(async () => {
-    if (albumNext === null || albumPageLock.current || albumsLoading || !active) return;
+    if (
+      albumNext === null ||
+      albumPageLock.current ||
+      albumsLoading ||
+      refreshing ||
+      !active ||
+      !access?.qqOnline
+    )
+      return;
     if (albumPages.current.has(albumNext) || albumPages.current.size >= 200) {
       setAlbumsError('相册分页未前进或达到本轮上限。');
       setAlbumNext(null);
@@ -563,18 +733,29 @@ export function QzoneAlbumDialog({
         setAlbumsLoading(false);
       }
     }
-  }, [albumNext, albumsLoading, active, selfUin, hostUin, albums, albumTotal, runAlbums]);
+  }, [
+    albumNext,
+    albumsLoading,
+    refreshing,
+    active,
+    access?.qqOnline,
+    selfUin,
+    hostUin,
+    albums,
+    albumTotal,
+    runAlbums,
+  ]);
 
   useEffect(() => {
     const element = albumSentinel.current;
     if (
       !element ||
-      !open ||
       !active ||
       selected ||
       albumNext === null ||
       albumsError ||
-      albumsLoading
+      albumsLoading ||
+      !access?.qqOnline
     )
       return undefined;
     const observer = new IntersectionObserver(
@@ -585,18 +766,17 @@ export function QzoneAlbumDialog({
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, [open, active, selected, albumNext, albumsError, albumsLoading, loadAlbumPage]);
+  }, [active, access?.qqOnline, selected, albumNext, albumsError, albumsLoading, loadAlbumPage]);
 
   const openedTarget = useRef<string | null>(null);
   useEffect(() => {
     if (
-      !open ||
       !active ||
       !access?.qqOnline ||
       !albumTarget ||
       albumTarget.hostUin !== hostUin ||
       openedTarget.current === albumTarget.revision ||
-      albumsLoading ||
+      (albumsLoading && !albums) ||
       refreshing ||
       (!albums && !albumsError)
     )
@@ -615,7 +795,6 @@ export function QzoneAlbumDialog({
     };
     openAlbum(album);
   }, [
-    open,
     active,
     access?.qqOnline,
     albumTarget,
@@ -646,67 +825,64 @@ export function QzoneAlbumDialog({
       return;
     }
     if (
-      !open ||
       !active ||
       (!manual && refreshKey === lastRefresh.current) ||
       !access?.qqOnline ||
       albumPageLock.current ||
       albumsLoading ||
+      mediaRead.current ||
       mediaLoading ||
       mediaLoadingMore
     )
       return;
     lastRefresh.current = refreshKey;
     const run = ++runRef.current;
+    const controller = new AbortController();
+    const signal = manual ? AbortSignal.any([controller.signal, manual.signal]) : controller.signal;
     let live = true;
     setRefreshing(true);
     setAlbumsError(null);
     void (async () => {
       if (selected) {
-        const page = (await client.account.qzoneAlbumMedia.query(
-          { hostUin, topicId: selected.id, pageStart: 0, pageNum: PAGE_NUM },
-          { signal: manual?.signal },
-        )) as { photos: QzoneAlbumPhotoWire[]; totalInAlbum: number } | null;
+        const page = await revalidateAlbumPages(
+          readAlbumMedia(hostUin, selected.id, signal),
+          photoKey,
+          hasMedia
+            ? { ...mediaPage(media, mediaTotal), pages: [...mediaPages.current] }
+            : undefined,
+        );
         if (!live || run !== runRef.current) return;
-        if (!page || !Array.isArray(page.photos)) throw new Error('暂时无法刷新相册，请稍后重试。');
-        const fresh = page.photos;
-        const hasNew = hasNewQzoneItems(media, fresh, photoKey);
         setMediaError(null);
-        if (manual && !hasNew && hasMedia) {
-          manual.resolve(false);
-          return;
-        }
         setHasMedia(true);
-        mediaPages.current.add(0);
-        setMedia((previous) => {
-          const keys = new Set(fresh.map(photoKey));
-          const merged = [...fresh, ...previous.filter((photo) => !keys.has(photoKey(photo)))];
-          mediaLenRef.current = merged.length;
-          return merged;
-        });
-        setMediaTotal(Number(page?.totalInAlbum ?? mediaLenRef.current));
-        manual?.resolve(hasNew);
+        mediaCheckedAt.current = Date.now();
+        mediaPages.current = new Set(page.pages);
+        mediaLenRef.current = page.items.length;
+        setMedia(page.items);
+        setMediaTotal(page.total ?? page.items.length);
+        manual?.resolve(hasNewQzoneItems(media, page.items, photoKey));
       } else {
-        const page = await runAlbums(
-          (requestId) =>
-            client.account.qzone.albumPage.query({ selfUin, hostUin, requestId, offset: 0 }),
-          false,
-          manual?.signal,
+        const page = await revalidateAlbumPages(
+          (offset) => readAlbumPage(offset, signal),
+          (album) => album.id,
+          albums
+            ? {
+                items: albums,
+                total: albumTotal,
+                nextOffset: albumNext,
+                pages: [...albumPages.current],
+              }
+            : undefined,
         );
         if (live && run === runRef.current) {
           if (manual && page.warning) throw new Error(page.warning);
-          const hasNew = hasNewQzoneItems(albums ?? [], page.albums, (album) => album.id);
-          if (manual && !hasNew && albums) {
-            manual.resolve(false);
-            return;
-          }
-          setAlbums(page.albums);
+          setAlbums(page.items);
           albumLoaded.current = true;
+          listCheckedAt.current = page.warning ? 0 : Date.now();
           setAlbumNext(page.nextOffset);
           setAlbumTotal(page.total);
-          setAlbumsError(page.warning);
-          albumPages.current = new Set([0]);
-          manual?.resolve(hasNew);
+          setAlbumsError(page.warning ?? null);
+          albumPages.current = new Set(page.pages);
+          manual?.resolve(hasNewQzoneItems(albums ?? [], page.items, (album) => album.id));
         }
       }
     })()
@@ -720,29 +896,32 @@ export function QzoneAlbumDialog({
       });
     return () => {
       live = false;
+      controller.abort();
       setRefreshing(false);
     };
   }, [
-    open,
     active,
     refreshKey,
     refreshRequest,
     access?.qqOnline,
     albumsLoading,
     albums,
+    albumNext,
+    albumTotal,
     hasMedia,
     media,
+    mediaTotal,
     mediaLoading,
     mediaLoadingMore,
     selected,
     hostUin,
-    selfUin,
-    runAlbums,
+    readAlbumPage,
   ]);
 
   /** 翻页：pageStart = 已加载条数。返回是否成功（哨兵据此决定是否自动重试）。 */
   const loadMore = useCallback(async (): Promise<boolean> => {
-    if (!selected || mediaLoading || mediaLoadingMore || refreshing || !active) return true;
+    if (!selected || mediaLoading || mediaLoadingMore || refreshing || !active || !access?.qqOnline)
+      return true;
     const run = runRef.current;
     const pageStart = mediaLenRef.current;
     setMediaLoadingMore(true);
@@ -768,27 +947,29 @@ export function QzoneAlbumDialog({
     } finally {
       if (run === runRef.current) setMediaLoadingMore(false);
     }
-  }, [selected, mediaLoading, mediaLoadingMore, refreshing, active, hostUin]);
+  }, [selected, mediaLoading, mediaLoadingMore, refreshing, active, access?.qqOnline, hostUin]);
 
   const backToList = useCallback(() => {
     runRef.current++;
+    mediaRead.current?.abort();
+    mediaRead.current = null;
+    pendingMedia.current = false;
     mediaLenRef.current = 0;
+    setLastAlbumId(null);
     setSelected(null);
     setMedia([]);
     setMediaTotal(0);
     setMediaError(null);
     setMediaLoading(false);
     setMediaLoadingMore(false);
-  }, []);
+  }, [setLastAlbumId]);
   const surface = useRef<HTMLDivElement>(null);
   useMobileBack(
-    open && requestedActive && Boolean(selected) && !onJumpToAlbum,
+    requestedActive && Boolean(selected) && !onJumpToAlbum,
     backToList,
     50,
     () => surface.current,
   );
-
-  if (!open) return null;
 
   const offline = access ? !access.qqOnline : false;
   const offlineMode = access ? !access.attachEnabled : false;
@@ -821,21 +1002,38 @@ export function QzoneAlbumDialog({
         </header>
       ) : null}
 
-      <div className={embedded ? undefined : 'weq-qzone-album-body'}>
+      <PageScrollSnapshot
+        className={embedded ? undefined : 'weq-qzone-album-body'}
+        snapshotKey={JSON.stringify([listKey, selected?.id])}
+      >
         {refreshing && !refreshRequest?.pending && albums ? (
           <p className="weq-qzn-loading" role="status">
             <Loader2 size={16} className="weq-spin" />
             正在刷新…
           </p>
         ) : null}
-        {albumsError && albums ? <p className="weq-qzn-status">{albumsError}</p> : null}
-        {access === null && !albumsError ? (
+        {albumsError && albums ? (
+          <div className="weq-qzn-status">
+            {albumsError}
+            {!albumLoaded.current && active ? (
+              <QzonePageButton
+                label="重试读取相册"
+                retry
+                onClick={() => setAlbumRetry((value) => value + 1)}
+              />
+            ) : null}
+          </div>
+        ) : null}
+        {offline && (albums || hasMedia) ? (
+          <p className="weq-qzn-status">QQ 当前不可用，正在显示已读取的相册。</p>
+        ) : null}
+        {access === null && !albumsError && !albums && !hasMedia ? (
           <div className="weq-qzone-album-empty">
             <Inbox size={26} />
             <Loader2 size={18} className="weq-spin" />
             <span>检查在线状态…</span>
           </div>
-        ) : offline ? (
+        ) : offline && !albums && !hasMedia ? (
           <div className="weq-qzone-album-empty weq-qzone-album-offline">
             <Inbox size={26} />
             <span>{offlineMode ? '完全离线模式已开启' : '需要登录 QQ 客户端'}</span>
@@ -861,14 +1059,14 @@ export function QzoneAlbumDialog({
           </div>
         ) : selected ? (
           <MediaView
-            key={`${hostUin}:${selected.id}`}
-            active={active}
+            key={`${selfUin}:${hostUin}:${selected.id}`}
+            active={active && access?.qqOnline === true}
             embedded={embedded}
             photos={media}
             total={mediaTotal}
-            loading={mediaLoading && !hasMedia}
+            loading={(mediaLoading || (access === null && active)) && !hasMedia}
             loadingMore={mediaLoadingMore}
-            error={mediaError}
+            error={mediaError ?? (offline && !hasMedia ? 'QQ 当前不可用，无法读取此相册。' : null)}
             hasMore={hasMore}
             fetchedPages={mediaPages.current.size}
             albumName={albumName}
@@ -891,6 +1089,7 @@ export function QzoneAlbumDialog({
         ) : (
           <>
             <AlbumGridView
+              key={`${selfUin}:${hostUin}`}
               active={active}
               albums={albums}
               hostUin={hostUin}
@@ -926,7 +1125,7 @@ export function QzoneAlbumDialog({
             </div>
           </>
         )}
-      </div>
+      </PageScrollSnapshot>
     </div>
   );
   return embedded ? (
@@ -942,6 +1141,50 @@ export function QzoneAlbumDialog({
       {body}
     </Modal>
   );
+}
+
+function useAlbumGridSelection({
+  ids,
+  selected,
+  onChange,
+  selectionMode,
+  setSelectionMode,
+  marqueeEnabled,
+}: {
+  ids: readonly string[];
+  selected: ReadonlySet<string>;
+  onChange: Dispatch<SetStateAction<Set<string>>>;
+  selectionMode: boolean;
+  setSelectionMode: (enabled: boolean) => void;
+  marqueeEnabled: boolean;
+}) {
+  const anchorRef = useRef<string | null>(null);
+  const multi = useMultiSelection({
+    ids,
+    selected,
+    onChange,
+    enabled: selectionMode,
+    normalClick: 'passthrough',
+    onStart: () => setSelectionMode(true),
+    onExit: () => setSelectionMode(false),
+    anchorRef,
+  });
+  const marquee = useAlbumGridMarquee({ enabled: marqueeEnabled, selected, onChange, anchorRef });
+  return {
+    itemProps: multi.itemProps,
+    toggle: multi.toggle,
+    selected: marquee.previewIds ?? selected,
+    box: marquee.box,
+    className: `weq-marquee-grid${marquee.box ? ' is-marquee-selecting' : ''}`,
+    rootProps: {
+      ...multi.rootProps,
+      ...marquee.handlers,
+      onPointerDownCapture: (event: PointerEvent<HTMLDivElement>) => {
+        multi.rootProps.onPointerDownCapture();
+        marquee.handlers.onPointerDownCapture(event);
+      },
+    },
+  };
 }
 
 export function AlbumGridView({
@@ -974,20 +1217,18 @@ export function AlbumGridView({
     [albums, hostUin],
   );
   const selection = useContentMultiSelect(owner, active, references);
-  const multi = useMultiSelection({
-    ids: [...references.keys()],
+  const ids = useMemo(() => [...references.keys()], [references]);
+  const multi = useAlbumGridSelection({
+    ids,
     selected: selection.selectedIds,
     onChange: selection.setSelectedIds,
-    enabled: selection.selectionMode,
-    normalClick: 'passthrough',
-    onStart: () => selection.setSelectionMode(true),
-    onExit: () => selection.setSelectionMode(false),
+    selectionMode: selection.selectionMode,
+    setSelectionMode: selection.setSelectionMode,
+    marqueeEnabled: active,
   });
   const albumKey = (album: QzoneAlbumWire) =>
     contentReferenceKey({ kind: 'qzone-album', uin: hostUin, albumId: album.id });
-  const toolbar = (
-    <ContentReferenceToolbar owner={owner} selection={selection} loaded={[...references.keys()]} />
-  );
+  const toolbar = <ContentReferenceToolbar owner={owner} selection={selection} loaded={ids} />;
 
   return (
     <div className="weq-qzal-album-list">
@@ -1004,7 +1245,7 @@ export function AlbumGridView({
           {toolbar}
         </div>
       )}
-      <div className="weq-qzal-album-grid" {...multi.rootProps}>
+      <div className={`weq-qzal-album-grid ${multi.className}`} {...multi.rootProps}>
         {albums.map((album) => {
           const key = albumKey(album);
           return (
@@ -1025,13 +1266,14 @@ export function AlbumGridView({
                   ) : null}
                 </>
               }
-              selected={selection.selectedIds.has(key)}
-              onSelect={() => multi.toggle(key)}
+              selected={multi.selected.has(key)}
+              onSelect={selection.selectionMode ? () => multi.toggle(key) : undefined}
               onOpen={() => onOpen(album)}
               selectionProps={multi.itemProps(key)}
             />
           );
         })}
+        {multi.box ? <div className="weq-message-marquee" aria-hidden style={multi.box} /> : null}
       </div>
     </div>
   );
@@ -1135,14 +1377,15 @@ export function MediaView({
     },
     [sharedSelection.setSelectedIds, localToReference],
   );
-  const photoMulti = useMultiSelection({
-    ids: [...localToReference.keys()],
+  const ids = useMemo(() => [...localToReference.keys()], [localToReference]);
+  const [preview, setPreview] = useState<number | null>(null);
+  const photoMulti = useAlbumGridSelection({
+    ids,
     selected,
     onChange: setSelected,
-    enabled: !onJumpToAlbum && sharedSelection.selectionMode,
-    normalClick: 'passthrough',
-    onStart: () => sharedSelection.setSelectionMode(true),
-    onExit: () => sharedSelection.setSelectionMode(false),
+    selectionMode: !onJumpToAlbum && sharedSelection.selectionMode,
+    setSelectionMode: sharedSelection.setSelectionMode,
+    marqueeEnabled: active && !onJumpToAlbum && preview === null && !loading && photos.length > 0,
   });
 
   /** 勾选的媒体行键集合（全选作用于已加载的条目）。
@@ -1155,7 +1398,6 @@ export function MediaView({
   const rootProps = onJumpToAlbum ? undefined : photoMulti.rootProps;
   /** 正在取 mp4 播放地址的视频行键（同上，不能裸用 photo.id）。 */
   const [videoResolving, setVideoResolving] = useState<string | null>(null);
-  const [preview, setPreview] = useState<number | null>(null);
   const [details, setDetails] = useState<
     Record<string, { name: string; width: number | null; height: number | null }>
   >({});
@@ -1337,10 +1579,10 @@ export function MediaView({
         </div>
       ) : photos.length > 0 ? (
         <>
-          <div className="weq-qzal-media-grid" {...rootProps}>
+          <div className={`weq-qzal-media-grid ${photoMulti.className}`} {...rootProps}>
             {photos.map((photo, index) => {
               const row = rowKey(index);
-              const checked = !onJumpToAlbum && selected.has(row);
+              const checked = !onJumpToAlbum && photoMulti.selected.has(row);
               const detail = details[row];
               return (
                 <div
@@ -1348,7 +1590,7 @@ export function MediaView({
                   className={`weq-qzal-media-card${photo.isVideo ? ' is-video' : ''}${checked ? ' is-checked' : ''}`}
                   {...handlers?.(row)}
                 >
-                  {onJumpToAlbum ? null : (
+                  {!onJumpToAlbum && sharedSelection.selectionMode ? (
                     <button
                       type="button"
                       className={`weq-qzal-media-check${checked ? ' is-on' : ''}`}
@@ -1359,7 +1601,7 @@ export function MediaView({
                     >
                       {checked ? <Check size={12} strokeWidth={2.6} /> : null}
                     </button>
-                  )}
+                  ) : null}
                   <QzoneAlbumMediaButton
                     photo={photo}
                     onOpen={(src) => openMedia(photo, src)}
@@ -1402,6 +1644,9 @@ export function MediaView({
                 </div>
               );
             })}
+            {photoMulti.box ? (
+              <div className="weq-message-marquee" aria-hidden style={photoMulti.box} />
+            ) : null}
           </div>
           <div ref={sentinelRef} className="weq-qzal-sentinel">
             {loadFailed ? (

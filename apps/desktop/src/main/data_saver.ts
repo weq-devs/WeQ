@@ -16,8 +16,11 @@ import { networkScope } from '@weq/service/network-scope';
 import { recordAccountTask } from './account_task_receipts';
 import type { BackgroundTaskScope } from '../shared/background_task';
 
+import { taskMessageSourceInput } from './task_message_source';
+
 const originalRequest = z.object({
   type: z.literal('chat-original'),
+  messageSource: taskMessageSourceInput.optional(),
   token: z.string().min(1).max(8192),
   originalUrl: z
     .string()
@@ -52,6 +55,7 @@ export function retryOriginalDownload(id: string, scope: BackgroundTaskScope, ra
         rkeyTypes: parsed.rkeyTypes,
         reportActivity: true,
         activityTaskId: id,
+        activityMessageSource: parsed.messageSource,
       }),
   );
   void work
@@ -193,12 +197,14 @@ export function startTransferPolicy() {
         const resume = state.transfer.activityResume;
         const config = resume ? getAppContext().services?.accountConfig.getRecord() : undefined;
         const scope = config?.configId ? { uin: config.uin, configId: config.configId } : undefined;
+        const original = originalRequest.safeParse(resume?.request).data;
         const taskInput = {
           kind: 'resource',
           name: state.name,
           display: { action: '下载资源', subject: state.name },
           foreground,
           scope,
+          messageTarget: original?.messageSource,
         } as const;
         if (resume && scope) {
           id = resume.id;

@@ -11,7 +11,8 @@ import { installResourceDiagnostics } from './lib/resourceDiagnostics';
 import { RendererErrorBoundary } from './components/RendererErrorBoundary';
 import { installDevelopmentErrors } from './lib/developmentErrors';
 import { installTouchContextMenu } from './lib/touchContextMenu';
-import { IS_WEB } from './lib/target.shared';
+import { IS_MAC, IS_WEB } from './lib/target.shared';
+import { installForceClick } from './lib/forceClick';
 import './styles/touch-context-menu.css';
 import { installDataSaver } from './lib/dataSaver';
 import { installMainWorkspacePreload } from './lib/mainWorkspaceLoader';
@@ -25,6 +26,11 @@ import {
 
 const stopAccountBanners = installAccountBannerRouting();
 import.meta.hot?.dispose(stopAccountBanners);
+
+if (IS_MAC && window.weq?.onForceClick) {
+  const stop = installForceClick(window, window.weq.onForceClick);
+  import.meta.hot?.dispose(stop);
+}
 
 if (import.meta.hot) {
   import.meta.hot.data.developmentReloadNotice ??= {};

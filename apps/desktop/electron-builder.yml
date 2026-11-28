@@ -14,6 +14,7 @@ afterPack: ../../scripts/trim-desktop-package.mjs
 afterSign: ../../scripts/verify-desktop-authorization.mjs
 files:
   - "out/**/*"
+  - "!out/main/force-click.node"
   - "!out/types-*/**"
   - "!out/**/*.d.{ts,cts,mts}"
   # Bare "package.json" was being resolved as a glob in this monorepo and
@@ -215,6 +216,8 @@ mac:
   extraResources:
     - from: out/main/macUpdateWorker.mjs
       to: out/main/macUpdateWorker.mjs
+    - from: out/main/force-click.node
+      to: out/main/force-click.node
     - from: ../../LICENSE
       to: LICENSE
     - from: ../../native/darwin/${arch}

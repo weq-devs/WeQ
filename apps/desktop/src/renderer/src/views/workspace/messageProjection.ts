@@ -1,4 +1,4 @@
-import { findReplyPreview, type ReplyPreviewIndex } from '../../lib/replyPreview';
+import { findReplySource, type ReplyPreviewIndex } from '../../lib/replyPreview';
 import { timelineRowKey } from '../../../../shared/roaming_timeline';
 import { outgoingSequenceRejected } from '../../lib/outgoingAcknowledgment';
 import type { ComposerSubmission } from '../../lib/localOutgoing';
@@ -212,6 +212,7 @@ export function messageToTemplate(
   replySources?: MessageWire[] | ReplyPreviewIndex,
   profiles?: ReadonlyMap<string, SenderProfile>,
   lookupByUin?: MemberUinLookup,
+  showHistoricalNames = false,
 ): Message {
   const sender = messageSender(
     message,
@@ -234,6 +235,7 @@ export function messageToTemplate(
     user,
     memberMap,
     replySources,
+    showHistoricalNames,
   );
   // Recall reviser's display name: only needed when an admin recalled someone
   // else's message (sameSender === false). Group → memberMap by uid; c2c → the
@@ -253,6 +255,7 @@ export function messageToTemplate(
     senderUid: message.senderUid,
     sendTime: message.sendTime,
     sender,
+    historicalSenderName: showHistoricalNames ? message.senderAtTime?.name : undefined,
     body,
     // 闪照：本地库只剩一句兜底文案（元素本体从没落库）。打上标记，让聊天窗按需走
     // 协议拉取把真正的元素补回来；拉不到就继续显示这句话。
@@ -326,6 +329,7 @@ export function enrichReplyElements(
   user: User,
   memberMap?: ReadonlyMap<string, GroupMember>,
   replySources: MessageWire[] | ReplyPreviewIndex = [],
+  showHistoricalNames = false,
 ): unknown[] {
   if (!Array.isArray(elements) || elements.length === 0) return elements;
   let mutated = false;
@@ -334,15 +338,20 @@ export function enrichReplyElements(
     const el = element as RenderElementWire;
     if (el.type !== 'reply') return element;
     const data = (el.data ?? {}) as Record<string, unknown>;
-    const nick = resolveOrigSenderNick(data, conversation, user, memberMap);
-    let preview: unknown[] | undefined;
-    if (!Array.isArray(data.origElements) || data.origElements.length === 0) {
-      preview = findReplyPreview(
-        conversation.type === 'group' ? 'group' : 'c2c',
-        data,
-        replySources,
-      );
-    }
+    const needsPreview = !Array.isArray(data.origElements) || data.origElements.length === 0;
+    const source =
+      needsPreview || showHistoricalNames
+        ? findReplySource(conversation.type === 'group' ? 'group' : 'c2c', data, replySources)
+        : undefined;
+    const historical = showHistoricalNames
+      ? source?.senderAtTime?.name ||
+        stringField(data, 'origSenderNick').trim() ||
+        stringField(data, 'origCachedSenderName').trim()
+      : '';
+    const nick = historical || resolveOrigSenderNick(data, conversation, user, memberMap);
+    const preview = needsPreview
+      ? source?.elements.filter((item) => (item as { type?: string } | null)?.type !== 'reply')
+      : undefined;
     if (!nick && !preview?.length) return element;
     mutated = true;
     return {

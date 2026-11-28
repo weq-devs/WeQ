@@ -1834,6 +1834,7 @@ function ExportToolBody({
           mediaKinds: result.options.mediaKinds,
           completeMessages: result.options.completeMessages,
           exportAvatar: result.options.exportAvatar,
+          useRecordedSenderName: result.options.useRecordedSenderName,
           completeMedia: result.options.completeMedia,
           downloadVideo: result.options.downloadVideo,
           downloadFile: result.options.downloadFile,
@@ -2007,7 +2008,7 @@ function ExportToolBody({
   const onOpenSaved = !IS_WEB
     ? async (task: UiTask, reveal: boolean) => {
         const account = exportAccount.data;
-        if (!account?.uin || !account.configId) return;
+        if (!account?.uin || !account.configId) return false;
         try {
           await client.account.openSavedExportOutput.mutate({
             taskId: task.id,
@@ -2017,7 +2018,9 @@ function ExportToolBody({
           });
         } catch (error) {
           dialog.error('打开保存结果失败', error instanceof Error ? error.message : String(error));
+          return false;
         }
+        return true;
       }
     : undefined;
   const onReport = async (task: UiTask) => {

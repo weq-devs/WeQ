@@ -1,21 +1,21 @@
-:is(.chat-pane, .weq-forward-window) .selection-bar {
+:is(.chat-pane, .weq-forward-window, .weq-conversation-records) .selection-bar {
   gap: 8px;
 }
-:is(.chat-pane, .weq-forward-window) .selection-bar-info {
+:is(.chat-pane, .weq-forward-window, .weq-conversation-records) .selection-bar-info {
   flex: none;
   white-space: nowrap;
 }
-:is(.chat-pane, .weq-forward-window) .selection-bar-count {
+:is(.chat-pane, .weq-forward-window, .weq-conversation-records) .selection-bar-count {
   color: var(--weq-fg-primary);
 }
-:is(.chat-pane, .weq-forward-window) .selection-bar-actions {
+:is(.chat-pane, .weq-forward-window, .weq-conversation-records) .selection-bar-actions {
   min-width: 0;
   gap: 6px;
   overflow-x: auto;
   scrollbar-width: thin;
   padding: 2px;
 }
-:is(.chat-pane, .weq-forward-window) .selection-action {
+:is(.chat-pane, .weq-forward-window, .weq-conversation-records) .selection-action {
   flex: 0 0 36px;
   width: 36px;
   height: 36px;
@@ -27,7 +27,9 @@
   opacity: 1;
   cursor: progress;
 }
-:is(.chat-pane, .weq-forward-window) .selection-action > .weq-message-image-progress {
+:is(.chat-pane, .weq-forward-window, .weq-conversation-records)
+  .selection-action
+  > .weq-message-image-progress {
   width: 30px;
   height: 30px;
   display: grid;
@@ -53,7 +55,7 @@
   }
 }
 @media (max-width: 480px) {
-  :is(.chat-pane, .weq-forward-window) .selection-bar-label {
+  :is(.chat-pane, .weq-forward-window, .weq-conversation-records) .selection-bar-label {
     display: none;
   }
 }

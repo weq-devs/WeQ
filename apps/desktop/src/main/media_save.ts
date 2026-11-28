@@ -54,6 +54,7 @@ export const mediaSaveSourceInput = z.discriminatedUnion('kind', [
     fileId: z.string().min(1),
     fileName: z.string().min(1),
     busId: z.number().int().nonnegative().optional(),
+    folderId: z.string().min(1).max(512).optional(),
   }),
 ]) satisfies z.ZodType<MediaSaveSource>;
 

@@ -14,7 +14,14 @@ import { Modal } from '../src/renderer/src/components/Dialog';
 const search = vi.hoisted(() => vi.fn());
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { account: { searchConversationRecords: { query: search } } },
-  trpc: { account: { dressup: { resolveMsgDecoration: { useQuery: () => ({}) } } } },
+  trpc: {
+    useUtils: () => ({}),
+    account: {
+      dressup: { resolveMsgDecoration: { useQuery: () => ({}) } },
+      listGroupEssenceSeqs: { useQuery: () => ({}) },
+      intentSense: { getStatus: { useQuery: () => ({ data: { enabled: false } }) } },
+    },
+  },
 }));
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => ({

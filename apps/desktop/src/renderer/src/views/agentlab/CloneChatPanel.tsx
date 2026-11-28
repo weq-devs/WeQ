@@ -103,7 +103,7 @@ export function CloneChatPanel({
   );
   const [input, setInput] = useState('');
   const [imageUploading, setImageUploading] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchState, setSearchState] = useState<'closed' | 'open' | 'suspended'>('closed');
   const [jumpRequest, setJumpRequest] = useState(
     searchTarget ? { messageId: searchTarget.messageId, revision: 0 } : undefined,
   );
@@ -220,14 +220,16 @@ export function CloneChatPanel({
             peerTyping={typing ? '对方正在输入…' : undefined}
             settingsLabel="克隆体设置"
             onOpenConversationSettings={(_conversation, anchor) => onOpenSettings(anchor)}
-            onSearchChatRecords={() => setSearchOpen(true)}
+            onSearchChatRecords={() => setSearchState('open')}
             jumpRequest={jumpRequest}
           />
         )}
       </AiImageComposer>
-      {searchOpen ? (
+      {searchState !== 'closed' ? (
         <ChatRecordsModal
+          key={viewId}
           fixed
+          suspended={searchState === 'suspended'}
           initialKeyword=""
           initialHit={{
             category: 'chatRecord',
@@ -249,7 +251,8 @@ export function CloneChatPanel({
                 revision: (request?.revision ?? 0) + 1,
               })),
           }}
-          onClose={() => setSearchOpen(false)}
+          onClose={() => setSearchState('closed')}
+          onSuspend={() => setSearchState('suspended')}
           onJumpMessage={() => {}}
         />
       ) : null}

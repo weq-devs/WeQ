@@ -533,6 +533,8 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
 /* ── 回复建议（composer 上方紧凑单行滚动 pills）──────────────────────── */
 
 .chat-pane:has(> .weq-int-suggest) {
+  --weq-int-suggest-bar-height: 28px;
+  --composer-top-offset: var(--weq-int-suggest-bar-height);
   --weq-int-history-row-height: 34px;
   grid-template-rows:
     var(--chat-header-height)
@@ -545,30 +547,27 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
   grid-row: 2 / 5;
 }
 
-.chat-pane:has(> .weq-int-suggest) > .composer-toggle {
-  --composer-toggle-extra-offset: 28px;
-}
-
-.chat-pane:has(> .weq-int-suggest) > .new-message-pill {
-  bottom: calc(var(--composer-height, 190px) + 40px);
-}
-
 .chat-pane:has(> .weq-int-suggest.is-history-open) {
   --weq-int-history-height: min(
     var(--weq-int-history-content-height, 0px),
     calc(var(--weq-int-history-row-height) * 3.5 + 1px),
-    max(0px, (100% - var(--chat-header-height) - var(--composer-height, 190px) - 28px) / 2)
+    max(
+      0px,
+      (
+        100% -
+        var(--chat-header-height) -
+        var(--composer-height, 190px) -
+        var(--weq-int-suggest-bar-height)
+      ) /
+      2
+    )
   );
   grid-template-rows:
     var(--chat-header-height)
     minmax(0, 1fr)
-    calc(var(--weq-int-history-height) + 28px)
+    calc(var(--weq-int-history-height) + var(--weq-int-suggest-bar-height))
     var(--composer-height, 190px);
 }
-.chat-pane:has(> .weq-int-suggest.is-history-open) > .new-message-pill {
-  bottom: calc(var(--composer-height, 190px) + 40px + var(--weq-int-history-height));
-}
-
 .chat-pane:has(> .weq-chat-backdrop) > .weq-int-suggest {
   background: color-mix(in srgb, var(--weq-bg-surface) 82%, transparent);
 }
@@ -576,6 +575,11 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
 .chat-pane:has(> .weq-int-suggest) > .composer {
   border-top: 0;
   padding-top: 6px;
+
+  /* 保留分隔线上方的拖拽热区，给推荐栏里的按钮让出空间。 */
+  & > .composer-resize {
+    height: 7px;
+  }
 }
 
 /* z-index 必须低于 `> .composer`（chat.css 里给了 1）：表情 / 语音 / 链接卡片这些面板
@@ -587,15 +591,15 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
   z-index: 0;
   grid-column: 1;
   display: grid;
-  grid-template-rows: 28px;
-  height: 28px;
+  grid-template-rows: var(--weq-int-suggest-bar-height);
+  height: var(--weq-int-suggest-bar-height);
   min-width: 0;
   min-height: 0;
   background: color-mix(in srgb, var(--weq-bg-surface) 62%, transparent);
 }
 .weq-int-suggest.is-history-open {
   height: 100%;
-  grid-template-rows: minmax(0, 1fr) 28px;
+  grid-template-rows: minmax(0, 1fr) var(--weq-int-suggest-bar-height);
 }
 .weq-int-suggest-bar,
 .weq-int-history-row {
@@ -606,7 +610,7 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
 }
 .weq-int-suggest-bar {
   box-sizing: border-box;
-  height: 28px;
+  height: var(--weq-int-suggest-bar-height);
   min-width: 0;
   padding: 1px calc(14px + var(--weq-int-history-scrollbar-width, 0px)) 1px 14px;
   border-top: 1px solid var(--weq-bar-border, #dedede);

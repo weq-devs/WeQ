@@ -56,6 +56,15 @@ function resolveMock<T>(mock: { mockResolvedValue: (value: T) => unknown }, valu
 }
 
 describe('联系人和群聊的对象搜索', () => {
+  it('全局联系人搜索不启动消息里的历史称呼查询', async () => {
+    const f = fixture();
+    const senderNames = vi.fn(async () => []);
+    f.session.groupMsgs = { senderNames } as unknown as AccountSession['groupMsgs'];
+    expect((await f.service.quickSearch('旧称呼', 1, ['contact'])).contacts).toEqual([]);
+    expect((await f.service.moreSearch('contact', '旧称呼', 0, 1)).items).toEqual([]);
+    expect(senderNames).not.toHaveBeenCalled();
+  });
+
   it('汉字、简拼和全拼混输在分页前查好友和当前会话，保留原文优先', async () => {
     const f = fixture();
     const keyword = '厦m大xue';

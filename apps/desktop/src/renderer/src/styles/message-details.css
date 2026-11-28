@@ -37,6 +37,21 @@
   container-type: inline-size;
 }
 
+.weq-message-detail-content:has(> .weq-decoration-card[data-decoration-count='0']) {
+  display: flex;
+  padding-block: 14px;
+}
+
+.weq-message-detail-content > .weq-decoration-card[data-decoration-count='0'] {
+  margin: auto;
+  padding: 0;
+  text-align: center;
+}
+
+.weq-message-detail-content .weq-decoration-card-titlebar:empty {
+  display: none;
+}
+
 .weq-message-detail-body {
   display: grid;
   gap: 12px;

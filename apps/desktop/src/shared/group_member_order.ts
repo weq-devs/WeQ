@@ -11,6 +11,10 @@ export const GROUP_MEMBER_SORTS = {
 export const GROUP_MEMBER_PRIORITIZE_ADMINS_DEFAULT = true;
 
 export type GroupMemberSort = keyof typeof GROUP_MEMBER_SORTS;
+export type GroupMemberSortView = {
+  descending?: boolean;
+  prioritizeAdmins?: boolean;
+};
 
 export const GROUP_MEMBER_ONLINE_SORTS = [
   'likeCount',

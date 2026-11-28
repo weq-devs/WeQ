@@ -19,6 +19,7 @@ import type { RenderElement } from '../msg_view';
 import {
   iterateConv,
   fallbackSender,
+  withRecordedSenderName,
   resolveGroupSenders,
   resolveC2cSenders,
   type SenderResolveDeps,
@@ -507,7 +508,7 @@ export async function exportArchiveConversation(
   }
   async function* entries(): AsyncGenerator<ArchiveEntry> {
     for await (const { raw, legacy, native } of sources()) {
-      const exported = toExportedMessage(raw);
+      const exported = toExportedMessage(raw, opts.useRecordedSenderName);
       await expandForwards(
         msgs,
         opts.kind,
@@ -590,9 +591,11 @@ export async function exportArchiveConversation(
         count++;
         continue;
       }
-      const sender = exported.forwardSource
-        ? fallbackSender(exported)
-        : (senders.get(exported.senderUid) ?? fallbackSender(exported));
+      const sender = withRecordedSenderName(
+        (exported.forwardSource ? undefined : senders.get(exported.senderUid)) ??
+          fallbackSender(exported),
+        exported,
+      );
       const identity: Json[] = [
         account,
         object(header.scope).partition ?? null,

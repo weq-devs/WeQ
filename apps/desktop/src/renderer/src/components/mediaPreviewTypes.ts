@@ -1,3 +1,4 @@
+import type { ExportMessageSource } from '@weq/service';
 import type { ReactNode } from 'react';
 import type { MediaSaveSource } from '../../../shared/media_save';
 
@@ -19,11 +20,12 @@ export interface PreviewMedia {
   title?: string;
   isLivePhoto?: boolean;
   fallbackSources?: string[];
-  originalImage?: { cachedSrc: string; src: string; bytes?: number };
+  originalImage?: { localSrc?: string; cachedSrc: string; src: string; bytes?: number };
   load?: (refresh?: boolean) => Promise<{ src: string; kind: 'image' | 'video' }>;
   saveSource?: MediaSaveSource | null;
   saveLabel?: string;
   progressTarget?: string;
+  messageSource?: ExportMessageSource;
   ocr?: PreviewOcrContext | null;
   order?: { time: number; messageId: string; rawId?: string; element: number; sequence?: string };
 }

@@ -391,6 +391,7 @@ export type Message = {
   conversationId: string;
   senderId: string;
   senderUid?: string;
+  historicalSenderName?: string;
   sendTime?: string;
   body: string;
   /** QQ 渲染视图元素，逐条重发与只读预览共用，不能用 body 标签替代。 */

@@ -80,6 +80,7 @@ function ReadonlyPreview({
       {...props}
       conversation={conversation}
       user={user}
+      detailsBinding={binding}
       messages={messages}
       loading={history.isLoading}
       loadingMore={history.isFetchingNextPage}
@@ -227,6 +228,7 @@ function PreviewWindow({
   ...props
 }: Pick<PreviewProps, 'user' | 'renderers' | 'onClose' | 'onLocateMessage'> & {
   conversation: Conversation;
+  detailsBinding?: QQWriteBinding;
   messages: Message[];
   loading: boolean;
   loadingMore: boolean;

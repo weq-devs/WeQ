@@ -174,9 +174,7 @@ export function MessageDetails({
   const { message, cardElements } = selection;
   const senderName = message.sender?.displayName || snapshot?.sendNick;
   const [tab, setTab] = useState<Tab>('body');
-  const [selectedSection, setSection] = useState<Section>(
-    selection.cardElements.length ? 'card' : 'elements',
-  );
+  const [selectedSection, setSection] = useState<Section>('elements');
   const [editing, setEditing] = useState(false);
   const [visualRecord, setVisualRecord] = useState<{
     elements: LocalRecordElements;
@@ -352,6 +350,7 @@ export function MessageDetails({
               if (next !== tab) {
                 setEditing(false);
                 setVisualRecord(undefined);
+                if (next === 'structure') setSection('elements');
               }
               setTab(next);
             }}

@@ -236,6 +236,7 @@ const optionsSnapshot = z.object({
   ocrConcurrency: z.number(),
   autoSave: z.boolean(),
   chatlab: z.boolean(),
+  useRecordedSenderName: z.boolean().optional(),
 });
 
 export function ExportLightbox({
@@ -923,6 +924,28 @@ export function ExportLightbox({
                   </div>
                 ) : null}
                 <Card>
+                  {isMessageFlow &&
+                  variant !== 'guild' &&
+                  (!calendarTargets || calendarTargets.some((target) => target.kind === 'group')) &&
+                  contentPolicy.messages !== 'none' ? (
+                    <Row
+                      label="群聊发送者名称"
+                      control={
+                        <SegmentedControl<'current' | 'recorded'>
+                          label="群聊发送者名称"
+                          disabled={submitting || confirming || authorization.busy}
+                          value={opts.useRecordedSenderName ? 'recorded' : 'current'}
+                          options={[
+                            { value: 'current', label: '当前称呼' },
+                            { value: 'recorded', label: '消息中的称呼' },
+                          ]}
+                          onChange={(value) =>
+                            patch({ useRecordedSenderName: value === 'recorded' })
+                          }
+                        />
+                      }
+                    />
+                  ) : null}
                   <ExportReportControl
                     plain
                     checked={opts.includeIntegrityReport ?? false}

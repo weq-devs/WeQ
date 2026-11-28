@@ -1,19 +1,6 @@
 /**
- * 一条消息在**聊天时间线**里的完整渲染单元 —— 聊天区、转发窗口、合成转发预览
- * 三处共用同一份实现。
- *
- * 为什么要有这一层：主面板画一条消息其实是三层组装，而不是「一个消息体组件」——
- *
- *   chatPane        → 灰条分流（撤回 / 戳一戳 / 群提示 / 群通话结束 / QQ动态）
- *   MessageBubble   → 气泡外壳（头像 / 昵称 / 徽章 / 贴表情 / 精华 / 撤回标签 / 删除面纱）
- *   qqMessageRenderer → QqMessageContent（消息体：文本 / 媒体 / 卡片 / 合并转发…）
- *
- * 合并转发窗口与合成转发编辑器此前只复用最里层那一层，于是凡是落在前两层里的元素
- * （灰条、动态卡、群通话结束…）在那边要么空白、要么退化成难看的普通气泡。把前两层
- * 抽到这里之后，三处的差异只剩「谁提供 sender / 谁处理右键菜单」这类宿主参数。
- *
- * 刻意不做的事：这里不查库、不发请求、不碰 proto。它只根据已经拿到的 `Message`
- * 决定「画成灰条还是画成气泡」。
+ * 主聊天、会话预览和聊天记录结果共用的单条消息渲染。
+ * 宿主提供会话和操作，消息行分流灰条和普通气泡。
  */
 
 import type { ReactElement, ReactNode, MouseEvent as ReactMouseEvent } from 'react';
@@ -23,6 +10,7 @@ import type { ProfileShortcut } from '../../lib/profileClick';
 import { MessageSelectionMark } from '../../components/MessageSelectionMark';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { MessageBubble } from './messageBubble';
+import { resolveMessageSender } from './conversationDisplay';
 import type { MessageRenderer } from './messageRenderers';
 import { GrayTipPokeMessage } from '../../components/GrayTipPokeMessage';
 import { GrayTipRevokeMessage } from '../../components/GrayTipRevokeMessage';
@@ -123,8 +111,7 @@ export function GrayTipLine({
 /**
  * 一条消息的完整渲染单元：命中灰条 → {@link GrayTipLine}；否则 → `MessageBubble`。
  *
- * 宿主差异全部走 props（右键菜单 / 多选 / 删除恢复 / 头像点击），所以聊天区传全套，
- * 转发窗口只传消息本身也能得到和主面板一致的画法。
+ * 右键菜单、多选、删除恢复和头像操作由宿主按消息来源提供。
  */
 export const MessageRow = memo(function MessageRow({
   message,
@@ -134,10 +121,14 @@ export const MessageRow = memo(function MessageRow({
   sender,
   renderers,
   showSenderName = true,
+  alwaysShowSenderName,
+  alwaysShowTime,
+  alwaysShowDate,
   active = false,
   deleted = false,
   deletedKind,
   recallRevokerName,
+  hideRecallTag,
   onRestore,
   onContextMenu,
   onLongPress,
@@ -168,15 +159,19 @@ export const MessageRow = memo(function MessageRow({
   groupPosition?: MessageGroupPosition;
   conversation: Conversation;
   user: User;
-  /** 已解析的发送者；不传则本组件自己解析（转发窗口没有 memberMap 时可省）。 */
+  /** 已解析的发送者；缺省时从消息与会话资料解析。 */
   sender?: User;
   /** 消息体渲染器注册表（聊天区传 qqMessageRenderer 那份）。 */
   renderers?: MessageRenderer[];
   showSenderName?: boolean;
+  alwaysShowSenderName?: boolean;
+  alwaysShowTime?: boolean;
+  alwaysShowDate?: boolean;
   active?: boolean;
   deleted?: boolean;
   deletedKind?: 'weq' | 'qq';
   recallRevokerName?: string;
+  hideRecallTag?: boolean;
   onRestore?: (msgId: string) => Promise<void>;
   onContextMenu?: (event: ReactMouseEvent, message: Message) => void;
   onLongPress?: (
@@ -258,7 +253,11 @@ export const MessageRow = memo(function MessageRow({
         }
       >
         {selectionMode ? <MessageSelectionMark selected={selected} /> : null}
-        <SystemMessageContent message={message}>
+        <SystemMessageContent
+          message={message}
+          alwaysShowTime={alwaysShowTime}
+          alwaysShowDate={alwaysShowDate}
+        >
           <GrayTipLine
             gt={gt}
             conversation={conversation}
@@ -270,28 +269,32 @@ export const MessageRow = memo(function MessageRow({
       </div>
     );
   }
-  // MessageBubble 的长按 / 右键处理器是必填的（会直接调用），宿主没给时补空实现 ——
-  // 转发窗口这类「只读视图」不接菜单，但也不能因为手指长按就崩。
+  // 只读列表可在外层接管长按和右键。
   const noopContextMenu = onContextMenu ?? (() => {});
   const noopLongPress = onLongPress ?? (() => {});
+  const author = sender ?? resolveMessageSender(message, conversation, user);
   return (
     <MessageBubble
       message={message}
       groupPosition={groupPosition}
       conversation={conversation}
-      sender={sender ?? user}
+      sender={author}
       mine={isSelfIdentity(new Set(selfIdentityValues(user)), message.senderId)}
-      senderName={sender ? displayNameOf(sender) : displayNameOf(user)}
-      senderAvatarUrl={(sender ?? user).avatarUrl}
-      senderSeed={(sender ?? user).identityValue}
-      senderKind={(sender ?? user).kind}
-      avatarBadge={(sender ?? user).clone ? <VirtualConversationBadge /> : undefined}
-      showSenderName={showSenderName}
+      senderName={message.historicalSenderName || displayNameOf(author)}
+      senderAvatarUrl={author.avatarUrl}
+      senderSeed={author.identityValue}
+      senderKind={author.kind}
+      avatarBadge={author.clone ? <VirtualConversationBadge /> : undefined}
+      showSenderName={showSenderName || Boolean(message.historicalSenderName)}
+      alwaysShowSenderName={alwaysShowSenderName}
+      alwaysShowTime={alwaysShowTime}
+      alwaysShowDate={alwaysShowDate}
       active={active}
       renderers={renderers}
       deleted={deleted}
-      deletedKind={deletedKind}
-      recallRevokerName={recallRevokerName}
+      deletedKind={deletedKind ?? message.deletedKind}
+      recallRevokerName={recallRevokerName ?? message.recallRevokerName}
+      hideRecallTag={hideRecallTag}
       onRestore={onRestore}
       onContextMenu={noopContextMenu}
       onLongPress={noopLongPress}

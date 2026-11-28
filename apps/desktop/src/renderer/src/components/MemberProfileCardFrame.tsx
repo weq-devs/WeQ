@@ -32,10 +32,10 @@ export function MemberProfileCardFrame({
     const place = () => {
       const viewport = visibleViewport(view);
       const maxWidth = Math.max(1, viewport.width - 24);
+      const maxHeight = Math.max(1, Math.min(720, viewport.height - 24));
       const bottom = viewport.top + viewport.height - 12;
-      // 先给正文留出可滚动的空间，避免资料补齐后因卡片长高而把上沿推走。
-      const room = Math.min(320, Math.max(1, viewport.height - 24));
       const width = element.offsetWidth;
+      const height = Math.min(element.offsetHeight, maxHeight);
       const left = Math.max(
         viewport.left + 10,
         Math.min(
@@ -45,8 +45,8 @@ export function MemberProfileCardFrame({
           viewport.left + viewport.width - width - 10,
         ),
       );
-      const top = Math.max(viewport.top + 10, Math.min(anchor.y + 8, bottom - room));
-      const maxHeight = Math.max(1, Math.min(720, bottom - top));
+      // 名片随内容长高，接近窗口底边时按实际高度上移。
+      const top = Math.max(viewport.top + 10, Math.min(anchor.y + 8, bottom - height));
       const next = { left, top, maxWidth: `${maxWidth}px`, maxHeight: `${maxHeight}px` };
       setPosition((previous) =>
         previous.left === left &&

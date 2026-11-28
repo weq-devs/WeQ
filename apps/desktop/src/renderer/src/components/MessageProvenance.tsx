@@ -1,5 +1,5 @@
 import { TimeLabel } from './TimeLabel';
-import { clockFormatter, formatDateTime } from '@weq/time';
+import { clockFormatter, formatDateTime, timeDate } from '@weq/time';
 import { useContext, type ReactNode, type Ref } from 'react';
 import { beijingDay } from '../lib/messageCalendar';
 import { useOutgoingMetadataMotion } from '../hooks/useOutgoingMetadataMotion';
@@ -45,21 +45,33 @@ export function MessageSequenceLabel({
   );
 }
 
-/** 使用共用提示宿主展示逐条时间，不给正文增加常驻元信息或拦截人名操作。 */
+/** 系统提示沿用时间提示；独立记录也可以在行内显示时间。 */
 export function SystemMessageContent({
   message,
   children,
+  alwaysShowTime = false,
+  alwaysShowDate = false,
 }: {
   message: MessageMetadataSource;
   children?: ReactNode;
+  alwaysShowTime?: boolean;
+  alwaysShowDate?: boolean;
 }) {
   const showDate = useContext(ShowMessageDateContext);
   const showTime = useContext(ShowMessageTimeContext);
-  const full = showDate || showTime ? formatDateTime(message.createdAt, 'second') : '';
+  const full =
+    showDate || showTime || alwaysShowTime || alwaysShowDate
+      ? formatDateTime(message.createdAt, 'second')
+      : '';
   return (
     <div className="weq-system-message-content" title={full ? `${full}（北京时间）` : undefined}>
       {children}
-      <MessageProvenance message={message} system />
+      <MessageProvenance
+        message={message}
+        system
+        alwaysShowTime={alwaysShowTime}
+        alwaysShowDate={alwaysShowDate}
+      />
     </div>
   );
 }
@@ -69,23 +81,28 @@ export function MessageProvenance({
   system = false,
   precision = 'second',
   animate = false,
+  alwaysShowTime = false,
+  alwaysShowDate = false,
+  showSequence = true,
 }: {
   message: MessageMetadataSource;
   system?: boolean;
   precision?: 'second' | 'millisecond';
   animate?: boolean;
+  /** 结果与选区中的消息需要可独立识别。 */
+  alwaysShowTime?: boolean;
+  alwaysShowDate?: boolean;
+  showSequence?: boolean;
 }) {
   const showSeq = useContext(ShowMessageSeqContext);
   const showDate = useContext(ShowMessageDateContext);
   const showTime = useContext(ShowMessageTimeContext);
-  const seq = !system && showSeq ? messageSequence(message.msgSeq) : null;
-  const date = message.createdAt ? new Date(message.createdAt) : null;
-  const day =
-    !system && showDate && date && Number.isFinite(date.getTime()) ? beijingDay(date) : null;
+  const seq = !system && showSeq && showSequence ? messageSequence(message.msgSeq) : null;
+  const date = timeDate(message.createdAt);
+  const includeDate = alwaysShowDate || (showDate && (!system || alwaysShowTime));
+  const day = date && includeDate ? beijingDay(date) : null;
   const time =
-    !system && showTime && date && Number.isFinite(date.getTime())
-      ? clockFormatter.format(date)
-      : null;
+    date && (alwaysShowTime || (showTime && !system)) ? clockFormatter.format(date) : null;
   const timeText = [day, time].filter(Boolean).join(' ');
   const seqRef = useOutgoingMetadataMotion<HTMLSpanElement>(seq, animate);
   const timeRef = useOutgoingMetadataMotion<HTMLTimeElement>(timeText || null, animate);

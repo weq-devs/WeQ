@@ -76,3 +76,37 @@ it.each(['mine', 'fallback', 'all'] as const)(
     }
   },
 );
+
+it('只替换自己发出的转发记录，并按左侧气泡绘制', () => {
+  const host = document.createElement('div');
+  host.innerHTML = [
+    '<div class="message-line theirs" data-case="peer"><div class="message-content"></div></div>',
+    '<div class="message-line theirs" data-weq-dress-mine data-case="self"><div class="message-content"></div></div>',
+  ].join('');
+  applyDressSkin(
+    {
+      itemId: 11,
+      slice: { left: 4, right: 4, top: 4, bottom: 4 },
+      imageSize: { w: 40, h: 40 },
+      textColor: '#222222',
+    },
+    null,
+    null,
+    'mine',
+  );
+  const style = document.getElementById('weq-dress-skin') as HTMLStyleElement;
+  const baseRule = Array.from(style.sheet!.cssRules).find((rule) =>
+    rule.cssText.includes('border-image-source:'),
+  ) as CSSStyleRule;
+  const bubbleCases = Array.from(
+    host.querySelectorAll(baseRule.selectorText),
+    (node) => node.parentElement!.dataset.case,
+  );
+  const fontSelector = fontRules(
+    { itemId: 22, fontUrl: '', deriveVersion: 1, fx: null },
+    'mine',
+  ).split(' {')[0]!;
+  expect(bubbleCases).toEqual(['self']);
+  expect(host.querySelector(fontSelector)?.parentElement?.dataset.case).toBe('self');
+  expect(style.textContent).toContain('.message-line.theirs[data-weq-dress-mine]');
+});

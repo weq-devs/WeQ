@@ -62,7 +62,11 @@ import { TaskQuickActions, type TaskQuickAction } from './TaskQuickActions';
 import { forgetWindowTask, localBackgroundTasks } from '../../state/backgroundTasks';
 import { IS_WEB } from '../../lib/target.shared';
 import { downloadFlashToDevice } from '../../lib/flashDownload';
-import { backgroundTaskNavigation } from './backgroundTaskNavigation';
+import {
+  backgroundTaskNavigation,
+  exportSourceAction,
+  taskSourceAction,
+} from './backgroundTaskNavigation';
 import { EmptyState } from '../EmptyState';
 import { TaskProgressDetails } from './TaskProgressDetails';
 import { FlashTaskLog } from './FlashTaskLog';
@@ -95,10 +99,6 @@ import { exportTaskResult } from '../../../../shared/export_task_result';
 import { cloneTaskResult } from '../../lib/workspaceIndicators';
 import { taskNotificationForeground } from '../../lib/taskNotificationPresentation';
 import { TaskResultNavigationContext } from '../../lib/taskResultNavigation';
-import {
-  notificationSource,
-  openNotificationSource,
-} from '../../lib/notificationNavigation.shared';
 
 export type TaskLayout = 'inline' | 'compact' | 'split' | 'page';
 
@@ -359,6 +359,10 @@ export function CurrentTaskList({
       },
     );
     const actions: TaskQuickAction[] = [];
+    const sourceAction =
+      task.resource?.source && cleanupBinding
+        ? exportSourceAction(task.resource.source, cleanupBinding)
+        : undefined;
     if (exportActions) {
       if (task.save?.path && exportActions.openSaved) {
         actions.push(
@@ -427,8 +431,18 @@ export function CurrentTaskList({
         actions.sort((a, b) => Number(control(b)) - Number(control(a)));
       }
     }
+    const resultAction =
+      task.status === 'completed' &&
+      task.save?.status === 'saved' &&
+      !missing &&
+      !task.databaseRecoveryRecords?.length
+        ? actions.find((action) => action.id === 'open')
+        : undefined;
     return {
       id: `export:${task.id}`,
+      resultAction,
+      exportTransferId:
+        saving || (task.resource && task.status === 'running') ? task.id : undefined,
       name: taskDisplayTitle(display),
       display,
       createdAt: task.createdAt,
@@ -462,11 +476,16 @@ export function CurrentTaskList({
           .filter(Boolean)
           .join(' · ') || undefined,
       icon: taskIcon(task),
-      detail: renderExport(task, archiveState.actions, archived || archiveState.isArchived),
+      detail: renderExport(
+        task,
+        [...(sourceAction ? [sourceAction] : []), ...archiveState.actions],
+        archived || archiveState.isArchived,
+      ),
       quickActions: [
         ...(archived || archiveState.isArchived
           ? actions.filter((action) => !['pause', 'resume', 'cancel'].includes(action.id))
           : actions),
+        ...(sourceAction ? [sourceAction] : []),
         ...archiveState.actions,
       ],
     };
@@ -624,26 +643,37 @@ export function CurrentTaskList({
           : job.status === 'partial'
             ? 'completed'
             : job.status;
-    const target = job.targets.length === 1 ? job.targets[0] : undefined;
-    const resultAction =
-      job.status === 'completed' && job.observed > 0 && target && cleanupBinding
-        ? {
-            label: '查看补回的消息',
-            run: () =>
-              openNotificationSource(
-                notificationSource(
-                  {
-                    kind: 'conversation',
-                    conversationKind: target.kind,
+    const restored = job.targets.filter((target) => target.firstObservedSeq);
+    const label = restored.length === 1 ? '查看补回的消息' : '选择会话查看补回的消息';
+    const restoredAction =
+      cleanupBinding && complete && restored.length
+        ? taskSourceAction(
+            restored.length === 1
+              ? {
+                  kind: 'conversation',
+                  conversationKind: restored[0]!.kind,
+                  conv: restored[0]!.conv,
+                  seq: restored[0]!.firstObservedSeq,
+                  dismissTaskPanel: true,
+                }
+              : {
+                  kind: 'forwarded-conversations',
+                  title: label,
+                  binding: cleanupBinding,
+                  targets: restored.map((target) => ({
+                    id: target.conv,
                     conv: target.conv,
+                    kind: target.kind,
+                    name: target.name,
+                    avatarUrl: '',
                     seq: target.firstObservedSeq,
-                  },
-                  '查看补回的消息',
-                  cleanupBinding,
-                ),
-              ),
-          }
+                  })),
+                },
+            label,
+            cleanupBinding,
+          )
         : undefined;
+    const resultAction = job.status === 'completed' ? restoredAction : undefined;
     items.push({
       id: `roaming:${job.id}`,
       name: taskDisplayTitle(display),
@@ -676,12 +706,14 @@ export function CurrentTaskList({
           <RoamingBackfillPanel
             surface="tasks"
             taskId={job.id}
-            managementActions={jobArchive.actions}
+            managementActions={
+              restoredAction ? [restoredAction, ...jobArchive.actions] : jobArchive.actions
+            }
             archived={archived || jobArchive.isArchived}
           />
         </div>
       ),
-      quickActions: rowActions,
+      quickActions: restoredAction && !resultAction ? [restoredAction, ...rowActions] : rowActions,
       resultAction,
     });
   }
@@ -797,15 +829,17 @@ export function CurrentTaskList({
       }
     };
     const openFlash = async (mode: 'file' | 'directory' | 'reveal') => {
-      if (!cleanupBinding || openingFlashRef.current) return;
+      if (!cleanupBinding || openingFlashRef.current) return false;
       openingFlashRef.current = task.id;
       setOpeningFlash(task.id);
       try {
-        await client.account.flashOpenDownloadOutput.mutate({
+        const result = await client.account.flashOpenDownloadOutput.mutate({
           ...cleanupBinding,
           taskId: task.id,
           mode,
         });
+        if (!result.ok) throw new Error('闪传下载结果当前无法打开。');
+        return true;
       } finally {
         openingFlashRef.current = null;
         if (mounted.current) setOpeningFlash(null);
@@ -867,9 +901,26 @@ export function CurrentTaskList({
         run: () => openFlash(single ? 'reveal' : 'directory'),
       });
     }
+    const filesetId = task.viewFilesetId || task.filesetId;
+    if (cleanupBinding && filesetId)
+      actions.push(
+        taskSourceAction(
+          { kind: 'flash-share', filesetId, name: task.filesetName },
+          '打开原闪传分享',
+          cleanupBinding,
+        ),
+      );
+    const resultAction =
+      !IS_WEB &&
+      !task.browserOutput &&
+      task.status === 'done' &&
+      flashFiles.every((file) => file.status === 'done')
+        ? actions.find((action) => action.id === (single ? 'open' : 'reveal'))
+        : undefined;
     actions.push(...flashArchive.actions);
     items.push({
       id: `flash:${task.id}`,
+      resultAction,
       name: taskDisplayTitle(display),
       display,
       createdAt: task.createdAt,
@@ -1088,6 +1139,14 @@ export function CurrentTaskList({
         resultAction =
           navigation ??
           (task.kind === 'forward' ? actions.find(({ id }) => id === 'open') : undefined);
+      else if (
+        navigation &&
+        (task.messageTarget ||
+          task.groupMemberOrder ||
+          task.destination === 'intent-model-resources' ||
+          task.destination === 'resource-cleanup')
+      )
+        resultAction = navigation;
       else if (task.kind === 'calendar' && resultNavigation?.openCalendar) {
         const open = resultNavigation.openCalendar;
         resultAction = { label: '打开会话日历', run: () => open(task.id) };
@@ -1138,7 +1197,10 @@ export function CurrentTaskList({
       transfer: task.kind === 'send-media',
       note: display.context,
       metrics:
-        task.kind === 'forward' || (task.kind === 'contacts' && task.status !== 'failed')
+        task.kind === 'forward' ||
+        task.kind === 'album-upload' ||
+        task.destination === 'intent-model-resources' ||
+        (task.kind === 'contacts' && task.status !== 'failed')
           ? task.note
           : undefined,
       icon: <Icon size={16} />,

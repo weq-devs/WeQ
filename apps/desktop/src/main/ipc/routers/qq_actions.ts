@@ -452,7 +452,11 @@ export function createQQActionsRouter(
     if (!page.capabilities?.[operation])
       throw new Error('当前账号没有此相册操作权限，请刷新相册后重试');
   }
-  async function uploadAlbumVideo(input: z.infer<typeof videoInput>, sending?: () => void) {
+  async function uploadAlbumVideo(
+    input: z.infer<typeof videoInput>,
+    sending?: () => void,
+    onVideoProgress?: (confirmed: number, total: number) => void,
+  ) {
     let videoId: string | null = null;
     await write(input, async (services, current) => {
       const path = input.uploadId
@@ -485,6 +489,7 @@ export function createQQActionsRouter(
           width: input.width,
           height: input.height,
           beforeSend: current,
+          onVideoProgress,
         });
         videoId = result.videoId;
       } finally {
@@ -600,12 +605,22 @@ export function createQQActionsRouter(
         save(receipt);
         const videoId = await runtimeMaintenance.operation(
           () =>
-            uploadAlbumVideo(input, () => {
-              save({ ...receipt, submitted: true, prepared: undefined });
-              receipt.submitted = true;
-              receipt.prepared = undefined;
-              backgroundTasks.update(taskId, { statusLabel: '正在上传到 QQ 并发布' });
-            }),
+            uploadAlbumVideo(
+              input,
+              () => {
+                save({ ...receipt, submitted: true, prepared: undefined });
+                receipt.submitted = true;
+                receipt.prepared = undefined;
+                backgroundTasks.update(taskId, { statusLabel: '正在上传到 QQ 并发布' });
+              },
+              (confirmed, total) => {
+                backgroundTasks.update(taskId, {
+                  statusLabel: confirmed === total ? '正在处理封面并发布' : '正在上传视频到 QQ',
+                  progress: Math.min(99, Math.floor((100 * confirmed) / total)),
+                  note: `${(confirmed / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MiB`,
+                });
+              },
+            ),
           '上传群相册视频',
         );
         receipt.videoId = videoId ?? undefined;

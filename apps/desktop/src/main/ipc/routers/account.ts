@@ -366,6 +366,23 @@ function assertCurrentAccountWritable(input: {
   if (account) assertDatabaseWritable(account.msgDbPath);
 }
 
+async function recordedSenderNames(
+  input: { expectedAccountUin: string; expectedAccountConfigId: string; msgIds: string[] },
+  kind: 'group' | 'c2c',
+  conv: string,
+) {
+  const { expectedAccountUin, expectedAccountConfigId, msgIds } = input;
+  const services = requireExpectedAccount(expectedAccountUin, expectedAccountConfigId);
+  const rows = await withDatabasePriority('background', () =>
+    kind === 'group'
+      ? services.msgs.recordedGroupSenderNames(conv, msgIds)
+      : services.msgs.recordedC2cSenderNames(conv, msgIds),
+  );
+  if (requireExpectedAccount(expectedAccountUin, expectedAccountConfigId) !== services)
+    throw new Error('账号或数据源已切换');
+  return rows;
+}
+
 async function scopedGroupRead<T>(
   input: { expectedAccountUin?: string; expectedAccountConfigId?: string },
   read: (services: AccountServices) => Promise<T>,
@@ -623,6 +640,12 @@ const convInput = z.object({
   kind: z.enum(['c2c', 'group']),
   /** Conversation key: peer uid (c2c) or group code (group). */
   conv: z.string().min(1),
+});
+const recordedSenderNamesInput = exportAccountBindingInput.required().extend({
+  msgIds: z
+    .array(z.string().regex(/^-?\d{1,20}$/))
+    .min(1)
+    .max(200),
 });
 const messageReadWindowInput = z.object({
   owner: z.string().uuid(),
@@ -4370,6 +4393,7 @@ export const accountRouter = router({
   replyMedia: procedure
     .input(
       convInput.merge(exportAccountBindingInput).extend({
+        includeHistoricalNames: z.boolean().optional(),
         readWindow: messageReadWindowInput.optional(),
         msgIds: z
           .array(z.string().regex(/^-?\d{1,20}$/))
@@ -4381,9 +4405,13 @@ export const accountRouter = router({
       readMessageScope(
         input,
         async () =>
-          (await requireServices().msgs.getReplyMedia(input.kind, input.msgIds.map(BigInt))).map(
-            replyMediaToWire,
-          ),
+          (
+            await requireServices().msgs.getReplyMedia(
+              input.kind,
+              input.msgIds.map(BigInt),
+              input.includeHistoricalNames,
+            )
+          ).map(replyMediaToWire),
         'background',
       ),
     ),
@@ -5153,9 +5181,17 @@ export const accountRouter = router({
    * 返回 string[] 以便与渲染层 Message.msgSeq 直接匹配。
    */
   listGroupEssenceSeqs: directoryProcedure
-    .input(z.object({ groupCode: z.string().min(1) }))
+    .input(z.object({ groupCode: z.string().min(1) }).merge(exportAccountBindingInput))
     .query(async ({ input }) => {
-      const seqs = await requireServices().groupInfo.getEssenceSeqs(BigInt(input.groupCode));
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const seqs = await services.groupInfo.getEssenceSeqs(BigInt(input.groupCode));
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
       return seqs.map(String);
     }),
 
@@ -5203,6 +5239,57 @@ export const accountRouter = router({
     .query(async ({ input }) => {
       const info = await requireServices().groupInfo.getMemberLevelInfo(BigInt(input.groupCode));
       return info ? groupMemberLevelInfoToWire(info) : null;
+    }),
+
+  recordedGroupSenderNames: procedure
+    .input(recordedSenderNamesInput.extend({ groupCode: z.string().regex(/^[1-9]\d{0,19}$/) }))
+    .query(({ input }) => recordedSenderNames(input, 'group', input.groupCode)),
+
+  recordedC2cSenderNames: procedure
+    .input(recordedSenderNamesInput.extend({ peerUid: z.string().min(1) }))
+    .query(({ input }) => recordedSenderNames(input, 'c2c', input.peerUid)),
+
+  groupSenderNames: procedure
+    .input(
+      exportAccountBindingInput
+        .required()
+        .extend({
+          groupCode: z
+            .string()
+            .regex(/^[1-9]\d{0,19}$/)
+            .optional(),
+          senderUid: z
+            .string()
+            .regex(/^u_[\w-]+$/)
+            .max(128)
+            .optional(),
+          keyword: z.string().trim().min(1).max(128).optional(),
+          offset: z.number().int().nonnegative().default(0),
+        })
+        .refine((value) => Boolean(value.senderUid || (value.groupCode && value.keyword))),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const rows = await services.msgs.groupSenderNames({
+        groupCode: input.groupCode,
+        senderUid: input.senderUid,
+        keyword: input.keyword,
+        distinctSenders: Boolean(input.keyword),
+        offset: input.offset,
+        limit: 51,
+      });
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
+      return {
+        rows: rows.slice(0, 50),
+        indexPending: !input.groupCode && services.msgs.groupSenderNamesPending,
+        nextOffset: rows.length > 50 ? input.offset + 50 : undefined,
+      };
     }),
 
   groupMemberPreview: procedure
@@ -5271,6 +5358,8 @@ export const accountRouter = router({
       exportAccountBindingInput.required().extend({
         groupCode: z.string().regex(/^[1-9]\d{0,9}$/),
         sort: z.enum(GROUP_MEMBER_ONLINE_SORTS),
+        descending: z.boolean().optional(),
+        prioritizeAdmins: z.boolean().optional(),
         pageId: z.string().uuid().optional(),
       }),
     )
@@ -5292,6 +5381,8 @@ export const accountRouter = router({
         input.sort,
         checkAccount,
         input.pageId,
+        undefined,
+        { descending: input.descending, prioritizeAdmins: input.prioritizeAdmins },
       );
     }),
 
@@ -8774,6 +8865,7 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'qzone-albums',
         resume,
+        source: { kind: 'qzone-album', uin: selected.hostUin, topicId: selected.topicId },
         name: selected.name,
         transferTarget: qzoneBatchTransferTarget(selected.hostUin),
         display: {
@@ -9437,6 +9529,7 @@ export const accountRouter = router({
         exportAvatar: z.boolean().optional(),
         /** ChatLab interchange format (json/jsonl carry ChatLab structure). */
         chatlab: z.boolean().optional(),
+        useRecordedSenderName: z.boolean().optional(),
         /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
         dress: dressInput,
         /** Media export: copy local media into media/ and CDN-complete images. */
@@ -10060,6 +10153,7 @@ export const accountRouter = router({
           exportMedia: z.boolean(),
           completeMessages: z.boolean(),
           exportAvatar: z.boolean(),
+          useRecordedSenderName: z.boolean().optional(),
           completeMedia: z.boolean(),
           downloadVideo: z.boolean(),
           downloadFile: z.boolean(),
@@ -10140,6 +10234,7 @@ export const accountRouter = router({
               exportMedia: z.boolean(),
               completeMessages: z.boolean(),
               exportAvatar: z.boolean(),
+              useRecordedSenderName: z.boolean().optional(),
               completeMedia: z.boolean(),
               downloadVideo: z.boolean(),
               downloadFile: z.boolean(),

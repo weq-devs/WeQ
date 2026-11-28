@@ -1,5 +1,6 @@
 import { AlertCircle, Check, Download, Play, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import type { ExportMessageSource } from '@weq/service';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { IS_WEB } from '../lib/target.shared';
 import { RenderDocumentContext, useRenderDocument } from '../lib/renderDocument';
@@ -134,11 +135,13 @@ export function MediaSaveControls({
 }
 function SourceSave({
   source,
+  messageSource,
   ...props
 }: MediaSaveOptions & {
   source: MediaSaveSource;
+  messageSource?: ExportMessageSource;
 }) {
-  const save = useMediaSave({ foreground: true });
+  const save = useMediaSave({ foreground: true, messageSource });
   return <MediaSaveControls {...props} source={source} save={save} />;
 }
 export function MediaSourceSave({
@@ -147,6 +150,7 @@ export function MediaSourceSave({
 }: MediaSaveOptions & {
   source: MediaSaveSource;
   ownerDocument?: Document;
+  messageSource?: ExportMessageSource;
 }) {
   const currentDocument = useRenderDocument();
   return (

@@ -1,3 +1,4 @@
+import type { ExportMessageSource } from './export/task_manager';
 import { bounded, networkFetch } from '@weq/network';
 /**
  * MediaDownloadService — CDN fallback for chat media that isn't on disk.
@@ -69,6 +70,7 @@ export interface DownloadOptions {
   /** 仅用户明确请求查看原图时，可在任务列表继续被策略暂停的传输。 */
   reportActivity?: boolean;
   activityTaskId?: string;
+  activityMessageSource?: ExportMessageSource;
   activity?: {
     pageId: string;
     onState(state: DownloadState, resume?: () => void): void;
@@ -450,6 +452,7 @@ export class MediaDownloadService {
               id: taskId,
               request: {
                 type: 'chat-original',
+                messageSource: opts.activityMessageSource,
                 token: fileToken,
                 originalUrl: /^\/(?!\/)[^?#]*$/.test(opts.originalUrl ?? '')
                   ? opts.originalUrl

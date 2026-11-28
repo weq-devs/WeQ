@@ -175,21 +175,29 @@ it('重复打开不会多占引用，换图后释放旧预览但不释放仍属�
   expect(revoke).toHaveBeenCalledWith('blob:next-image');
 });
 
-it('灯箱加载本机路径失败时独立回退，不要求气泡先收到失败事件', async () => {
-  await mount({ fileName: 'image.png', localPath: '/synthetic/pending/image.png' });
+it('QQ 回读的本机路径在灯箱中失效后，先试原图缓存再试缩略图', async () => {
+  await mount({
+    fileName: 'image.png',
+    filePath: '::NTOSFull::/synthetic/nt_data/Pic/image.png',
+    fileToken: 'readback-token',
+  });
   await openLoadedImage();
-  expect(preview().src).toContain('localfile');
+  expect(new URL(preview().src).searchParams.get('path')).toBe('/synthetic/nt_data/Pic/image.png');
   await act(async () => {
     preview().dispatchEvent(new Event('error'));
     await vi.dynamicImportSettled();
   });
-  expect(new URL(preview().src).hostname).toBe('pic');
-  expect(new URL(preview().src).searchParams.has('v')).toBe(false);
+  const cached = new URL(preview().src).searchParams;
+  expect(cached.get('v')).toBe('original');
+  expect(cached.get('localOnly')).toBe('1');
+  expect(cached.get('token')).toBe('readback-token');
+  expect(document.body.textContent).not.toContain('查看原图');
   await act(async () => {
     preview().dispatchEvent(new Event('error'));
     await vi.dynamicImportSettled();
   });
   expect(new URL(preview().src).searchParams.get('v')).toBe('thumb');
+  expect(document.body.textContent).toContain('查看原图');
 });
 
 it('占位图片失败后换成真实消息时重新取图，不继承旧的缺图状态', async () => {

@@ -311,7 +311,7 @@ export function WorkspaceTools({
   useEffect(
     () =>
       onNotificationNavigation((target) => {
-        if (target.kind !== 'conversation' || !target.dismissTaskPanel) return;
+        if (!target.dismissTaskPanel) return;
         closeMenu();
         setExpanded(false);
       }),

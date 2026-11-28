@@ -508,6 +508,37 @@ export async function resolveC2cSenders(
   return { senders, ownerId };
 }
 
+export function exportTableSenderName(
+  message: ExportedMessage,
+  senders: ReadonlyMap<string, ResolvedSender>,
+): string {
+  const sender = senders.get(message.senderUid);
+  return (
+    message.senderAtTime?.name ||
+    message.senderName ||
+    sender?.displayName ||
+    sender?.groupNickname ||
+    sender?.accountName ||
+    message.senderUin ||
+    message.senderUid
+  );
+}
+
+export function withRecordedSenderName(
+  sender: ResolvedSender,
+  message: ExportedMessage,
+): ResolvedSender {
+  const saved = message.senderAtTime;
+  if (!saved) return sender;
+  return {
+    ...sender,
+    sourceName: saved.name,
+    displayName: saved.name,
+    accountName: saved.kind === 'nickname' ? saved.name : sender.accountName,
+    groupNickname: saved.kind === 'display' ? saved.name : undefined,
+  };
+}
+
 /** Best-effort sender for a uid not in the resolved member set (rare). */
 export function fallbackSender(m: ExportedMessage): ResolvedSender {
   const uin = m.senderUin;

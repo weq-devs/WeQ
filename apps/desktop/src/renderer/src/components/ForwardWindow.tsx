@@ -27,6 +27,7 @@ import { visibleViewport } from '../lib/visibleViewport';
 import { LoadingIndicator } from './LoadingIndicator';
 import { parseArkMultiMsg } from './ForwardWindow.shared';
 import type { ForwardActions } from './ForwardRecordList';
+import type { User } from '../im-template/template/types';
 
 export type { ForwardRecordWire } from '../state/forwardWindow';
 
@@ -348,7 +349,13 @@ export function ForwardMultiMsgPreview({
 }
 
 /** 宿主与请求状态常驻，窗口正文只在首次打开时加载。 */
-export function ForwardWindowHost({ actions }: { actions?: ForwardActions }): ReactElement | null {
+export function ForwardWindowHost({
+  actions,
+  viewer,
+}: {
+  actions?: ForwardActions;
+  viewer?: User;
+}): ReactElement | null {
   const windows = useForwardStore((s) => s.windows);
   const revision = useForwardStore((s) => s.zTop);
   const { layer, scope } = useOverlayLayerScope(windows.length > 0, revision);
@@ -358,7 +365,7 @@ export function ForwardWindowHost({ actions }: { actions?: ForwardActions }): Re
     <div className="weq-forward-layer" style={{ zIndex: layer }} aria-live="polite">
       <OverlayLayerContext.Provider value={scope}>
         <Suspense fallback={windows.map((win) => <PendingWindow key={win.id} win={win} />)}>
-          <Content windows={windows} actions={actions} />
+          <Content windows={windows} actions={actions} viewer={viewer} />
         </Suspense>
       </OverlayLayerContext.Provider>
     </div>,

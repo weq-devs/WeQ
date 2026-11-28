@@ -9,6 +9,7 @@ declare global {
     weq: {
       accountInstances?: import('../shared/account_instances').AccountInstanceBridge;
       windowChrome?: import('../shared/window_chrome').WindowChromeBridge;
+      onForceClick?: import('../shared/force_click').ForceClickBridge;
       authorization: LongTermAuthorizationBridge;
       editUndo: EditUndoBridge;
       openLogDir(): Promise<boolean>;

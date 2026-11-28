@@ -109,6 +109,7 @@ async function executeCleanup(
     resume?.id ??
     backgroundTasks.start({
       kind: 'resource',
+      destination: 'resource-cleanup',
       name: '清理本地资源',
       display: { action: '清理本地资源' },
       scope,

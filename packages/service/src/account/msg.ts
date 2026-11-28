@@ -261,6 +261,29 @@ export class MsgService {
     return row ? { db, row } : null;
   }
 
+  recordedGroupSenderNames(conv: string, ids: readonly string[]) {
+    return this.session.groupMsgs.recordedSenderNames(conv, ids);
+  }
+
+  recordedC2cSenderNames(conv: string, ids: readonly string[]) {
+    return this.session.c2cMsgs.recordedSenderNames(conv, ids);
+  }
+
+  get groupSenderNamesPending() {
+    return this.session.groupMsgs.senderNamesPending;
+  }
+
+  async groupSenderNames(filter: Parameters<AccountSession['groupMsgs']['senderNames']>[0]) {
+    const rows = await this.session.groupMsgs.senderNames(filter);
+    if (!rows.length) return [];
+    const codes = [...new Set(rows.map((row) => row.groupCode))];
+    const groups = await this.session.groupDetail.detailsByGroupCodes(codes.map(BigInt));
+    const names = new Map(
+      groups.map((group) => [String(group.groupCode), group.groupName || group.remark]),
+    );
+    return rows.map((row) => ({ ...row, groupName: names.get(row.groupCode) || row.groupCode }));
+  }
+
   async messageRecordDetails(target: MessageRecordTarget) {
     const found = await this.findMessageRecord(target);
     if (!found) return null;
@@ -599,6 +622,21 @@ export class MsgService {
       kind,
       conv,
       rows?.map((row) => row.msgId),
+    );
+  }
+
+  /** 复用已从 FTS 回查的原消息行，批量补上正式会话使用的删除、撤回标记。 */
+  async searchMessageStates(kind: 'c2c' | 'group', conv: string, rows: (C2cMsg | GroupMsg)[]) {
+    if (!rows.length) return new Map<bigint, Pick<RenderC2cMsg, 'deletedKind' | 'recall'>>();
+    const recalls = await this.recallMapFor(kind, conv, rows);
+    return new Map(
+      rows.map((message) => [
+        message.msgId,
+        {
+          deletedKind: this.classifyDeleted(message),
+          recall: this.classifyRecall(message, recalls),
+        },
+      ]),
     );
   }
 
@@ -1712,19 +1750,29 @@ export class MsgService {
     return new Map([...caches].map(([id, cache]) => [id, cachedQuotedMedia(cache)]));
   }
 
-  /** 正文已显示后按页补全引用媒体，仍复用 40900 的同一套解析与筛选规则。 */
-  async getReplyMedia(
-    kind: 'c2c' | 'group',
-    ids: bigint[],
-  ): Promise<{ msgId: string; elements: RenderElement[] }[]> {
-    const caches = await this.replyMedia(kind, ids);
-    return [...caches].flatMap(([id, elements]) => {
-      if (!elements.length) return [];
+  /** 正文已显示后按页读取引用快照中的媒体和发送者称呼。 */
+  async getReplyMedia(kind: 'c2c' | 'group', ids: bigint[], includeHistoricalNames = false) {
+    const caches = await this.session.forwardMsgs.listForMessages(kind, ids);
+    return [...caches].flatMap(([id, records]) => {
+      if (records.length !== 1) return [];
+      const record = records[0]!;
+      const name = kind === 'group' && includeHistoricalNames ? record.sendNick?.trim() : undefined;
+      const quotedSender = name
+        ? {
+            name,
+            uid: record.senderUid || '',
+            seq: String(record.msgSeq || ''),
+            msgId: String(record.msgId || ''),
+          }
+        : undefined;
+      const elements = cachedQuotedMedia(records);
+      if (!elements.length && !quotedSender) return [];
       try {
         return [
           {
             msgId: id.toString(),
             elements: toRenderElements(elements.map((wire) => decodeElement(wire as never))),
+            ...(quotedSender ? { quotedSender } : {}),
           },
         ];
       } catch {

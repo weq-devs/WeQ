@@ -1,6 +1,7 @@
 import { z } from 'zod/v3';
 import { describeExportOutput, exportOutputFileName, getHost } from '@weq/service';
 import { getAppContext } from '../../context/app_context';
+import { taskMessageSourceInput } from '../../task_message_source';
 import { savedMediaSourceKey } from '../../message_media_local';
 import { mediaTransferTarget } from '../../../shared/transfer_progress';
 import {
@@ -20,6 +21,7 @@ import {
 
 const saveInput = exportAccountBindingInput.extend({
   source: mediaSaveSourceInput,
+  messageSource: taskMessageSourceInput.optional(),
   savePolicy: exportSavePolicyInput.optional(),
   foreground: z.boolean().optional(),
   browserOutput: z.boolean().optional(),
@@ -94,6 +96,7 @@ export const mediaSaveRouter = router({
       foreground: selected.foreground,
       browserOutput: selected.browserOutput,
       resume,
+      source: source.kind === 'group-file' ? undefined : selected.messageSource,
       sourceKey: savedMediaSourceKey(selected.source),
       transferTarget: mediaTransferTarget(selected.source),
       name: output.name,

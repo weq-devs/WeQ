@@ -288,6 +288,7 @@ const exportPresetOptionsSchema = z.object({
   }),
   autoSave: z.boolean(),
   chatlab: z.boolean(),
+  useRecordedSenderName: z.boolean().optional(),
 });
 
 const exportPresetScheduleSchema = z.object({

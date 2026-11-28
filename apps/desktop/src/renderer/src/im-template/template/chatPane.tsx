@@ -4,6 +4,7 @@ import { ChatTimeline } from './chatTimeline';
 import {
   messageGroups,
   messageTimelineSpacing,
+  selectedMessageLayout,
   unreadTimelineBoundary,
   unreadTimelineStart,
   type MessageGroupPosition,
@@ -31,8 +32,8 @@ import {
   conversationExportSelection,
   conversationAnalysisTarget,
   conversationSourceLabel,
-  readonlyConversationKind,
 } from '../../lib/conversationActions';
+import { messageDetailsTarget } from '../../lib/messageDetailsTarget';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import {
   GiftMallPanel,
@@ -64,6 +65,7 @@ import {
 } from '../../lib/responsiveLayout';
 import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
 import { adjacentMessageId } from '../../lib/messageKeyboardNav';
+import { setInputModality } from '../../lib/inputModality';
 import { IS_WEB } from '../../lib/target.shared';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
@@ -333,14 +335,14 @@ import { useGroupMemberUnmute } from '../../hooks/useGroupMemberUnmute';
 import { ReactionPicker } from './reactionPicker';
 import { useReactionFeedback } from '../../hooks/useReactionFeedback';
 import type { MessageContextMenuState, MessageDetailsSelection } from './messageContextMenu';
+import { messageCardElements } from './messageContextMenu.shared';
+import { isForceClick, runForceClick } from '../../lib/forceClick';
 import type { MessageRecordEdited } from '../../components/MessageDetails';
 import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
 import { canRepeatMessage, repeatTarget } from '../../lib/messageRepeat';
 import { messageForwardTarget } from '../../lib/messageForwardTarget';
-import { parseFlashShareCode } from '../../lib/flashShare';
-import { soleLink } from '../../lib/linkify';
-import { textMarkdownBody } from '../../state/textMarkdown';
+import { messageTranslationText } from '../../lib/messageTranslation';
 import { MessageMenuButton } from '../../components/MessageMenuButton';
 import { MessageTextResult } from '../../components/MessageTextResult';
 import { mediaUrl } from '../../lib/resourceUrl';
@@ -490,16 +492,6 @@ function pureImageUrl(message: Message) {
   return elements.length === 1 && elements[0]?.type === 'pic'
     ? getMessageDownloadUrl(message)
     : undefined;
-}
-
-function messageTranslationText(message: Message): string | null {
-  if (message.flashPhotoPlaceholder) return null;
-  const elements = message.qqElements?.filter(
-    ({ type }) => type !== 'reply' && type !== 'at' && type !== 'face',
-  );
-  const text = (elements ? textMarkdownBody(elements) : message.body)?.trim();
-  if (!text || text.length > 4096 || !/\b[A-Za-z]{2,}\b/.test(text)) return null;
-  return parseFlashShareCode(text) || soleLink(text) ? null : text;
 }
 
 function formatUnreadJumpCount(value: number) {
@@ -739,7 +731,9 @@ export type ChatPaneProps = {
   messageRecords?: React.ReactNode;
   onCloseMessageRecords?: () => void;
   /** 顶栏「搜索聊天记录」按钮：在当前会话内搜索并跳转。 */
-  onSearchChatRecords?: (conversation: Conversation) => void;
+  onSearchChatRecords?: (conversation: Conversation, quote?: (message: Message) => void) => void;
+  searchQuote?: Message;
+  onSearchQuoteHandled?: (message: Message) => void;
   onOpenRoamingBackfill?: (conversation: Conversation) => void;
   /** 缺失消息占位条点击：携带占位条两侧消息的 seq（开区间即缺失窗口）。 */
   onOpenGapMessages?: (
@@ -882,6 +876,8 @@ function ChatPaneContent({
   onOpenGapMessages,
   onLoadSelectionMessages,
   onSearchChatRecords,
+  searchQuote,
+  onSearchQuoteHandled,
   onOpenRoamingBackfill,
   deletedIds,
   hiddenDeletedIds,
@@ -1960,6 +1956,22 @@ function ChatPaneContent({
   const rowRestore = useStableCallback(onRestoreMessage);
   const rowSwipeReply = useStableCallback(startQuote);
   const rowContext = useStableCallback(openMessageMenu);
+  const quoteSearchMessage = useStableCallback((message: Message) => {
+    if (tabActive && !restrictedSource && !readOnly && message.conversationId === conversation?.id)
+      startQuote(message);
+  });
+  useEffect(() => {
+    if (!searchQuote || !tabActive || searchQuote.conversationId !== conversation?.id) return;
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      onSearchQuoteHandled?.(searchQuote);
+      quoteSearchMessage(searchQuote);
+    });
+    return () => {
+      active = false;
+    };
+  }, [searchQuote, tabActive, conversation?.id, quoteSearchMessage, onSearchQuoteHandled]);
   const rowLongPress = useStableCallback(
     (point: { x: number; y: number }, message: Message, target?: EventTarget | null) =>
       openMobileMessageMenu(point, message, undefined, undefined, target),
@@ -5344,6 +5356,7 @@ function ChatPaneContent({
   function focusTimelineRow(id: string, attempts = 0): void {
     const scroll = messageScrollRef.current;
     if (!scroll) return;
+    if (attempts === 0) setInputModality('keyboard');
     const find = () =>
       [...scroll.querySelectorAll<HTMLElement>('[data-message-id]')].find(
         (element) => element.dataset.messageId === id,
@@ -6089,42 +6102,11 @@ function ChatPaneContent({
   }
 
   function openMessageDetails(selection: MessageDetailsSelection) {
-    const { message } = selection;
     const binding = accountBinding() ?? recallBinding;
-    const msgId = message.msgId ?? message.id;
-    const source = readonlyConversationKind(conversation);
-    let target: Parameters<typeof client.account.messageRecordDetails.query>[0] | undefined;
-    if (
-      binding?.expectedAccountUin === user.identityValue &&
-      conversation &&
-      !conversation.generated &&
-      !conversation.id.startsWith('virtual:') &&
-      source !== 'guild' &&
-      !message.forwardSnapshot &&
-      !isLocalOutgoingMessage(message) &&
-      /^-?\d{1,20}$/.test(msgId)
-    ) {
-      if (conversation.type === 'group') {
-        target = { ...binding, kind: 'group', conv: conversation.group.identityValue, msgId };
-      } else if (conversation.type === 'direct') {
-        const conv =
-          source === 'service'
-            ? conversation.id.replace(/^service:/, '')
-            : conversation.otherUser.id;
-        target = { ...binding, kind: source ?? 'c2c', conv, msgId };
-      }
-    }
-    if (target && (message.source === 'roaming' || message.recall?.retained)) {
-      if (target.kind === 'c2c' || target.kind === 'group') {
-        target.cache = {
-          format: message.sourceFormat,
-          retained: Boolean(message.recall?.retained),
-          seq: message.msgSeq && /^-?\d{1,20}$/.test(message.msgSeq) ? message.msgSeq : undefined,
-        };
-      } else {
-        target = undefined;
-      }
-    }
+    const target =
+      binding?.expectedAccountUin === user.identityValue
+        ? messageDetailsTarget(binding, conversation, selection.message)
+        : undefined;
     setMessageDetails({ scope: messageDetailsScope, selection, target });
   }
 
@@ -6446,23 +6428,17 @@ function ChatPaneContent({
     const picked = await reviewSelected('image');
     const source = messageScrollRef.current;
     if (!source || !picked?.length) return;
-    const positions = new Map(visibleMessages.map(({ id }, index) => [id, index]));
-    const fallbackGroups = groupConsecutiveMessages
-      ? messageGroups(picked, {
-          standalone: (message) => deletedKeys.has(deletionIdentity(message.id)),
-          breakBefore: (_previous, message) => timelineGaps.has(message.id),
-        })
-      : undefined;
+    const layout = selectedMessageLayout(picked, visibleMessages, {
+      group: groupConsecutiveMessages,
+      standalone: (message) => deletedKeys.has(deletionIdentity(message.id)),
+      breakBefore: (message) => timelineGaps.has(message.id) || message.id === unreadBoundaryId,
+    });
     try {
       const incomplete = await messageImage.copy(source, picked.length, (start, end) => (
         <div className="weq-virtual-timeline">
           {picked.slice(start, end).map((message, batchIndex) => {
             const index = start + batchIndex;
-            const position = positions.get(message.id);
-            const groupPosition =
-              position === undefined ? fallbackGroups?.[index] : groupPositions?.[position];
-            const previous =
-              position === undefined ? picked[index - 1] : visibleMessages[position - 1];
+            const { groupPosition, showTime } = layout[index]!;
             return (
               <div
                 className="weq-virtual-timeline-row"
@@ -6477,7 +6453,7 @@ function ChatPaneContent({
               >
                 <MessageTimeDivider
                   value={message.createdAt}
-                  visible={shouldShowMessageTime(previous?.createdAt, message.createdAt)}
+                  visible={showTime}
                   precision={
                     conversation.generated || message.optimistic ? 'millisecond' : 'second'
                   }
@@ -6487,7 +6463,10 @@ function ChatPaneContent({
                     <span aria-hidden>以下为未读消息</span>
                   </div>
                 ) : null}
-                <MessageRow {...timelineMessageAppearance(message, groupPosition)} />
+                <MessageRow
+                  {...timelineMessageAppearance(message, groupPosition)}
+                  alwaysShowSenderName
+                />
               </div>
             );
           })}
@@ -6535,7 +6514,34 @@ function ChatPaneContent({
         multi.rootProps.onPointerDownCapture();
         handleReadGesture(event);
       }}
-      onClickCapture={handleReadGesture}
+      onClickCapture={(event) => {
+        if (!isForceClick(event.nativeEvent)) {
+          handleReadGesture(event);
+          return;
+        }
+        const row = event.target as HTMLElement;
+        if (
+          messageScrollRef.current?.contains(row) &&
+          runForceClick(event.nativeEvent, 'message', (target) => {
+            if (selectionMode) return false;
+            const message = visibleMessages.find(({ id }) => id === row.dataset.messageId);
+            if (!message) return false;
+            openMessageDetails({
+              message,
+              cardElements: messageCardElements({
+                message,
+                originElement: row,
+                forwardTarget: messageForwardTarget(message, target),
+                mediaTarget: messageMediaTarget(message, target),
+              }),
+            });
+            setContextMenu(null);
+            return true;
+          })
+        ) {
+          event.stopPropagation();
+        }
+      }}
       onWheelCapture={(event) => {
         if (event.deltaY < 0 && (event.target as Element).closest('.message-scroll')) leaveBottom();
         handleReadGesture(event);
@@ -6697,7 +6703,17 @@ function ChatPaneContent({
                 }
                 compact={compactHeader}
                 showPortrait={Boolean(portraitPeer && intentStatus.data?.profileEnabled)}
-                onSearch={onSearchChatRecords ? () => onSearchChatRecords(conversation) : undefined}
+                onSearch={
+                  onSearchChatRecords
+                    ? () =>
+                        onSearchChatRecords(
+                          conversation,
+                          !restrictedSource && !readOnly && composerVisible
+                            ? quoteSearchMessage
+                            : undefined,
+                        )
+                    : undefined
+                }
                 onImportant={canOpenImportant ? openImportantMessages : undefined}
                 dismissJumpActions={
                   compactHeader
@@ -7076,10 +7092,11 @@ function ChatPaneContent({
           加载更早消息…
         </div>
       ) : null}
+      <span className="sr-only" role="status">
+        {locatingMessage ? '正在定位消息' : ''}
+      </span>
       {locatingMessage ? (
-        <div className="weq-conversation-loading is-older" role="status">
-          正在加载目标消息…
-        </div>
+        <div className="weq-conversation-loading is-locating" aria-hidden />
       ) : null}
       {loadingNewer ? (
         <div className="weq-conversation-loading" role="status" aria-label="正在加载后续消息">
@@ -7596,7 +7613,13 @@ function ChatPaneContent({
               {...batchReview.review}
               conversation={conversation}
               user={user}
-              renderMessage={(message) => <MessageRow {...timelineMessageAppearance(message)} />}
+              renderMessage={(message) => (
+                <MessageRow
+                  {...timelineMessageAppearance(message)}
+                  alwaysShowSenderName
+                  alwaysShowTime
+                />
+              )}
               onClose={() => batchReview.finish(null)}
               onContinue={batchReview.finish}
             />

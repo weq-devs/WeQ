@@ -2,7 +2,7 @@
   position: absolute;
   z-index: 10;
   right: 24px;
-  bottom: calc(var(--composer-height, 190px) + 14px);
+  bottom: 14px;
   display: inline-flex;
   align-items: stretch;
   height: 30px;
@@ -54,14 +54,6 @@
 .new-message-pill svg {
   flex: none;
   color: var(--weq-accent-effective);
-}
-.chat-pane.with-group-info:not(.group-info-collapsed) .new-message-pill {
-  right: calc(var(--group-info-panel-width) + 16px);
-}
-:where(html[data-weq-layout='single'])
-  .chat-pane.with-group-info:not(.group-info-collapsed)
-  .new-message-pill {
-  right: 24px;
 }
 html[data-theme='dark'] .new-message-pill {
   background: var(--weq-bg-surface);

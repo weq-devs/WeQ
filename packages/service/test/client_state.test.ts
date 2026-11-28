@@ -43,6 +43,24 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('跨端偏好与功能状态', () => {
+  it('私聊和群聊的当时称呼设置独立保存，关闭只移除当前会话', () => {
+    const state = store();
+    state.records('conversationDisplay', { '123': true, 'c2c:123': true, 'c2c:u_friend': true });
+    const restored = new ClientStateStore(state.path);
+    expect(restored.snapshot().records.conversationDisplay).toEqual({
+      '123': true,
+      'c2c:123': true,
+      'c2c:u_friend': true,
+    });
+    restored.records('conversationDisplay', { 'c2c:123': null });
+    expect(restored.snapshot().records.conversationDisplay).toEqual({
+      '123': true,
+      'c2c:u_friend': true,
+    });
+    expect(() => restored.records('conversationDisplay', { 'c2c:': true })).toThrow();
+    expect(() => restored.records('conversationDisplay', { u_friend: true })).toThrow();
+  });
+
   it('菜单偏好落盘后恢复，非法选项或任务内容不覆盖已保存值', () => {
     const state = store();
     const choices = {

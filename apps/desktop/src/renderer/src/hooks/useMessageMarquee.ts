@@ -214,6 +214,10 @@ export function useMessageMarquee({
     drag.clientY = event.clientY;
     update();
     if (drag.moved) {
+      if (!drag.selectionMode && drag.pending.size === 0) {
+        finish();
+        return;
+      }
       current.current.onStart();
       current.current.onChange(drag.pending);
       if (anchorRef && !drag.modifiers.shiftKey) {

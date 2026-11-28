@@ -16,6 +16,27 @@
   inset-block: 0 auto;
 }
 
+.weq-conversation-loading.is-locating {
+  grid-column-end: 2;
+  inset-block: 0 auto;
+  width: 64px;
+  min-height: 2px;
+  margin-inline: auto;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 25%, transparent);
+  animation: weq-message-locate-in 120ms ease-out 150ms both;
+}
+
+.weq-conversation-loading.is-locating::before {
+  content: '';
+  width: 40%;
+  height: 2px;
+  border-radius: inherit;
+  background: var(--weq-accent-effective);
+  animation: weq-message-locate-sweep 1s linear infinite;
+}
+
 .weq-conversation-loading svg {
   animation: weq-conversation-loading 1s linear infinite;
 }
@@ -30,7 +51,27 @@ html[data-theme='dark'] .weq-conversation-loading {
   }
 }
 
+@keyframes weq-message-locate-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes weq-message-locate-sweep {
+  from {
+    translate: -175% 0;
+  }
+  to {
+    translate: 175% 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .weq-conversation-loading.is-locating {
+    animation-duration: 0s;
+  }
+
+  .weq-conversation-loading.is-locating::before,
   .weq-conversation-loading svg {
     animation: none;
   }

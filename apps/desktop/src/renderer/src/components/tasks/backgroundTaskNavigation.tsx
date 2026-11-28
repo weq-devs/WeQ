@@ -1,3 +1,6 @@
+import { useDialog } from '../Dialog.shared';
+import type { ExportResourceSource } from '@weq/service';
+import type { NotificationTarget } from '../../lib/notificationNavigation';
 import { ExternalLink } from 'lucide-react';
 import type { BackgroundTask } from '../../../../shared/background_task';
 import { IS_WEB } from '../../lib/target.shared';
@@ -7,7 +10,7 @@ import {
   notificationSource,
   openNotificationSource,
 } from '../../lib/notificationNavigation.shared';
-import type { TaskQuickAction } from './TaskQuickActions';
+import { TaskQuickActions, type TaskQuickAction } from './TaskQuickActions';
 
 export function backgroundTaskNavigation(task: BackgroundTask): TaskQuickAction | null {
   const binding = task.scope?.configId
@@ -29,6 +32,32 @@ export function backgroundTaskNavigation(task: BackgroundTask): TaskQuickAction 
         ),
     };
   }
+  if (task.groupMemberOrder && binding) {
+    const { groupCode, ...memberSort } = task.groupMemberOrder;
+    return taskSourceAction(
+      { kind: 'group', id: groupCode, section: 'members', memberSort },
+      '查看群成员',
+      binding,
+    );
+  }
+  if (task.destination === 'resource-cleanup' && binding)
+    return taskSourceAction(
+      {
+        kind: 'app',
+        target: { kind: 'setting', section: 'qq-storage', settingId: 'qq-storage-cleanup' },
+      },
+      '打开资源清理',
+      binding,
+    );
+  if (task.destination === 'intent-model-resources')
+    return taskSourceAction(
+      {
+        kind: 'app',
+        target: { kind: 'setting', section: 'intent-sense', settingId: 'intent-model-resources' },
+      },
+      '打开意图模型资源',
+      null,
+    );
   if (task.forwardTargets?.length && binding) {
     const targets = task.forwardTargets.map((target) => ({ ...target, avatarUrl: '' }));
     const label = targets.length === 1 ? '打开转发会话' : '选择转发会话';
@@ -147,4 +176,123 @@ export function backgroundTaskNavigation(task: BackgroundTask): TaskQuickAction 
         avatarUrl: '',
       }),
   };
+}
+
+type TaskBinding = NonNullable<ReturnType<typeof notificationSource>['binding']>;
+
+export function taskSourceAction(
+  target: NotificationTarget,
+  label: string,
+  binding: TaskBinding | null,
+): TaskQuickAction {
+  return {
+    id: 'open-source',
+    label,
+    icon: <ExternalLink size={14} />,
+    run: () =>
+      openNotificationSource(
+        notificationSource({ ...target, dismissTaskPanel: true }, label, binding),
+      ),
+  };
+}
+
+export function exportSourceAction(
+  source: ExportResourceSource,
+  binding: TaskBinding,
+): TaskQuickAction {
+  switch (source.kind) {
+    case 'album-selection':
+      return {
+        id: 'open-source',
+        label: '选择来源相册',
+        icon: <ExternalLink size={14} />,
+        run: () => {
+          const dialog = useDialog.getState();
+          dialog.showInfo(
+            '选择来源相册',
+            <ul className="weq-background-task-results">
+              {source.albums.map((album) => {
+                const action = exportSourceAction(album, binding);
+                const id =
+                  album.kind === 'group-album'
+                    ? [album.groupCode, album.albumId]
+                    : [album.uin, album.topicId];
+                return (
+                  <li key={JSON.stringify([album.kind, ...id])}>
+                    <TaskQuickActions
+                      variant="detail"
+                      actions={[
+                        {
+                          ...action,
+                          label: [action.label, ...id].filter(Boolean).join(' · '),
+                          run: () => {
+                            useDialog.getState().close();
+                            return action.run();
+                          },
+                        },
+                      ]}
+                    />
+                  </li>
+                );
+              })}
+            </ul>,
+          );
+        },
+      };
+    case 'conversation':
+      return taskSourceAction(source, '查看原消息', binding);
+    case 'mail':
+      return taskSourceAction(source, '查看原邮件', binding);
+    case 'group-files':
+      return taskSourceAction(
+        {
+          kind: 'group-resource',
+          request: {
+            kind: 'files',
+            groupCode: source.groupCode,
+            groupName: source.groupCode,
+            initialFileId: source.fileId,
+            initialFolderId: source.folderId,
+          },
+        },
+        '打开群文件',
+        binding,
+      );
+    case 'group-album':
+      return taskSourceAction(
+        {
+          kind: 'group-resource',
+          request: {
+            kind: 'albums',
+            groupCode: source.groupCode,
+            groupName: source.groupCode,
+            initialAlbumId: source.albumId,
+          },
+        },
+        '打开群相册',
+        binding,
+      );
+    case 'qzone-album':
+      return taskSourceAction(
+        {
+          kind: 'qzone',
+          target: source.topicId
+            ? { kind: 'album', uin: source.uin, topicId: source.topicId }
+            : { kind: 'media-list', uin: source.uin, pane: 'albums' },
+        },
+        '打开空间相册',
+        binding,
+      );
+    case 'qzone-videos':
+      return taskSourceAction(
+        {
+          kind: 'qzone',
+          target: source.tid
+            ? { kind: 'post', uin: source.uin, tid: source.tid }
+            : { kind: 'media-list', uin: source.uin, pane: 'videos' },
+        },
+        source.tid ? '查看原说说' : '打开空间视频',
+        binding,
+      );
+  }
 }

@@ -24,11 +24,6 @@ const observeFeedRect: typeof observeElementRect = (instance, update) =>
   observeElementRect(instance, (rect) => {
     if (rect.height > 0) update(rect);
   });
-const observeFeedOffset: typeof observeElementOffset = (instance, update) =>
-  observeElementOffset(instance, (offset, scrolling) => {
-    if (!instance.scrollElement?.hasAttribute('hidden')) update(offset, scrolling);
-  });
-
 interface VirtualFeedRow {
   key: string;
   selectionId?: string;
@@ -59,6 +54,16 @@ export function QzoneVirtualRows<Row extends VirtualFeedRow>({
   );
   const appliedFocus = useRef<typeof focusRequest>(null);
   const [offset, setOffset] = useState(0);
+  const scrollTop = useRef(0);
+  const observeReadingOffset = useCallback<typeof observeElementOffset>(
+    (instance, update) =>
+      observeElementOffset(instance, (top, scrolling) => {
+        if (instance.scrollElement?.hasAttribute('hidden')) return;
+        scrollTop.current = top;
+        update(top, scrolling);
+      }),
+    [],
+  );
   const [focused, setFocused] = useState<string>();
   const [pinned, setPinned] = useState<ReadonlySet<string>>(() => new Set());
   const [cardData] = useState(() => new PageDataCache(128));
@@ -86,7 +91,7 @@ export function QzoneVirtualRows<Row extends VirtualFeedRow>({
     overscan: 4,
     initialRect: { width: 0, height: 900 },
     observeElementRect: observeFeedRect,
-    observeElementOffset: observeFeedOffset,
+    observeElementOffset: observeReadingOffset,
     useAnimationFrameWithResizeObserver: true,
     measureElement: (element, entry, instance) => {
       const actual = measureElement(element, entry, instance);
@@ -98,7 +103,10 @@ export function QzoneVirtualRows<Row extends VirtualFeedRow>({
     },
     rangeExtractor,
     scrollMargin: offset,
-    anchorTo: 'end',
+    // 页首显示新内容，滚入列表后才按条目保留阅读位置。
+    anchorTo: scrollTop.current <= offset ? 'start' : 'end',
+    // 空间动态最新在上，卡片增高或分页时无需贴住列表底部。
+    scrollEndThreshold: -1,
   });
   useLayoutEffect(() => {
     if (!active || !refreshScroll) return;

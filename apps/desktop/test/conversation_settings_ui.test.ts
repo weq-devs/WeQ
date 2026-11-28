@@ -173,6 +173,45 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('在私聊会话设置中开启当时称呼，并写入该会话的共享设置', async () => {
+  const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'live' };
+  const displayKey = 'c2c:u_peer';
+  bindAccountState(binding);
+  acceptAccountState({ revision: 1, values: {}, records: {} }, binding);
+  accountPatch.mockResolvedValue({
+    revision: 2,
+    values: {},
+    records: { conversationDisplay: { [displayKey]: true } },
+  });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  cleanups.push(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+  act(() =>
+    root.render(
+      h(ConversationSettingsDialog, {
+        kind: 'c2c',
+        conv: 'u_peer',
+        title: '联系人',
+        onClose: vi.fn(),
+      }),
+    ),
+  );
+  const toggle = host.querySelector<HTMLButtonElement>('[aria-label="显示当时称呼"]')!;
+  expect(toggle.getAttribute('aria-checked')).toBe('false');
+  await act(async () => toggle.click());
+  expect(accountPatch).toHaveBeenCalledWith({
+    ...binding,
+    namespace: 'conversationDisplay',
+    seed: false,
+    values: { [displayKey]: true },
+  });
+  expect(toggle.getAttribute('aria-checked')).toBe('true');
+});
+
 it('全局不通知时仍可在当前会话开关提醒，并刷新两个设置入口', async () => {
   const policy = normalizeNotificationEvents(undefined);
   policy.recall = { banner: false, system: false };

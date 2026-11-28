@@ -169,6 +169,7 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
                 <button
                   type="button"
                   className="weq-common-group-avatar weq-common-group-target"
+                  data-weq-force-click="profile"
                   title={`查看 ${group.name || group.groupCode} 的群名片`}
                   aria-label={`查看 ${group.name || group.groupCode} 的群名片`}
                   onClick={(event) => {

@@ -146,6 +146,8 @@ export interface RenderFileElement {
     uploadTime?: number;
     /** 群文件 busId（0x6D6_2 下载需要，默认 102）。 */
     busId?: number;
+    /** QQ 随文件记录保存的传输错误文案。 */
+    transferErrorText?: string;
     // picTransferState?: number;
     // transferVersion?: number;
     // transferState?: number;
@@ -765,6 +767,7 @@ function mapPic(el: PicElement): RenderPicElement {
 }
 
 function mapFile(el: FileElement): RenderFileElement {
+  const transferErrorText = el.transferErrorText?.trim();
   return {
     type: 'file',
     data: {
@@ -779,6 +782,7 @@ function mapFile(el: FileElement): RenderFileElement {
       transferFlag45504: el.transferFlag45504,
       uploadTime: el.uploadTime,
       busId: el.busId,
+      ...(transferErrorText ? { transferErrorText } : {}),
       // picTransferState: el.picTransferState,
       // transferVersion: el.transferVersion,
       // transferState: el.transferState,
@@ -886,6 +890,7 @@ function mapFace(el: FaceElement): RenderFaceElement {
 }
 
 function mapReply(el: ReplyElement): RenderReplyElement {
+  const replyTextSummary = el.replyTextSummary?.trim();
   return {
     type: 'reply',
     data: {
@@ -903,7 +908,7 @@ function mapReply(el: ReplyElement): RenderReplyElement {
       // front-end reply quote can render them with the shared element renderer.
       origElements: toRenderElements((el.origElements ?? []).map((w) => decodeElement(w as never))),
       // replyOrigMsgIdRef: el.replyOrigMsgIdRef,
-      // replyTextSummary: el.replyTextSummary,
+      ...(replyTextSummary ? { replyTextSummary } : {}),
       elementId: el.elementId,
       isSender: el.isSender,
       subType: el.subType,

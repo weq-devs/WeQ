@@ -2,6 +2,7 @@ import { Fragment, useMemo, type HTMLAttributes } from 'react';
 import { Play } from 'lucide-react';
 import { ShimmerImage } from '../ShimmerImage';
 import { QqMessageContent } from '../QqMessageContent';
+import { messageMediaKey } from '../../lib/messageMediaTarget';
 import {
   MediaBrowseContext,
   useChatMediaItems,
@@ -12,15 +13,21 @@ import type { RenderElement } from '../QqMessageContent.shared';
 import { conversationRecordTypeOf, isChatVideoAttachment } from '@weq/service/message-filter';
 import type { ConversationRecordHit } from './types';
 import { RecordDayHeading } from './recordDays';
+import { MessageSelectionMark } from '../MessageSelectionMark';
 
 export function RecordMediaResults({
   groups,
   type,
   contextProps,
+  selection,
 }: {
   groups: Map<string, ConversationRecordHit[]>;
   type: 'media' | 'emoji';
-  contextProps: (message: ConversationRecordHit) => HTMLAttributes<HTMLElement>;
+  contextProps: (
+    message: ConversationRecordHit,
+    elementIndex: number,
+  ) => HTMLAttributes<HTMLElement>;
+  selection: ReadonlySet<string> | null;
 }) {
   const items = useChatMediaItems();
   const open = useChatMediaOpen();
@@ -50,16 +57,21 @@ export function RecordMediaResults({
             if (conversationRecordTypeOf(element) !== type) return null;
             const item = type === 'media' ? byMessage.get(message.msgId)?.get(order) : undefined;
             const key = `${message.msgId}:${index}`;
+            const selected = selection?.has(message.msgId) ?? false;
+            const className = `weq-record-media-thumbnail${selection ? ' weq-message-selectable selection-mode' : ''}${selected ? ' is-selected' : ''}`;
             if (item) {
               return (
                 <button
-                  {...contextProps(message)}
+                  {...contextProps(message, index)}
                   key={key}
                   type="button"
-                  className="weq-record-media-thumbnail"
+                  className={className}
+                  aria-pressed={selection ? selected : undefined}
+                  data-message-media-key={messageMediaKey(element)}
                   aria-label={item.title || (item.kind === 'video' ? '查看视频' : '查看图片')}
                   onClick={(event) => open?.(item.key, event.currentTarget.ownerDocument)}
                 >
+                  {selection ? <MessageSelectionMark selected={selected} /> : null}
                   {item.kind === 'image' || item.poster ? (
                     <ShimmerImage
                       suspendOffscreen
@@ -77,13 +89,16 @@ export function RecordMediaResults({
             }
             return (
               <div
-                {...contextProps(message)}
+                {...contextProps(message, index)}
                 key={key}
-                className="weq-record-media-thumbnail is-native"
-                role="group"
+                className={`${className} is-native`}
+                role={selection ? 'checkbox' : 'group'}
+                aria-checked={selection ? selected : undefined}
+                data-message-media-key={messageMediaKey(element)}
                 tabIndex={0}
                 aria-label={type === 'emoji' ? '表情' : '图片'}
               >
+                {selection ? <MessageSelectionMark selected={selected} /> : null}
                 <MediaBrowseContext.Provider value>
                   <QqMessageContent
                     elements={[element]}

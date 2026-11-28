@@ -129,6 +129,7 @@ function ArkShell({
     <div
       className={className ? `weq-ark-container ${className}` : 'weq-ark-container'}
       role={activation ? 'button' : onOpen ? 'link' : undefined}
+      data-weq-force-click={activation?.getChatShortcut ? 'profile' : undefined}
       aria-disabled={navigationBlocked || undefined}
       title={
         navigationBlocked

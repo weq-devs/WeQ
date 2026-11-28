@@ -578,6 +578,7 @@ function RankRow({
     <button
       type="button"
       className="weq-rank-row is-clickable"
+      data-weq-force-click="profile"
       title="查看资料卡"
       onClick={(event) => onOpen(event, chatShortcut)}
     >

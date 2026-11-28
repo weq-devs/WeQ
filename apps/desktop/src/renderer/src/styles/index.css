@@ -4540,7 +4540,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 }
 
 .weq-message-scrollbar {
-  z-index: 46;
+  z-index: 6;
 }
 
 .weq-group-members-scrollbar {
@@ -14259,9 +14259,7 @@ html[data-theme='dark'] .weq-provider-modal {
   gap: 2px;
 }
 .weq-msg-meta {
-  display: flex;
   align-items: baseline;
-  gap: 0.5rem;
 }
 .weq-msg-sender {
   font-size: 12.5px;
@@ -14270,12 +14268,6 @@ html[data-theme='dark'] .weq-provider-modal {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.weq-msg-time {
-  font-size: 11px;
-  color: var(--weq-fg-muted);
-  flex-shrink: 0;
-  margin-left: auto;
 }
 .weq-msg-preview {
   font-size: 13.5px;

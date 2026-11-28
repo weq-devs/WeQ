@@ -96,6 +96,7 @@ import {
   beginQqFileWrite,
   isLikelyCorruptionError,
   withDatabaseWorkload,
+  withRecordedGroupSenderNames,
   type ForwardCacheKind,
 } from '@weq/db';
 import {
@@ -119,6 +120,7 @@ import {
   inventoryExportOutput,
   type ExportSavePolicy,
   type ExportSaveState,
+  type ExportSaveProgress,
 } from './save_output';
 import { sequenceCoverage } from './sequence_coverage';
 import {
@@ -386,6 +388,7 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
+  useRecordedSenderName?: boolean;
   display?: import('../../common/task_display').TaskDisplay;
   scheduleName?: string;
   databaseRecovery?: DatabaseRecoveryRequest;
@@ -416,6 +419,7 @@ export interface ExportTask {
   includeIntegrityReport?: boolean;
   /** 独立资源任务；仅声明了 resume 请求的执行器可以在重启后重建。 */
   resource?: {
+    source?: ExportResourceSource;
     resume?: ResumableResourceRequest;
     stagedInput?: true;
     fileNameFromResult?: boolean;
@@ -551,6 +555,80 @@ export interface ResourceExportSummary {
   };
 }
 
+export type ExportMessageSource = {
+  kind: 'conversation';
+  conversationKind: 'c2c' | 'group';
+  conv: string;
+  msgId: string;
+  seq?: string;
+};
+
+type AlbumExportSource =
+  | { kind: 'group-album'; groupCode: string; albumId?: string }
+  | { kind: 'qzone-album'; uin: string; topicId?: string };
+
+export type ExportResourceSource =
+  | ExportMessageSource
+  | { kind: 'group-files'; groupCode: string; fileId?: string; folderId?: string }
+  | AlbumExportSource
+  | { kind: 'album-selection'; albums: AlbumExportSource[] }
+  | { kind: 'qzone-videos'; uin: string; tid?: string }
+  | { kind: 'mail'; mailId: string };
+
+function resourceSource(request?: ResumableResourceRequest): ExportResourceSource | undefined {
+  switch (request?.type) {
+    case 'media-file':
+      return request.source.kind === 'group-file'
+        ? {
+            kind: 'group-files',
+            groupCode: request.source.groupCode,
+            fileId: request.source.fileId,
+            folderId: request.source.folderId,
+          }
+        : undefined;
+    case 'group-files':
+      return {
+        kind: 'group-files',
+        groupCode: request.groupCode,
+        fileId: request.files?.length === 1 ? request.files[0]?.fileId : undefined,
+      };
+    case 'group-albums':
+      return {
+        kind: 'group-album',
+        groupCode: request.groupCode,
+        albumId: request.albums.length === 1 ? request.albums[0]?.id : undefined,
+      };
+    case 'qzone-album-media':
+      return { kind: 'qzone-album', uin: request.hostUin, topicId: request.topicId };
+    case 'qzone-albums':
+      return {
+        kind: 'qzone-album',
+        uin: request.hostUin,
+        topicId: request.albums.length === 1 ? request.albums[0]?.id : undefined,
+      };
+    case 'album-references': {
+      const albums = new Map<string, AlbumExportSource>();
+      for (const item of request.items) {
+        const source =
+          'groupCode' in item
+            ? { kind: 'group-album' as const, groupCode: item.groupCode, albumId: item.albumId }
+            : { kind: 'qzone-album' as const, uin: item.uin, topicId: item.albumId };
+        albums.set(JSON.stringify(source), source);
+      }
+      const sources = [...albums.values()];
+      return sources.length === 1
+        ? sources[0]
+        : sources.length > 1
+          ? { kind: 'album-selection', albums: sources }
+          : undefined;
+    }
+    case 'qzone-videos':
+      return { kind: 'qzone-videos', uin: request.hostUin };
+    case 'mail-attachment':
+      return { kind: 'mail', mailId: request.mailId };
+  }
+}
+
 export type ResumableResourceRequest =
   | { type: 'favorite-emoji' }
   | { type: 'assistant-artifact'; id: string; name: string; fileName: string }
@@ -598,6 +676,7 @@ export type ResumableResourceRequest =
             fileId: string;
             fileName: string;
             busId?: number;
+            folderId?: string;
           }
         | {
             kind: 'chat-file';
@@ -695,6 +774,8 @@ function tracksResourceTransfer(task: ExportTask): boolean {
     Boolean(task.resource?.transferTargets?.length) ||
     kind === 'media' ||
     kind === 'group-files' ||
+    kind === 'group-albums' ||
+    kind === 'mail-attachment' ||
     kind === 'qzone-albums'
   );
 }
@@ -830,6 +911,7 @@ export class ExportTaskManager extends EventEmitter {
   private executions = new Map<string, Promise<void>>();
   private tasks = new Map<string, ExportTask>();
   private readonly resourceTransfers = new Map<ExportTask, ResourceTransfer>();
+  private readonly saveTransfers = new Map<string, ExportSaveProgress>();
   private readonly transferListeners = new Set<() => void>();
   private abortControllers = new Map<string, AbortController>();
   /** 任务日志（内存环形缓冲，不随 export_tasks.json 持久化）。 */
@@ -1343,6 +1425,10 @@ export class ExportTaskManager extends EventEmitter {
     const write = () =>
       saveExportOutput(task, selectedFile ? { filePath: target, unique } : target, undefined, {
         requireExistingDirectory: true,
+        onProgress: (progress) => {
+          this.saveTransfers.set(taskId, progress);
+          this.resourceTransferChanged();
+        },
       });
     const saving = write()
       .then((path) => {
@@ -1366,6 +1452,8 @@ export class ExportTaskManager extends EventEmitter {
       })
       .finally(() => {
         this.outputSaves.delete(taskId);
+        this.saveTransfers.delete(taskId);
+        this.resourceTransferChanged();
         this.saveTasks();
         super.emit('progress', {
           taskId,
@@ -1379,6 +1467,13 @@ export class ExportTaskManager extends EventEmitter {
         });
       });
     this.outputSaves.set(taskId, saving);
+    super.emit('progress', {
+      taskId,
+      status: task.status,
+      progress: task.progress,
+      current: task.current,
+      message: '正在保存导出结果',
+    });
     return saving;
   }
 
@@ -1396,7 +1491,10 @@ export class ExportTaskManager extends EventEmitter {
         }
         const view = { ...task };
         if (task.resource) {
-          view.resource = { ...task.resource };
+          view.resource = {
+            ...task.resource,
+            source: task.resource.source ?? resourceSource(task.resource.resume),
+          };
           delete view.resource.resume;
         }
         delete view.generatedResourceCache;
@@ -1509,10 +1607,15 @@ export class ExportTaskManager extends EventEmitter {
     return transfer;
   }
 
+  activeSaveTransfers() {
+    return this.saveTransfers.entries();
+  }
+
   activeResourceTransfers() {
     return [...this.resourceTransfers.entries()].flatMap(([task, transfer]) => {
       if (task.status !== 'pending' && task.status !== 'running') return [];
       let bytes = transfer.bytes;
+      let itemTransfer = false;
       if (task.resource?.kind === 'group-files' && task.total > 0) {
         const files = [...transfer.files.values()];
         if (
@@ -1527,12 +1630,26 @@ export class ExportTaskManager extends EventEmitter {
             { received: transfer.completedBytes, total: transfer.completedBytes },
           );
       }
+      const activeFiles = transfer.files.size;
+      if (bytes.total === undefined && activeFiles) {
+        itemTransfer = true;
+        bytes =
+          activeFiles === 1
+            ? (transfer.files.values().next().value ?? bytes)
+            : {
+                received: [...transfer.files.values()].reduce(
+                  (sum, file) => sum + file.received,
+                  0,
+                ),
+              };
+      }
       return [
         {
           id: task.id,
           targets: task.resource?.transferTargets,
           status: task.status,
           ...bytes,
+          itemTransfer,
           processed: task.current,
           items: task.total,
           files: [...transfer.files].map(([target, progress]) => ({ target, ...progress })),
@@ -1603,6 +1720,7 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   async startTask(opts: {
+    useRecordedSenderName?: boolean;
     scheduleName?: string;
     autoOpenTaskList?: boolean;
     extra?: import('../../common/export_content').ExportExtraOptions;
@@ -2008,6 +2126,7 @@ export class ExportTaskManager extends EventEmitter {
       current: 0,
       total: opts.total,
       exportAvatar: opts.exportAvatar ?? false,
+      useRecordedSenderName: opts.kind === 'group' && opts.useRecordedSenderName ? true : undefined,
       ...(opts.chatlab ? { chatlab: true } : {}),
       ...(opts.media ? { media: opts.media } : {}),
       ...(wantDress && opts.dress ? { dress: opts.dress } : {}),
@@ -2101,6 +2220,7 @@ export class ExportTaskManager extends EventEmitter {
     /** 先选目录，待资源生成后用实际文件名与扩展名保存。 */
     fileNameFromResult?: boolean;
     sourceKey?: string;
+    source?: ExportResourceSource;
     transferTarget?: string | readonly string[];
     run(context: ResourceExportRunContext): Promise<ResourceExportSummary>;
     onPublished?(directory: string): void;
@@ -2138,6 +2258,7 @@ export class ExportTaskManager extends EventEmitter {
         ...(opts.stagedInput ? { stagedInput: true } : {}),
         ...(opts.fileNameFromResult ? { fileNameFromResult: true } : {}),
         networkTransfer: opts.networkTransfer,
+        source: opts.source ?? resourceSource(opts.resume),
         kind: opts.kind,
         ...(output ? { output } : {}),
         ...(output &&
@@ -2777,7 +2898,13 @@ export class ExportTaskManager extends EventEmitter {
     });
   }
 
-  private async runTask(id: string): Promise<void> {
+  private runTask(id: string): Promise<void> {
+    return this.tasks.get(id)?.useRecordedSenderName
+      ? withRecordedGroupSenderNames(() => this.runTaskInScope(id))
+      : this.runTaskInScope(id);
+  }
+
+  private async runTaskInScope(id: string): Promise<void> {
     if (this.deferForNetwork(id)) return;
     const task = this.tasks.get(id);
     if (!task || task.status === 'cancelled') return;
@@ -6374,6 +6501,7 @@ export class ExportTaskManager extends EventEmitter {
         this.msgsFor(task),
         {
           kind: task.kind,
+          useRecordedSenderName: task.useRecordedSenderName,
           conv: task.conv,
           name: task.name,
           format: format === 'jsonl' || format === 'chatlab.jsonl' ? 'jsonl' : 'json',
@@ -6393,6 +6521,7 @@ export class ExportTaskManager extends EventEmitter {
         this.msgsFor(task),
         {
           kind: task.kind,
+          useRecordedSenderName: task.useRecordedSenderName,
           conv: task.conv,
           name: task.name,
           outputPath,
@@ -6422,6 +6551,7 @@ export class ExportTaskManager extends EventEmitter {
           this.msgsFor(task),
           {
             kind: task.kind,
+            useRecordedSenderName: task.useRecordedSenderName,
             conv: task.conv,
             name: task.name,
             outputPath,
@@ -6444,6 +6574,7 @@ export class ExportTaskManager extends EventEmitter {
         this.msgsFor(task),
         {
           kind: task.kind,
+          useRecordedSenderName: task.useRecordedSenderName,
           conv: task.conv,
           outputPath,
           range: task.range,
@@ -6464,6 +6595,7 @@ export class ExportTaskManager extends EventEmitter {
         this.msgsFor(task),
         {
           kind: task.kind,
+          useRecordedSenderName: task.useRecordedSenderName,
           conv: task.conv,
           name: task.name,
           outputPath,
@@ -6485,23 +6617,29 @@ export class ExportTaskManager extends EventEmitter {
     }
     // XLSX is a binary workbook, not a character stream — its own loop, both kinds.
     if (format === 'xlsx') {
-      return exportToXlsx(this.msgsFor(task), {
-        kind: task.kind,
-        conv: task.conv,
-        outputPath,
-        progressEvery,
-        onProgress: tick,
-        collectSenders: senders,
-        collectFaces: faces,
-        range: task.range,
-        withMediaPaths,
-        roam,
-      });
+      return exportToXlsx(
+        this.msgsFor(task),
+        {
+          kind: task.kind,
+          useRecordedSenderName: task.useRecordedSenderName,
+          conv: task.conv,
+          outputPath,
+          progressEvery,
+          onProgress: tick,
+          collectSenders: senders,
+          collectFaces: faces,
+          range: task.range,
+          withMediaPaths,
+          roam,
+        },
+        this.senderDeps(task),
+      );
     }
     if (task.kind === 'group') {
       const opts: GroupExportOptions = {
         legacyFormat: !task.archiveId,
         groupCode: task.conv,
+        useRecordedSenderName: task.useRecordedSenderName,
         name: task.name,
         outputPath,
         progressEvery,
@@ -6519,7 +6657,7 @@ export class ExportTaskManager extends EventEmitter {
         case 'jsonl':
           return exportGroupToJsonl(this.msgsFor(task), opts, this.senderDeps(task));
         case 'csv':
-          return exportGroupToCsv(this.msgsFor(task), opts);
+          return exportGroupToCsv(this.msgsFor(task), opts, this.senderDeps(task));
         default:
           return exportGroupToTxt(this.msgsFor(task), opts);
       }
