@@ -417,12 +417,12 @@ try {
       }),
     );
     await card.locator('.weq-copy-feedback').waitFor({ state: 'detached' });
-    // 仅标识和联系方式显式复制，其余只读资料可选择文本。
+    // 昵称可点值复制，说明类资料保持可选择文本。
     const name = card.locator('.weq-profile-name').first();
-    assert.equal(await name.evaluate((node) => node.tagName), 'SPAN');
     assert.equal(await name.evaluate((node) => getComputedStyle(node).userSelect), 'text');
-    const beforeName = await page.evaluate(() => navigator.clipboard.readText());
+    const beforeName = await name.textContent();
     await name.click();
+    await name.getByRole('status').waitFor();
     assert.equal(await page.evaluate(() => navigator.clipboard.readText()), beforeName);
     for (const field of ['company', 'description']) {
       const value = card.locator(`[data-profile-field="${field}"] .weq-profile-data-value`);

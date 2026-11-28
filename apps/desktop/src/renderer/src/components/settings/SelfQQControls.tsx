@@ -142,7 +142,7 @@ export function SelfProfileProvider({ children }: { children: ReactNode }) {
     nickname: (
       <SelfProfileField
         label="QQ 昵称"
-        value={ownProfile ? ownProfile.nick || '未设置' : null}
+        value={ownProfile ? (ownProfile.nick ?? '') : null}
         disabled={disabled}
       >
         <QQWriteTextRow

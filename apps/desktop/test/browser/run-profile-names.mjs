@@ -62,7 +62,7 @@ async function checkFixture(stub, fixture, check) {
     await server.close();
   }
 }
-async function copy(page, label) {
+async function copy(page, label, title = label) {
   const button = page.getByRole('button', { name: label, exact: true });
   await button.waitFor();
   const text = await button.evaluate((node) => {
@@ -70,7 +70,7 @@ async function copy(page, label) {
     content.querySelector('[role="status"]')?.remove();
     return content.textContent;
   });
-  assert.equal(await button.getAttribute('title'), label);
+  assert.equal(await button.getAttribute('title'), title);
   assert.equal(await button.locator('svg, button').count(), 0);
   await button.click();
   await button.getByRole('status').waitFor();
@@ -94,7 +94,7 @@ async function readName(page) {
 try {
   await checkFixture('contact-card.stub.ts', 'profile-inline.html', async (page, url) => {
     await page.goto(url);
-    await readName(page);
+    await copy(page, /^复制昵称：/, '复制昵称');
     await page.goto(`${url}?group`);
     await page.getByRole('button', { name: '编辑群名称', exact: true }).click();
     await page.getByRole('textbox', { name: '群名称', exact: true }).fill('统一后的群名');
@@ -140,7 +140,7 @@ try {
   await checkFixture('profile-display.stub.ts', 'self-profile.html', async (page, url) => {
     for (const params of ['?other', '?other&popover', '?popover']) {
       await page.goto(`${url}${params}`);
-      await readName(page);
+      await copy(page, /^复制昵称：/, '复制昵称');
       if (output)
         await page.screenshot({ path: resolve(output, `nickname-${params.slice(1)}.png`) });
     }
@@ -151,10 +151,10 @@ try {
     await page.getByRole('button', { name: '编辑QQ 昵称', exact: true }).waitFor();
     assert.equal(await page.locator('button button').count(), 0);
     await page.evaluate(() => window.selfProfileQa.online(false));
-    await readName(page);
+    await copy(page, /^复制昵称：/, '复制昵称');
     await page.evaluate(() => window.selfProfileQa.online(true));
     await page.getByRole('button', { name: '编辑QQ 昵称', exact: true }).waitFor();
-    assert.equal(await page.getByRole('button', { name: '复制昵称', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: /^复制昵称：/ }).count(), 0);
   });
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ cases, errors, writes: 'synthetic-only' }));

@@ -195,7 +195,7 @@ try {
   );
   assert.equal(await page.getByText('编辑资料与展示设置', { exact: true }).count(), 0);
   assert.equal(await page.locator('[data-profile-display-mode]').count(), 0);
-  assert.equal(await page.getByRole('button', { name: '复制昵称', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: /^复制昵称：/ }).count(), 0);
   assert.equal(await page.getByTitle('查看教育经历', { exact: true }).count(), 1);
   assert.equal(
     await page.locator('button button').count(),

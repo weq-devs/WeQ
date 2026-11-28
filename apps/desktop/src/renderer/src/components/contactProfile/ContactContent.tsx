@@ -112,12 +112,25 @@ export function ContactIdentity({
   );
   const remark = person.clone ? undefined : (names?.remark ?? person.remark)?.trim();
   // 主标题必须是真实昵称（云端昵称 → 本地昵称 → 身份），备注单独展示，不顶替标题。
+  const nickname = !person.clone ? names?.name || person.nick?.trim() : undefined;
   const title = person.clone
     ? person.displayName
-    : names?.name || person.nick?.trim() || person.identityValue || person.username;
-  const renderName = (value: ReactNode) => (
-    <span className="weq-profile-name weq-contact-name">{value}</span>
-  );
+    : nickname || person.identityValue || person.username;
+  const renderName = (value: ReactNode, copyable: boolean) => {
+    const className = 'weq-profile-name weq-contact-name';
+    return copyable && typeof value === 'string' && value.trim() ? (
+      <CopyButton
+        text={value}
+        className={className}
+        title="复制昵称"
+        aria-label={`复制昵称：${value}`}
+      >
+        {value}
+      </CopyButton>
+    ) : (
+      <span className={className}>{value}</span>
+    );
+  };
   const identity = person.clone ? person.id.replace(/^virtual:/, '') : person.identityValue;
   const identityLabel = person.clone ? 'ID' : person.identityLabel;
   const editableRemark =
@@ -189,8 +202,14 @@ export function ContactIdentity({
         <div className="weq-profile-heading">
           <div className="weq-contact-title-line">
             <div className="weq-contact-name-line">
-              <SelfProfileSlot field="nickname" inline renderValue={renderName}>
-                {renderName(title)}
+              <SelfProfileSlot
+                field="nickname"
+                inline
+                renderValue={(value, editable) =>
+                  value === '' ? renderName('未设置', false) : renderName(value, !editable)
+                }
+              >
+                {renderName(title, Boolean(nickname))}
               </SelfProfileSlot>
               <ContactFieldHistoryButton field="nick" label="昵称" />
             </div>

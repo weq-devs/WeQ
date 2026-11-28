@@ -431,7 +431,7 @@ describe('群成员资料卡浮层', () => {
     expect(contactCardFieldGroup(field)).toBe(group);
   });
   it.each([false, true])(
-    '昵称在名片正文 %s 中保持可阅读文本，不复制或打开编辑器',
+    '模式 %s 下点击 QQ 昵称复制并就地提示，拖选昵称时保留剪贴板',
     async (cardBody) => {
       const host = document.createElement('div');
       document.body.appendChild(host);
@@ -450,14 +450,21 @@ describe('群成员资料卡浮层', () => {
           ),
         ),
       );
-      const name = host.querySelector<HTMLElement>('.weq-profile-name');
-      expect(name).not.toBeNull();
-      expect(name?.tagName).toBe('SPAN');
-      expect(name?.textContent).toBe('合成昵称');
-      expect(name?.querySelector('svg, button')).toBeNull();
-      await act(async () => name!.click());
+      const name = host.querySelector<HTMLButtonElement>(
+        'button[aria-label="复制昵称：合成昵称"]',
+      )!;
+      expect(name.textContent).toBe('合成昵称');
+      const selection = document.getSelection()!;
+      const range = document.createRange();
+      range.selectNodeContents(name);
+      selection.addRange(range);
+      await act(async () => name.click());
+      selection.removeAllRanges();
       expect(copyTextToClipboard).not.toHaveBeenCalled();
-      expect(name?.querySelector('[role="status"]')).toBeNull();
+      await act(async () => name.click());
+      expect(copyTextToClipboard).toHaveBeenCalledOnce();
+      expect(copyTextToClipboard).toHaveBeenCalledWith('合成昵称', document);
+      expect(name.querySelector('[role="status"]')?.textContent).toBe('已复制');
       expect(host.querySelector('input')).toBeNull();
     },
   );
@@ -667,9 +674,9 @@ describe('群成员资料卡浮层', () => {
       remark: '好友备注',
       card: '群昵称',
     } as User);
-    expect(layer().querySelector('.weq-profile-name')?.textContent).toBe(
-      nick || MEMBER.identityValue,
-    );
+    const title = layer().querySelector('.weq-profile-name')!;
+    expect(title.textContent).toBe(nick || MEMBER.identityValue);
+    expect(title.getAttribute('aria-label')).toBe(nick ? `复制昵称：${nick}` : null);
   });
 
   it('仍在群内时保留原成员资料编辑器', async () => {
@@ -790,14 +797,12 @@ describe('群成员资料卡浮层', () => {
     );
   });
 
-  it('他人昵称点击不复制或进入详情；展开按钮仍可进入详情', async () => {
+  it('名片点击昵称复制并留在原处，展开按钮仍可进入详情', async () => {
     await mountCard(() => {}, undefined, { ...MEMBER, nick: '合成昵称' });
     const title = layer().querySelector<HTMLElement>('.weq-profile-name')!;
     await act(async () => title.click());
-    expect(copyTextToClipboard).not.toHaveBeenCalled();
-    expect(title.tagName).toBe('SPAN');
-    expect(title.textContent).toContain('合成昵称');
-    expect(title.querySelector('[role="status"]')).toBeNull();
+    expect(copyTextToClipboard).toHaveBeenCalledOnce();
+    expect(copyTextToClipboard).toHaveBeenCalledWith('合成昵称', document);
     expect(expandContact).not.toHaveBeenCalled();
     act(() => layer().querySelector<HTMLButtonElement>('[aria-label="打开完整资料页"]')!.click());
     expect(expandContact).toHaveBeenCalledOnce();
