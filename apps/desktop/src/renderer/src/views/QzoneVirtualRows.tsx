@@ -37,6 +37,7 @@ interface VirtualFeedRow {
 export function QzoneVirtualRows<Row extends VirtualFeedRow>({
   rows,
   active,
+  keepTopOnUpdate = false,
   selectionMode,
   selected,
   focusRequest,
@@ -45,6 +46,7 @@ export function QzoneVirtualRows<Row extends VirtualFeedRow>({
 }: {
   rows: readonly Row[];
   active: boolean;
+  keepTopOnUpdate?: boolean;
   selectionMode: boolean;
   selected?: ReadonlySet<string>;
   focusRequest: { id: string; revision: number } | null;
@@ -59,6 +61,15 @@ export function QzoneVirtualRows<Row extends VirtualFeedRow>({
   );
   const appliedFocus = useRef<typeof focusRequest>(null);
   const [offset, setOffset] = useState(0);
+  const scrollTop = useRef(0);
+  const observeReadingOffset = useCallback<typeof observeElementOffset>(
+    (instance, update) =>
+      observeFeedOffset(instance, (top, scrolling) => {
+        scrollTop.current = top;
+        update(top, scrolling);
+      }),
+    [],
+  );
   const [focused, setFocused] = useState<string>();
   const [pinned, setPinned] = useState<ReadonlySet<string>>(() => new Set());
   const [cardData] = useState(() => new PageDataCache(128));
@@ -86,7 +97,7 @@ export function QzoneVirtualRows<Row extends VirtualFeedRow>({
     overscan: 4,
     initialRect: { width: 0, height: 900 },
     observeElementRect: observeFeedRect,
-    observeElementOffset: observeFeedOffset,
+    observeElementOffset: keepTopOnUpdate ? observeReadingOffset : observeFeedOffset,
     useAnimationFrameWithResizeObserver: true,
     measureElement: (element, entry, instance) => {
       const actual = measureElement(element, entry, instance);
@@ -98,7 +109,8 @@ export function QzoneVirtualRows<Row extends VirtualFeedRow>({
     },
     rangeExtractor,
     scrollMargin: offset,
-    anchorTo: 'end',
+    // 视口仍在主页顶部或简介时，新到的动态可以排到日志前面，无需跟着旧条目移动。
+    anchorTo: keepTopOnUpdate && scrollTop.current <= offset ? 'start' : 'end',
   });
   useLayoutEffect(() => {
     if (!active || !refreshScroll) return;
