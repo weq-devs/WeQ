@@ -270,7 +270,8 @@
   .weq-profile-section-block:not(
     .weq-profile-section-block--fields:not(:has(.weq-profile-row-slot > *))
   )
-  ~ .weq-profile-section-block {
+  ~ .weq-profile-section-block,
+.weq-contact-profile-v2 .weq-contact-sections:has(.weq-profile-data-row) + .weq-profile-disclosure {
   margin-top: 24px;
   padding-top: 18px;
   border-top: 1px solid var(--weq-border-subtle);
@@ -283,6 +284,18 @@
 
 .weq-profile-disclosure:first-child {
   margin-top: 0;
+}
+
+.weq-contact-profile-v2 .weq-contact-sections:has(.weq-profile-data-row) + .weq-profile-disclosure {
+  /* 44px 按钮比普通的 24px 标题行高，居中后已自带 10px 上方间距。 */
+  padding-top: 8px;
+}
+
+.weq-profile-disclosure-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.5;
 }
 
 .weq-profile-disclosure-trigger {
@@ -302,13 +315,13 @@
   cursor: pointer;
 }
 
-.weq-profile-disclosure-trigger svg {
+.weq-profile-disclosure-trigger > svg {
   flex: none;
   color: var(--weq-fg-secondary);
   transition: transform 160ms ease-out;
 }
 
-.weq-profile-disclosure-trigger[aria-expanded='true']:not([aria-haspopup='dialog']) svg {
+.weq-profile-disclosure-trigger[aria-expanded='true']:not([aria-haspopup='dialog']) > svg {
   transform: rotate(180deg);
 }
 
@@ -531,7 +544,7 @@ html[data-theme='dark'] .weq-profile-group-picker .weq-select-trigger {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .weq-profile-disclosure-trigger svg {
+  .weq-profile-disclosure-trigger > svg {
     transition: none;
   }
 }

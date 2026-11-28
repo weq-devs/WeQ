@@ -1,4 +1,4 @@
-import { useContext } from 'react';
+import { useContext, useLayoutEffect, useState } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { formatDate } from '@weq/time';
 import type { ProfilePerson } from '../../hooks/useContactCard';
@@ -7,7 +7,6 @@ import { PROFILE_QUERY_OPTIONS } from '../../lib/profileQuery';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
-import { LoadingIndicator } from '../LoadingIndicator';
 import { ContactEmptyState, ContactInlineError, ContactSection } from './ContactRow';
 import { ProfileDisclosure } from './ProfileDisclosure';
 import '../../styles/contact-workspace.css';
@@ -21,11 +20,12 @@ export function GroupSenderNameHistory({
   person: ProfilePerson;
   groupCode?: string;
 }) {
+  const [loading, setLoading] = useState(false);
   const uid = person.uid || person.id;
   if (person.clone || !/^u_[\w-]+$/.test(uid)) return null;
   return (
-    <ProfileDisclosure key={groupCode ?? 'all'} title="历史称呼">
-      <History person={person} uid={uid} groupCode={groupCode} />
+    <ProfileDisclosure key={groupCode ?? 'all'} title="历史称呼" loading={loading}>
+      <History person={person} uid={uid} groupCode={groupCode} onLoadingChange={setLoading} />
     </ProfileDisclosure>
   );
 }
@@ -34,10 +34,12 @@ function History({
   person,
   uid,
   groupCode,
+  onLoadingChange,
 }: {
   person: ProfilePerson;
   uid: string;
   groupCode?: string;
+  onLoadingChange: (loading: boolean) => void;
 }) {
   const { binding } = useQQWriteSession(`sender-name-history:${uid}`, true);
   const active = useTabActive();
@@ -57,6 +59,8 @@ function History({
       active && data?.pages.some((page) => page.indexPending) ? 1500 : false,
   });
   const indexPending = result.data?.pages.some((page) => page.indexPending);
+  const loading = result.isInitialLoading || Boolean(indexPending);
+  useLayoutEffect(() => onLoadingChange(loading), [loading, onLoadingChange]);
   const rows = result.data?.pages.flatMap((page) => page.rows) ?? [];
   const nicknames: HistoryRow[] = [];
   const groups = new Map<string, { name: string; rows: HistoryRow[] }>();
@@ -72,7 +76,6 @@ function History({
   return (
     <>
       {!binding ? <ContactEmptyState>暂时无法读取历史称呼</ContactEmptyState> : null}
-      {result.isInitialLoading ? <LoadingIndicator>正在读取历史称呼…</LoadingIndicator> : null}
       {result.isError ? (
         <ContactInlineError
           message="历史称呼读取失败"
@@ -80,7 +83,6 @@ function History({
           onRetry={() => void result.refetch()}
         />
       ) : null}
-      {indexPending ? <LoadingIndicator>正在整理历史称呼…</LoadingIndicator> : null}
       {result.isSuccess && !indexPending && !rows.length ? (
         <ContactEmptyState>没有找到保存的称呼</ContactEmptyState>
       ) : null}
