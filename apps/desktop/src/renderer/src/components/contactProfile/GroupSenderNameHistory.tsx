@@ -8,7 +8,7 @@ import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
 import { LoadingIndicator } from '../LoadingIndicator';
-import { ContactEmptyState, ContactInlineError, ContactRow, ContactSection } from './ContactRow';
+import { ContactEmptyState, ContactInlineError, ContactSection } from './ContactRow';
 import { ProfileDisclosure } from './ProfileDisclosure';
 import '../../styles/contact-workspace.css';
 
@@ -24,7 +24,7 @@ export function GroupSenderNameHistory({
   const uid = person.uid || person.id;
   if (person.clone || !/^u_[\w-]+$/.test(uid)) return null;
   return (
-    <ProfileDisclosure key={groupCode ?? 'all'} title={groupCode ? '历史称呼' : '在各群的称呼'}>
+    <ProfileDisclosure key={groupCode ?? 'all'} title="历史称呼">
       <History person={person} uid={uid} groupCode={groupCode} />
     </ProfileDisclosure>
   );
@@ -45,11 +45,11 @@ function History({
   const speech = useContext(GroupSpeechPreviewContext);
   const result = useInfiniteQuery({
     ...PROFILE_QUERY_OPTIONS,
-    queryKey: ['group-sender-names', binding, uid, groupCode],
+    queryKey: ['profile-sender-name-history', binding, uid, groupCode],
     enabled: active && Boolean(binding),
     queryFn: ({ pageParam = 0, signal }) =>
       client.account.groupSenderNames.query(
-        { ...binding!, groupCode, senderUid: uid, offset: pageParam },
+        { ...binding!, groupCode, senderUid: uid, profileHistory: true, offset: pageParam },
         { signal },
       ),
     getNextPageParam: (last) => last.nextOffset,
@@ -57,11 +57,17 @@ function History({
       active && data?.pages.some((page) => page.indexPending) ? 1500 : false,
   });
   const indexPending = result.data?.pages.some((page) => page.indexPending);
-  const groups = new Map<string, HistoryRow[]>();
-  for (const row of result.data?.pages.flatMap((page) => page.rows) ?? []) {
-    const existing = groups.get(row.groupCode);
-    if (existing) existing.push(row);
-    else groups.set(row.groupCode, [row]);
+  const rows = result.data?.pages.flatMap((page) => page.rows) ?? [];
+  const nicknames: HistoryRow[] = [];
+  const groups = new Map<string, { name: string; rows: HistoryRow[] }>();
+  for (const row of rows) {
+    if (row.kind === 'nickname') {
+      nicknames.push(row);
+    } else if (row.groupCode) {
+      const group = groups.get(row.groupCode);
+      if (group) group.rows.push(row);
+      else groups.set(row.groupCode, { name: row.groupName || row.groupCode, rows: [row] });
+    }
   }
   return (
     <>
@@ -75,63 +81,24 @@ function History({
         />
       ) : null}
       {indexPending ? <LoadingIndicator>正在整理历史称呼…</LoadingIndicator> : null}
-      {result.isSuccess && !indexPending && !groups.size ? (
+      {result.isSuccess && !indexPending && !rows.length ? (
         <ContactEmptyState>没有找到保存的称呼</ContactEmptyState>
       ) : null}
-      {[...groups].map(([code, rows]) => {
-        const name = rows[0]!.groupName;
-        const items = rows.map((row) => (
-          <ContactRow
-            key={JSON.stringify([row.kind, row.name])}
-            label={row.kind === 'display' ? '群内称呼' : '昵称'}
-          >
-            <div className="weq-profile-message-name">
-              <span className="weq-profile-message-name-value" data-privacy-sensitive>
-                {row.name}
-              </span>
-              <div className="weq-profile-message-name-dates">
-                {(
-                  [
-                    ['最早见于', row.first],
-                    ['最晚见于', row.last],
-                  ] as const
-                )
-                  .filter(
-                    ([, reference], index) => index === 0 || reference.msgId !== row.first.msgId,
-                  )
-                  .map(([label, point]) => {
-                    const instant = new Date(point.sendTime * 1000);
-                    if (!Number.isFinite(instant.getTime())) return null;
-                    const date = (
-                      <time
-                        key={label}
-                        className="weq-number weq-number-inherit"
-                        dateTime={instant.toISOString()}
-                      >
-                        {formatDate(instant)}
-                      </time>
-                    );
-                    return jump ? (
-                      <button
-                        key={label}
-                        type="button"
-                        className="weq-profile-section-action"
-                        onClick={() => jump({ code, name }, point)}
-                      >
-                        {label} {date}
-                      </button>
-                    ) : (
-                      <span key={label}>
-                        {label} {date}
-                      </span>
-                    );
-                  })}
-              </div>
-            </div>
-          </ContactRow>
-        ));
+      {nicknames.length > 0 ? (
+        <ContactSection title="QQ 昵称">
+          <HistoryNames rows={nicknames} currentName={person.nick?.trim()} />
+        </ContactSection>
+      ) : null}
+      {[...groups].map(([code, { name, rows: groupRows }]) => {
+        const items = (
+          <HistoryNames
+            key={code}
+            rows={groupRows}
+            onJump={jump ? (point) => jump({ code, name }, point) : undefined}
+          />
+        );
         return groupCode ? (
-          <div key={code}>{items}</div>
+          items
         ) : (
           <ContactSection
             key={code}
@@ -168,5 +135,62 @@ function History({
         </button>
       ) : null}
     </>
+  );
+}
+
+function HistoryNames({
+  rows,
+  currentName,
+  onJump,
+}: {
+  rows: HistoryRow[];
+  currentName?: string;
+  onJump?: (point: HistoryRow['first']) => void;
+}) {
+  return (
+    <ul className="weq-profile-message-names" role="list">
+      {rows.map(({ name, first, last }) => (
+        <li key={name} className="weq-profile-message-name" data-privacy-sensitive>
+          <span className="weq-profile-message-name-value">{name}</span>
+          <div className="weq-profile-message-name-dates">
+            {name === currentName ? <span>当前</span> : null}
+            {(
+              [
+                ['最早见于', first],
+                ['最晚见于', last],
+              ] as const
+            )
+              .filter(([, point], index) => index === 0 || point.msgId !== first.msgId)
+              .map(([label, point]) => {
+                const instant = new Date(point.sendTime * 1000);
+                if (!Number.isFinite(instant.getTime())) return null;
+                const date = (
+                  <time
+                    key={label}
+                    className="weq-number weq-number-inherit"
+                    dateTime={instant.toISOString()}
+                  >
+                    {formatDate(instant)}
+                  </time>
+                );
+                return onJump ? (
+                  <button
+                    key={label}
+                    type="button"
+                    className="weq-profile-section-action"
+                    onClick={() => onJump(point)}
+                  >
+                    {label} {date}
+                  </button>
+                ) : (
+                  <span key={label}>
+                    {label} {date}
+                  </span>
+                );
+              })}
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }

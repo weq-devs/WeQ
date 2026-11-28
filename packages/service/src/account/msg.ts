@@ -276,12 +276,17 @@ export class MsgService {
   async groupSenderNames(filter: Parameters<AccountSession['groupMsgs']['senderNames']>[0]) {
     const rows = await this.session.groupMsgs.senderNames(filter);
     if (!rows.length) return [];
-    const codes = [...new Set(rows.map((row) => row.groupCode))];
-    const groups = await this.session.groupDetail.detailsByGroupCodes(codes.map(BigInt));
+    const codes = [...new Set(rows.flatMap((row) => (row.groupCode ? [row.groupCode] : [])))];
+    const groups = codes.length
+      ? await this.session.groupDetail.detailsByGroupCodes(codes.map(BigInt))
+      : [];
     const names = new Map(
       groups.map((group) => [String(group.groupCode), group.groupName || group.remark]),
     );
-    return rows.map((row) => ({ ...row, groupName: names.get(row.groupCode) || row.groupCode }));
+    return rows.map((row) => ({
+      ...row,
+      groupName: row.groupCode && (names.get(row.groupCode) || row.groupCode),
+    }));
   }
 
   async messageRecordDetails(target: MessageRecordTarget) {

@@ -287,3 +287,55 @@ it('历史称呼索引先返回可用结果，索引可以复用并接续新增�
     reopened.close();
   }
 });
+
+it.each([false, true])(
+  '资料页在分页前跨群合并 QQ 昵称，仅在群内显示群昵称（索引 %s）',
+  async (indexed) => {
+    const { sql, nt, opts } = fixture();
+    sql.exec(`CREATE TABLE group_msg_table (
+    "40001" INTEGER PRIMARY KEY, "40003" INTEGER, "40011" INTEGER,
+    "40020" TEXT, "40027" TEXT, "40033" INTEGER, "40050" INTEGER, "40090" TEXT, "40093" TEXT);
+    INSERT INTO group_msg_table VALUES
+      (1,1,2,'u_speaker','777',10001,10,'同名','同名'),
+      (2,1,2,'u_speaker','888',10001,20,NULL,'旧昵称'),
+      (3,2,2,'u_speaker','888',10001,30,'同名','同名'),
+      (4,3,2,'u_speaker','888',10001,40,'同名',NULL),
+      (5,4,2,'u_other','888',10002,50,'同名','同名');`);
+    const db = new GroupMsgDb(nt, {
+      ...opts,
+      senderNameIndexPath: indexed ? `${opts.dbPath}.names.sqlite` : undefined,
+    });
+    const filter = { senderUid: 'u_speaker', profileHistory: true, limit: 1 };
+    try {
+      if (indexed) {
+        await db.senderNames(filter);
+        await expect.poll(() => db.senderNamesPending).toBe(false);
+      }
+      expect(await db.senderNames(filter)).toMatchObject([
+        {
+          name: '同名',
+          kind: 'nickname',
+          groupCode: null,
+          first: { msgId: '1' },
+          last: { msgId: '3' },
+        },
+      ]);
+      expect(await db.senderNames({ ...filter, offset: 1, limit: 10 })).toMatchObject([
+        { name: '旧昵称', kind: 'nickname', groupCode: null },
+        { name: '同名', kind: 'display', groupCode: '888', last: { msgId: '4' } },
+        { name: '同名', kind: 'display', groupCode: '777', last: { msgId: '1' } },
+      ]);
+      expect(await db.senderNames({ ...filter, groupCode: '888', limit: 10 })).toMatchObject([
+        {
+          name: '同名',
+          kind: 'display',
+          groupCode: '888',
+          first: { msgId: '3' },
+          last: { msgId: '4' },
+        },
+      ]);
+    } finally {
+      db.close();
+    }
+  },
+);

@@ -5263,9 +5263,14 @@ export const accountRouter = router({
             .max(128)
             .optional(),
           keyword: z.string().trim().min(1).max(128).optional(),
+          profileHistory: z.boolean().optional(),
           offset: z.number().int().nonnegative().default(0),
         })
-        .refine((value) => Boolean(value.senderUid || (value.groupCode && value.keyword))),
+        .refine((value) =>
+          value.profileHistory
+            ? Boolean(value.senderUid && !value.keyword)
+            : Boolean(value.senderUid || (value.groupCode && value.keyword)),
+        ),
     )
     .query(async ({ input }) => {
       const services = requireExpectedAccount(
@@ -5277,6 +5282,7 @@ export const accountRouter = router({
         senderUid: input.senderUid,
         keyword: input.keyword,
         distinctSenders: Boolean(input.keyword),
+        profileHistory: input.profileHistory,
         offset: input.offset,
         limit: 51,
       });

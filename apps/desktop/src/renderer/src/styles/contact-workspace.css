@@ -327,10 +327,19 @@
   padding-bottom: 12px;
 }
 
+.weq-profile-message-names {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .weq-profile-message-name {
   min-width: 0;
   display: grid;
   gap: 2px;
+  font-size: 13px;
 }
 
 .weq-profile-message-name-value {
