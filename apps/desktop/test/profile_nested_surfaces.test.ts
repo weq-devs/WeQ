@@ -969,7 +969,7 @@ it('UID 与 QQ 号分开判定，只有 UID 的对象仍可查看互动画像', 
     const disclosures = [
       ...host.querySelectorAll<HTMLButtonElement>('.weq-profile-disclosure-trigger'),
     ];
-    expect(disclosures.map((button) => button.textContent?.trim())).toEqual(['在各群的称呼']);
+    expect(disclosures.map((button) => button.textContent?.trim())).toEqual(['历史称呼']);
     expect(host.querySelector('.weq-contact-portrait')).not.toBeNull();
   } finally {
     act(() => root.unmount());

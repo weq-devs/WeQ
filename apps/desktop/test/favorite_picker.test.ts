@@ -186,6 +186,7 @@ it('右键不选中表情，四项菜单使用原图保存，普通点击仍选�
     kind: 'url',
     url: expect.stringContaining('file=aaaaaa.png'),
     name: '原备注',
+    mediaKind: 'emoji',
   });
   act(() => host.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
   expect(select).toHaveBeenCalledOnce();

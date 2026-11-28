@@ -89,7 +89,7 @@ afterEach(() => {
   document.body.innerHTML = '';
   vi.unstubAllGlobals();
 });
-function fixture(navigate = vi.fn(), content: ReactNode = h(ContactGroupWorkspace, { contact })) {
+function fixture(navigate = vi.fn(), content?: ReactNode) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -104,13 +104,17 @@ function fixture(navigate = vi.fn(), content: ReactNode = h(ContactGroupWorkspac
         h(
           QueryClientProvider,
           { client: cache },
-          h(ContactWorkspaceNavigationContext.Provider, { value: navigate }, content),
+          h(
+            ContactWorkspaceNavigationContext.Provider,
+            { value: navigate },
+            content ?? h(ContactGroupWorkspace, { contact }),
+          ),
         ),
       );
       await new Promise((resolve) => setTimeout(resolve, 15));
     });
   };
-  return { host, render };
+  return { cache, host, render };
 }
 
 it('QQ 昵称同一天的两个日期分别跳到这段的首条和末条消息', async () => {
@@ -214,29 +218,27 @@ it('保存进行中不会切群或丢掉当前编辑上下文', async () => {
   expect(host.querySelector('[data-member]')?.textContent).toBe('99999:来源群昵称');
 });
 it('切换数据源后迟到的群列表不进入新页面', async () => {
-  let finish: (value: unknown) => void = () => {};
-  rpc.groups.mockImplementationOnce(
-    () =>
-      new Promise((resolve) => {
-        finish = resolve;
-      }),
-  );
-  const { host, render } = fixture();
+  const oldGroups = Promise.withResolvers<unknown>();
+  rpc.groups.mockReturnValueOnce(oldGroups.promise);
+  const { cache, host, render } = fixture();
   await render();
+  expect(rpc.groups).toHaveBeenCalledWith(
+    expect.objectContaining({ expectedAccountConfigId: 'source-a' }),
+  );
   rpc.config = 'source-b';
   rpc.groups.mockResolvedValue([
     { groupCode: '20003', uid: contact.id, card: '新来源昵称', joinTime: 1725120000 },
   ]);
   await render();
-  await render();
+  const groupCodes = () => [...host.querySelectorAll('option')].map((node) => node.value);
+  await act(async () => vi.waitFor(() => expect(groupCodes()).toEqual(['99999', '20003'])));
   await act(async () => {
-    finish([{ groupCode: '10003', uid: contact.id, card: '旧来源昵称', joinTime: 1725120000 }]);
-    await new Promise((resolve) => setTimeout(resolve, 15));
+    oldGroups.resolve([
+      { groupCode: '10003', uid: contact.id, card: '旧来源昵称', joinTime: 1725120000 },
+    ]);
+    await vi.waitFor(() => expect(cache.isFetching()).toBe(0));
   });
-  expect([...host.querySelectorAll('option')].map((node) => node.value)).toEqual([
-    '99999',
-    '20003',
-  ]);
+  expect(groupCodes()).toEqual(['99999', '20003']);
   await select(host, '20003');
   expect(host.querySelector('[data-member]')?.textContent).toBe('20003:新来源昵称');
 });
