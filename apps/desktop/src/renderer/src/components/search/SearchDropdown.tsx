@@ -4,7 +4,7 @@ import { ToolbarLabel } from '../CompactToolbar';
 import { observeCompactToolbar } from '../CompactToolbar.shared';
 import { EmptyState } from '../EmptyState';
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
-import { History, Layers, RefreshCw, Settings2, SearchX } from 'lucide-react';
+import { Layers, RefreshCw, Settings2, SearchX } from 'lucide-react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { isLookupNumber } from '../../hooks/useNumberLookup';
 import { NumberLookupResults, type OpenNumberProfile } from './NumberLookupResults';
@@ -82,8 +82,6 @@ export function SearchDropdown({
   sources,
   onSourcesChange,
   onFilterQQMessages,
-  includeHistoricalNames = false,
-  onIncludeHistoricalNamesChange,
 }: {
   keyword: string;
   numberLookupKeyword?: string;
@@ -110,8 +108,6 @@ export function SearchDropdown({
   sources?: readonly SearchSource[];
   onSourcesChange?: (sources: SearchSource[]) => void;
   onFilterQQMessages?: () => void;
-  includeHistoricalNames?: boolean;
-  onIncludeHistoricalNamesChange?: (enabled: boolean) => void;
 }): ReactElement {
   const hasKeyword = keyword.trim().length > 0;
   const developmentDressTools = useDevelopmentDressTools();
@@ -431,29 +427,9 @@ export function SearchDropdown({
             ))}
           </div>
         ) : null}
-        {onIncludeHistoricalNamesChange &&
-        activeSources.includes('qq') &&
-        categories.includes('contact') ? (
-          <div className="weq-search-scope" role="group" aria-label="联系人选项">
-            <span className="weq-search-filter-label">联系人</span>
-            <button
-              type="button"
-              aria-pressed={includeHistoricalNames}
-              onClick={() => onIncludeHistoricalNamesChange(!includeHistoricalNames)}
-            >
-              <History size={14} aria-hidden />
-              包含历史称呼
-            </button>
-          </div>
-        ) : null}
       </div>
       {hasKeyword ? (
         <>
-          {quick?.contactHistoryPending && categories.includes('contact') ? (
-            <div className="weq-search-index-hint" role="status">
-              正在整理历史称呼，搜索结果会继续补齐…
-            </div>
-          ) : null}
           {indexBuilding ? (
             <div className="weq-search-index-hint">
               正在校验 QQ 搜索索引，消息/文件首次查询可能较慢…

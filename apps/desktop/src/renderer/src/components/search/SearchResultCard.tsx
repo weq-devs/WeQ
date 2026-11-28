@@ -50,28 +50,6 @@ export function SearchResultCard({
 
   switch (hit.category) {
     case 'contact': {
-      if (hit.historical) {
-        const history = hit.historical;
-        media = (
-          <SearchAvatar url={resolveAvatar({ uin: hit.uin, profileAvatarUrl: hit.avatarUrl })} />
-        );
-        title = history.name;
-        subtitle = (
-          <span className="weq-search-muted">
-            {history.kind === 'display' ? '历史称呼' : '历史昵称'}
-            {' · '}
-            <span data-privacy-sensitive>{history.groupName}</span>
-            {/^[1-9]\d*$/.test(hit.uin) ? (
-              <span className="weq-number weq-number-inherit" data-privacy-sensitive>
-                {' '}
-                · {hit.uin}
-              </span>
-            ) : null}
-          </span>
-        );
-        break;
-      }
-
       const conversationKind = classifyChatType(hit.chatType ?? 1);
       const sourceLabel =
         conversationKind === 'official'

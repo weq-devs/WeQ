@@ -32,7 +32,6 @@ export function useGlobalSearch(
   filter: readonly SearchSource[] | ConversationScope = 'all',
   recordFilter?: GlobalChatRecordFilter,
   binding?: QQWriteBinding,
-  includeHistoricalNames = false,
 ) {
   const query = keyword.trim();
   const sources = typeof filter === 'string' ? undefined : filter;
@@ -53,7 +52,6 @@ export function useGlobalSearch(
     enabledCategories,
     filter,
     recordFilter,
-    includeHistoricalNames,
     revision,
   ]);
   const [state, setState] = useState<SearchState>(() => ({ key, results: {} }));
@@ -69,7 +67,6 @@ export function useGlobalSearch(
   useEffect(() => {
     let cancelled = false;
     let remaining = 0;
-    let historyTimer: number | undefined;
     setState({ key, results: {} });
     const update = (category: SearchCategory, result: CategoryResult) => {
       remaining--;
@@ -106,40 +103,17 @@ export function useGlobalSearch(
               () => update(category, { error: true }),
             );
         } else {
-          const readQuick = () => {
-            void client.account.searchQuick
-              .query(
-                category === 'contact' && includeHistoricalNames
-                  ? { ...input, includeHistoricalNames: true }
-                  : input,
-              )
-              .then(
-                (quick) => {
-                  update(category, { quick, error: false });
-                  if (
-                    category === 'contact' &&
-                    quick.contactHistoryPending &&
-                    !cancelled &&
-                    currentKey.current === key
-                  ) {
-                    historyTimer = window.setTimeout(() => {
-                      remaining++;
-                      readQuick();
-                    }, 1500);
-                  }
-                },
-                () => update(category, { error: true }),
-              );
-          };
-          readQuick();
+          void client.account.searchQuick.query(input).then(
+            (quick) => update(category, { quick, error: false }),
+            () => update(category, { error: true }),
+          );
         }
       }
     }, 200);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
-      window.clearTimeout(historyTimer);
-      if (remaining > 0 || (includeHistoricalNames && enabledCategories.includes('contact')))
+      if (remaining > 0)
         void client.account.cancelSidebarSearch.mutate(searchWindow).catch(() => {});
     };
   }, [
@@ -152,7 +126,6 @@ export function useGlobalSearch(
     recordFilter,
     expectedAccountUin,
     expectedAccountConfigId,
-    includeHistoricalNames,
     owner,
   ]);
 
@@ -190,10 +163,7 @@ export function useGlobalSearch(
       if (result?.quick) {
         hasQuick = true;
         const next = result.quick;
-        if (category === 'contact') {
-          quick.contacts = next.contacts ?? [];
-          quick.contactHistoryPending = next.contactHistoryPending;
-        }
+        if (category === 'contact') quick.contacts = next.contacts ?? [];
         if (category === 'group') quick.groups = next.groups ?? [];
         if (category === 'conversation') quick.conversations = next.conversations;
         if (category === 'friend') quick.friends = next.friends;

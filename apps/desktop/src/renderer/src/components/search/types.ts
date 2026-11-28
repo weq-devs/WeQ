@@ -110,7 +110,6 @@ export function isGeneratedSearchHit(hit: SearchHit): hit is GeneratedSearchHit 
 }
 
 export interface QuickSearchResult {
-  contactHistoryPending?: boolean;
   contacts?: ContactSearchHit[];
   groups?: GroupSearchHit[];
   conversations: ConversationSearchHit[];
@@ -147,7 +146,6 @@ export function unavailableMessageSearchHint(
 }
 
 export interface MoreSearchResult {
-  contactHistoryPending?: boolean;
   unavailableMessageSources?: SearchFtsSource[];
   coverage?: ContentSearchCoverage;
   category: SearchCategory;

@@ -74,24 +74,14 @@ function mountSearch() {
     account,
     scope,
     recordFilter,
-    includeHistoricalNames,
   }: {
     query: string;
     categories: SearchCategory[];
     account: string;
     scope: ConversationScope | readonly SearchSource[];
     recordFilter?: GlobalChatRecordFilter;
-    includeHistoricalNames?: boolean;
   }) => {
-    result = useGlobalSearch(
-      query,
-      categories,
-      account,
-      scope,
-      recordFilter,
-      undefined,
-      includeHistoricalNames,
-    );
+    result = useGlobalSearch(query, categories, account, scope, recordFilter);
     return null;
   };
   return {
@@ -104,19 +94,9 @@ function mountSearch() {
       account = 'account-a',
       scope: ConversationScope | readonly SearchSource[] = 'all',
       recordFilter?: GlobalChatRecordFilter,
-      includeHistoricalNames?: boolean,
     ) {
       act(() =>
-        root.render(
-          createElement(Harness, {
-            query,
-            categories,
-            account,
-            scope,
-            recordFilter,
-            includeHistoricalNames,
-          }),
-        ),
+        root.render(createElement(Harness, { query, categories, account, scope, recordFilter })),
       );
     },
     close() {
@@ -136,35 +116,6 @@ afterEach(() => {
 });
 
 describe('全局搜索请求生命周期', () => {
-  it('普通联系人搜索不查旧称呼，关闭历史筛选会取消已结束请求的后台读取窗口', async () => {
-    vi.useFakeTimers();
-    const view = mountSearch();
-    const render = (enabled: boolean) =>
-      view.render('旧名', categories, 'account-a', 'all', undefined, enabled);
-    const categories: SearchCategory[] = ['contact'];
-    rpc.quick.mockImplementation(async (input) => ({
-      ...quickResult,
-      contactHistoryPending: Boolean(input.includeHistoricalNames),
-    }));
-    try {
-      render(false);
-      await act(async () => vi.advanceTimersByTimeAsync(3200));
-      expect(rpc.quick).toHaveBeenCalledOnce();
-      expect(rpc.quick.mock.calls[0]?.[0]).not.toHaveProperty('includeHistoricalNames');
-      render(true);
-      await act(async () => vi.advanceTimersByTimeAsync(200));
-      const history = rpc.quick.mock.calls[1]?.[0];
-      expect(history).toMatchObject({ includeHistoricalNames: true });
-      render(false);
-      await act(async () => vi.advanceTimersByTimeAsync(3200));
-      expect(rpc.cancel).toHaveBeenCalledWith(history.searchWindow);
-      expect(rpc.quick).toHaveBeenCalledTimes(3);
-      expect(rpc.quick.mock.calls[2]?.[0]).not.toHaveProperty('includeHistoricalNames');
-    } finally {
-      view.close();
-    }
-  });
-
   it('聊天记录预览按筛选重新请求，筛选不会发送给其他慢来源', async () => {
     vi.useFakeTimers();
     rpc.slow.mockResolvedValue(slowResult);

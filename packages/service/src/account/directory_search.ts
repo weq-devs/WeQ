@@ -2,7 +2,6 @@ import type { AccountSession } from '@weq/account';
 import { classifyChatType, toChatTypeNumber, ChatType } from '@weq/codec';
 import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { searchNameRank } from './search_policy';
-import { databaseRequestSignal } from '@weq/db';
 
 export type SearchConversationView = 'regular' | 'hidden' | 'deleted' | 'groupAssistant';
 
@@ -23,14 +22,6 @@ export interface ContactSearchHit {
   aliases: string[];
   matchRank?: number;
   groups: Array<{ groupCode: string; groupName: string; display: string }>;
-  historical?: {
-    groupCode: string;
-    groupName: string;
-    name: string;
-    kind: 'display' | 'nickname';
-    msgId: string;
-    msgSeq: string;
-  };
 }
 
 export interface GroupSearchHit {
@@ -127,34 +118,22 @@ function conversationViewForIdentity(
 export async function searchContacts(
   session: AccountSession,
   keyword: string,
-  historyLimit = 0,
 ): Promise<ContactSearchHit[]> {
   const query = directoryMatcher(keyword);
-  const signal = databaseRequestSignal();
-  const [cached, conversations, members, deleted, buddies, hidden, services, savedNames] =
-    await Promise.all([
-      query.pinyin
-        ? session.profileInfo.searchContacts(keyword, true)
-        : session.profileInfo.searchContacts(keyword),
-      session.recentContacts.searchIdentities(keyword, query.pinyin ? 'contact' : undefined),
-      session.groupMembers.searchMembers(keyword, -1, 0, {
-        includeHistorical: true,
-        includeCards: true,
-      }),
-      session.deletedSessions.listDeletedSessions(),
-      session.buddies.listBuddies(),
-      session.hiddenSessions?.listHiddenSessions() ?? [],
-      session.serviceAssistantContacts?.listContacts() ?? [],
-      historyLimit > 0
-        ? (session.groupMsgs
-            ?.senderNames?.({ keyword, limit: historyLimit, distinctSenders: true, signal })
-            .catch((error: unknown) => {
-              signal?.throwIfAborted();
-              console.warn('[unified-search] 群成员历史称呼读取失败', error);
-              return [];
-            }) ?? [])
-        : [],
-    ]);
+  const [cached, conversations, members, deleted, buddies, hidden, services] = await Promise.all([
+    query.pinyin
+      ? session.profileInfo.searchContacts(keyword, true)
+      : session.profileInfo.searchContacts(keyword),
+    session.recentContacts.searchIdentities(keyword, query.pinyin ? 'contact' : undefined),
+    session.groupMembers.searchMembers(keyword, -1, 0, {
+      includeHistorical: true,
+      includeCards: true,
+    }),
+    session.deletedSessions.listDeletedSessions(),
+    session.buddies.listBuddies(),
+    session.hiddenSessions?.listHiddenSessions() ?? [],
+    session.serviceAssistantContacts?.listContacts() ?? [],
+  ]);
   const isContactConversation = (chatType: number) =>
     ['direct', 'dataline', 'official', 'service'].includes(classifyChatType(chatType) ?? '');
   const direct = conversations.filter(
@@ -169,16 +148,15 @@ export async function searchContacts(
     isContactConversation(toChatTypeNumber(row.chatType) ?? 0),
   );
   const [details, people, recent] = await Promise.all([
-    groupDetails(session, [
-      ...members.items.map((row) => row.groupCode),
-      ...savedNames.map((row) => row.groupCode),
-    ]),
+    groupDetails(
+      session,
+      members.items.map((row) => row.groupCode),
+    ),
     profiles(session, [
       ...direct.map((row) => row.targetUid),
       ...historical.map((row) => row.targetUid),
       ...hiddenContacts.map((row) => row.targetUid),
       ...members.items.map((row) => row.uid),
-      ...savedNames.map((row) => row.senderUid),
     ]),
     recentConversationEvidence(
       session,
@@ -213,7 +191,6 @@ export async function searchContacts(
     chatType?: number;
     aliases?: string[];
     group?: ContactSearchHit['groups'][number];
-    historical?: ContactSearchHit['historical'];
   };
   const candidates: Candidate[] = [
     ...cached.filter((row) => query.matchesCandidate(row.uid, row.uin, row.nick, row.remark)),
@@ -258,20 +235,6 @@ export async function searchContacts(
         groupCode: row.groupCode,
         groupName: groupNames.get(row.groupCode) || row.groupCode,
         display: row.card || row.nick || row.uin,
-      },
-    })),
-    ...savedNames.map((row) => ({
-      uid: row.senderUid,
-      uin: row.senderUin,
-      nick: row.kind === 'nickname' ? row.name : '',
-      aliases: [row.name],
-      historical: {
-        groupCode: row.groupCode,
-        groupName: groupNames.get(row.groupCode) || row.groupCode,
-        name: row.name,
-        kind: row.kind,
-        msgId: row.last.msgId,
-        msgSeq: row.last.msgSeq,
       },
     })),
   ];
@@ -325,7 +288,6 @@ export async function searchContacts(
     hit.hasConversation ||= Boolean(row.conversation);
     if (row.chatType !== undefined) hit.chatType = row.chatType;
     hit.temporary ||= Boolean(row.temporary);
-    hit.historical ??= row.historical;
     hit.aliases = [
       ...new Set(
         [

@@ -324,6 +324,7 @@ import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSessi
 import { conversationWindowKey } from '../lib/conversationWindowCache';
 import { firstPageKey } from '../lib/conversationFirstPage';
 import { useRecordedSenderNames } from '../hooks/useRecordedSenderNames';
+import { conversationDisplayKey } from '@weq/service/client-preferences';
 import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
 import { messageTemplateContext } from '../lib/messageTemplateContext';
 import { useRecentContactHeadRefresh } from '../hooks/useRecentContactHeadRefresh';
@@ -4949,17 +4950,26 @@ function MainWorkspace(): ReactElement {
       sendAccess.data.attachEnabled &&
       sendAccess.data.ssoReady === true,
   );
+  const historicalNameTarget =
+    messageElementTarget && !isDatalineUid(messageElementTarget.conv) ? messageElementTarget : null;
   const showHistoricalNames = useShowHistoricalNames(
-    selectedConversation?.type === 'group' ? selectedConversation.id : undefined,
+    historicalNameTarget
+      ? conversationDisplayKey(historicalNameTarget.kind, historicalNameTarget.conv)
+      : undefined,
   );
   const recordedSenderNames = useRecordedSenderNames(
-    showHistoricalNames && messagesTabActive ? selectedConversation?.id : undefined,
+    showHistoricalNames &&
+      messagesTabActive &&
+      messageWindow.loadedWindow.key === selectedMessageWindowKey
+      ? historicalNameTarget
+      : null,
     pinSession.binding,
     loaded,
   );
+  const includeReplySnapshotNames = showHistoricalNames && isGroup;
   const attemptedReplyNames = useMemo(
-    () => (showHistoricalNames ? new WeakSet<MessageWire>() : undefined),
-    [showHistoricalNames, selectedUid, messageScope],
+    () => (includeReplySnapshotNames ? new WeakSet<MessageWire>() : undefined),
+    [includeReplySnapshotNames, selectedUid, messageScope],
   );
   // 原行负责定位、撤回和对账，补拉只提供正文。窗口刷新也能继续使用已补回的元素。
   const loadedMessageWires = useMemo(() => {
@@ -6598,7 +6608,7 @@ function MainWorkspace(): ReactElement {
     if (!selection || !binding || !scope || !messagesTabActive) return;
     const attempted = attemptedReplyNames ?? attemptedReplyMedia;
     const pending = loaded.filter(
-      (row) => needsReplyMedia(row, showHistoricalNames) && !attempted.has(row),
+      (row) => needsReplyMedia(row, includeReplySnapshotNames) && !attempted.has(row),
     );
     if (!pending.length) return;
     for (const row of pending) attempted.add(row);
@@ -6615,7 +6625,7 @@ function MainWorkspace(): ReactElement {
             kind: selection.kind === 'group' ? 'group' : 'c2c',
             conv: selection.id,
             readWindow: selection.readWindow,
-            ...(showHistoricalNames ? { includeHistoricalNames: true } : {}),
+            ...(includeReplySnapshotNames ? { includeHistoricalNames: true } : {}),
             msgIds: page.map((row) => row.msgId),
           });
           if (!current()) return;
@@ -6634,7 +6644,7 @@ function MainWorkspace(): ReactElement {
         }
       }
     })();
-    if (showHistoricalNames)
+    if (includeReplySnapshotNames)
       return () => {
         active = false;
         for (const row of pending.slice(completed)) attempted.delete(row);
@@ -6646,7 +6656,7 @@ function MainWorkspace(): ReactElement {
     selectedUid,
     attemptedReplyMedia,
     attemptedReplyNames,
-    showHistoricalNames,
+    includeReplySnapshotNames,
     replyMediaRows,
     selectionRef,
     messageBindingRef,
@@ -7122,7 +7132,6 @@ function MainWorkspace(): ReactElement {
   );
 
   const searchQuery = shell.query.trim();
-  const [includeHistoricalContactNames, setIncludeHistoricalContactNames] = useState(false);
   const searchAccountKey = noticeAccountKey || openedUin;
   const [searchResourceGroup, setSearchResourceGroup] = useState<{
     accountKey: string;
@@ -7139,9 +7148,6 @@ function MainWorkspace(): ReactElement {
     searchCategories,
     searchAccountKey,
     searchSources,
-    undefined,
-    undefined,
-    !searchDismissed && includeHistoricalContactNames,
   );
   const searchReturn = useSearchReturn(
     searchAccountKey,
@@ -7383,11 +7389,6 @@ function MainWorkspace(): ReactElement {
       returnFromSearchTarget.current = true;
       setSearchDismissed(true);
       setSearchFocused(false);
-      if (hit.category === 'contact' && hit.historical) {
-        const item = hit.historical;
-        openGroupHistoryMessage({ code: item.groupCode, name: item.groupName }, item);
-        return;
-      }
       if ((hit.category === 'contact' || hit.category === 'group') && hit.target) {
         if (hit.target.kind === 'guild') {
           setMobileConversationList(false);
@@ -7610,7 +7611,6 @@ function MainWorkspace(): ReactElement {
     },
     [
       jumpToSearchConversation,
-      openGroupHistoryMessage,
       rememberSearchGroup,
       shell,
       user.identityValue,
@@ -11600,11 +11600,6 @@ function MainWorkspace(): ReactElement {
                   categoryStates={globalSearch.categoryStates}
                   categories={searchCategories}
                   onCategoriesChange={setSearchCategories}
-                  includeHistoricalNames={includeHistoricalContactNames}
-                  onIncludeHistoricalNamesChange={(next) => {
-                    searchReturn.clear();
-                    setIncludeHistoricalContactNames(next);
-                  }}
                   sources={searchSources}
                   accountBinding={pinSession.binding ?? undefined}
                   onSourcesChange={setSearchSources}

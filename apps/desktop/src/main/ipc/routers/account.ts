@@ -363,6 +363,23 @@ function assertCurrentAccountWritable(input: {
   if (account) assertDatabaseWritable(account.msgDbPath);
 }
 
+async function recordedSenderNames(
+  input: { expectedAccountUin: string; expectedAccountConfigId: string; msgIds: string[] },
+  kind: 'group' | 'c2c',
+  conv: string,
+) {
+  const { expectedAccountUin, expectedAccountConfigId, msgIds } = input;
+  const services = requireExpectedAccount(expectedAccountUin, expectedAccountConfigId);
+  const rows = await withDatabasePriority('background', () =>
+    kind === 'group'
+      ? services.msgs.recordedGroupSenderNames(conv, msgIds)
+      : services.msgs.recordedC2cSenderNames(conv, msgIds),
+  );
+  if (requireExpectedAccount(expectedAccountUin, expectedAccountConfigId) !== services)
+    throw new Error('账号或数据源已切换');
+  return rows;
+}
+
 async function scopedGroupRead<T>(
   input: { expectedAccountUin?: string; expectedAccountConfigId?: string },
   read: (services: AccountServices) => Promise<T>,
@@ -620,6 +637,12 @@ const convInput = z.object({
   kind: z.enum(['c2c', 'group']),
   /** Conversation key: peer uid (c2c) or group code (group). */
   conv: z.string().min(1),
+});
+const recordedSenderNamesInput = exportAccountBindingInput.required().extend({
+  msgIds: z
+    .array(z.string().regex(/^-?\d{1,20}$/))
+    .min(1)
+    .max(200),
 });
 const messageReadWindowInput = z.object({
   owner: z.string().uuid(),
@@ -5172,29 +5195,12 @@ export const accountRouter = router({
     }),
 
   recordedGroupSenderNames: procedure
-    .input(
-      exportAccountBindingInput.required().extend({
-        groupCode: z.string().regex(/^[1-9]\d{0,19}$/),
-        msgIds: z
-          .array(z.string().regex(/^-?\d{1,20}$/))
-          .min(1)
-          .max(200),
-      }),
-    )
-    .query(async ({ input }) => {
-      const services = requireExpectedAccount(
-        input.expectedAccountUin,
-        input.expectedAccountConfigId,
-      );
-      const rows = await withDatabasePriority('background', () =>
-        services.msgs.recordedGroupSenderNames(input.groupCode, input.msgIds),
-      );
-      if (
-        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
-      )
-        throw new Error('账号或数据源已切换');
-      return rows;
-    }),
+    .input(recordedSenderNamesInput.extend({ groupCode: z.string().regex(/^[1-9]\d{0,19}$/) }))
+    .query(({ input }) => recordedSenderNames(input, 'group', input.groupCode)),
+
+  recordedC2cSenderNames: procedure
+    .input(recordedSenderNamesInput.extend({ peerUid: z.string().min(1).max(1019) }))
+    .query(({ input }) => recordedSenderNames(input, 'c2c', input.peerUid)),
 
   groupSenderNames: procedure
     .input(
@@ -5719,7 +5725,6 @@ export const accountRouter = router({
         categories: z.array(z.enum(SEARCH_CATEGORIES)).optional(),
         conversationScope: z.enum(['all', 'real', 'virtual', 'guild']).default('all'),
         sources: z.array(z.enum(SEARCH_SOURCES)).optional(),
-        includeHistoricalNames: z.boolean().optional(),
       }),
     )
     .query(async ({ input }) => {
@@ -5732,7 +5737,6 @@ export const accountRouter = router({
             input.categories,
             input.conversationScope,
             input.sources,
-            input.includeHistoricalNames,
           ),
         'interactive',
       );
@@ -5792,7 +5796,6 @@ export const accountRouter = router({
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
         recordFilter: globalRecordFilterInput,
-        includeHistoricalNames: z.boolean().optional(),
         ...sidebarSearchBinding.shape,
       }),
     )
@@ -5809,7 +5812,6 @@ export const accountRouter = router({
               input.conversationScope,
               input.sources,
               input.recordFilter,
-              input.includeHistoricalNames,
             ),
           ),
         'interactive',

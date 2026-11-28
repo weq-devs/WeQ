@@ -498,7 +498,9 @@ it('群发送者打开即使用当前排序读取完整名单，按昵称筛选�
           ],
           total: 2,
         }
-      : { items: [], cursor: null, hasMore: false },
+      : path === 'account.groupSenderNames'
+        ? { rows: [{ name: '旧群名片', senderUin: '20003', senderUid: 'u_legacy' }] }
+        : { items: [], cursor: null, hasMore: false },
   );
   function Fixture() {
     const { changeOrder } = useGroupMemberRosterOrder('10001:source', '12345');
@@ -551,6 +553,36 @@ it('群发送者打开即使用当前排序读取完整名单，按昵称筛选�
     expect(options().map((option) => option.textContent)).toEqual(['群名片']);
     await act(async () => changeInput(input, '昵称样本'));
     expect(options().map((option) => option.textContent)).toEqual(['群名片']);
+    const segments = [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="发送者查找范围"] [role="radio"]',
+      ),
+    ];
+    expect(
+      segments.map((button) => [button.textContent, button.getAttribute('aria-checked')]),
+    ).toEqual([
+      ['当前称呼', 'true'],
+      ['包含历史称呼', 'false'],
+    ]);
+    await act(async () => changeInput(input, '旧群名片'));
+    expect(nativeReads).not.toHaveBeenCalledWith(
+      'account.groupSenderNames',
+      expect.anything(),
+      expect.anything(),
+    );
+    await act(async () => segments[1]!.click());
+    expect(segments[1]!.getAttribute('aria-checked')).toBe('true');
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 220)));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(options().some((option) => option.textContent?.includes('旧群名片'))).toBe(true);
+    expect(nativeReads).toHaveBeenCalledWith(
+      'account.groupSenderNames',
+      { ...binding, groupCode: '12345', keyword: '旧群名片' },
+      expect.anything(),
+    );
+    await act(async () => segments[0]!.click());
+    expect(options()).toHaveLength(0);
+    await act(async () => changeInput(input, '昵称样本'));
     expect(nativeReads.mock.calls.some(([path]) => path === 'account.browseConversation')).toBe(
       false,
     );

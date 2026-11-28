@@ -11,6 +11,7 @@ import { CheckPill } from '../settings/controls';
 import { useGroupMemberRosterOrder } from '../../lib/groupMemberRosterOrder';
 import { PROFILE_QUERY_OPTIONS } from '../../lib/profileQuery';
 import { LoadingIndicator } from '../LoadingIndicator';
+import { SegmentedControl } from '../SegmentedControl';
 import '../../styles/chat-records.css';
 
 export type RecordSender = {
@@ -61,7 +62,6 @@ export function RecordSenderPicker({
     ...PROFILE_QUERY_OPTIONS,
     queryKey: ['group-history-sender-search', binding, groupCode, historyKeyword],
     enabled: historyEnabled,
-    refetchInterval: (data) => (data?.indexPending ? 1500 : false),
     queryFn: ({ signal }) =>
       client.account.groupSenderNames.query(
         { ...binding!, groupCode, keyword: historyKeyword },
@@ -137,7 +137,7 @@ export function RecordSenderPicker({
       groupCode &&
       binding &&
       needle &&
-      (!historyEnabled || history.isInitialLoading || history.data?.indexPending),
+      (!historyEnabled || history.isInitialLoading),
   );
   const rosterError = roster.error instanceof Error ? roster.error.message : '';
   return (
@@ -178,9 +178,15 @@ export function RecordSenderPicker({
           ) : null}
         </div>
         {canReadRoster ? (
-          <CheckPill checked={includeHistoricalNames} onChange={setIncludeHistoricalNames}>
-            <span>包含历史称呼</span>
-          </CheckPill>
+          <SegmentedControl<'current' | 'historical'>
+            label="发送者查找范围"
+            value={includeHistoricalNames ? 'historical' : 'current'}
+            options={[
+              { value: 'current', label: '当前称呼' },
+              { value: 'historical', label: '包含历史称呼' },
+            ]}
+            onChange={(value) => setIncludeHistoricalNames(value === 'historical')}
+          />
         ) : null}
         <CheckPill checked={!selected.length} onChange={() => onChange([])}>
           <span className="weq-record-sender-placeholder">

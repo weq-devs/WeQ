@@ -197,7 +197,6 @@ export interface ConversationRecordHit {
 }
 
 export interface QuickSearchResult {
-  contactHistoryPending?: boolean;
   contacts?: ContactSearchHit[];
   groups?: GroupSearchHit[];
   conversations: ConversationSearchHit[];
@@ -258,7 +257,6 @@ export interface SlowSearchResult {
 }
 
 export interface MoreSearchResult {
-  contactHistoryPending?: boolean;
   unavailableMessageSources?: FtsSource[];
   coverage?: ContentSearchCoverage;
   category: SearchCategory;
@@ -446,7 +444,6 @@ export class UnifiedSearchService {
     categories?: readonly SearchCategory[],
     scope: ConversationScope = 'all',
     sources?: readonly SearchSource[],
-    includeHistoricalNames = false,
   ): Promise<QuickSearchResult> {
     const needle = keyword.trim();
     if (!needle) return { conversations: [], friends: [], groupMembers: [] };
@@ -463,13 +460,7 @@ export class UnifiedSearchService {
         ? this.session.groupMembers.searchMembers(needle, limit, 0)
         : { items: [] },
       categories?.includes('contact')
-        ? this.directorySearch(
-            'contact',
-            needle,
-            directoryScope,
-            selected,
-            includeHistoricalNames ? limit + 1 : 0,
-          )
+        ? this.directorySearch('contact', needle, directoryScope, selected)
         : undefined,
       categories?.includes('group')
         ? this.directorySearch('group', needle, directoryScope, selected)
@@ -480,9 +471,6 @@ export class UnifiedSearchService {
     return {
       ...(contacts
         ? {
-            ...(includeHistoricalNames && this.session.groupMsgs?.senderNamesPending
-              ? { contactHistoryPending: true }
-              : {}),
             contacts: contacts
               .filter((hit): hit is ContactSearchHit => hit.category === 'contact')
               .slice(0, limit),
@@ -710,7 +698,6 @@ export class UnifiedSearchService {
     scope: ConversationScope = 'all',
     sources?: readonly SearchSource[],
     recordFilter?: GlobalChatRecordFilter,
-    includeHistoricalNames = false,
   ): Promise<MoreSearchResult> {
     const needle = keyword.trim();
     const selected = this.selectedSources(scope, sources);
@@ -752,21 +739,10 @@ export class UnifiedSearchService {
       }
       case 'contact':
       case 'group': {
-        const ranked = await this.directorySearch(
-          category,
-          needle,
-          directoryScope,
-          selected,
-          includeHistoricalNames ? offset + page + 1 : 0,
-        );
+        const ranked = await this.directorySearch(category, needle, directoryScope, selected);
         const items = ranked.slice(offset, offset + page);
         return {
           category,
-          ...(category === 'contact' &&
-          includeHistoricalNames &&
-          this.session.groupMsgs?.senderNamesPending
-            ? { contactHistoryPending: true }
-            : {}),
           items,
           total: ranked.length,
           hasMore: offset + items.length < ranked.length,
@@ -1085,13 +1061,12 @@ export class UnifiedSearchService {
     keyword: string,
     scope: ConversationScope,
     sources: readonly SearchSource[],
-    historyLimit = 0,
   ): Promise<Array<ContactSearchHit | GroupSearchHit>> {
     const pinyin = createPinyinMatcher(keyword);
     const hits: Array<ContactSearchHit | GroupSearchHit> =
       sources.includes('qq') && (scope === 'all' || scope === 'real')
         ? await (category === 'contact'
-            ? searchContacts(this.session, keyword, historyLimit)
+            ? searchContacts(this.session, keyword)
             : searchGroups(this.session, keyword))
         : [];
     if (sources.includes('clone')) {

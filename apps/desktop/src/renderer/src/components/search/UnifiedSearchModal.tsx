@@ -52,7 +52,6 @@ export function SearchMoreResults({
   onSnapshot,
   conversationScope = 'all',
   sources,
-  includeHistoricalNames = false,
   recordFilter,
   filters,
   accountBinding,
@@ -67,7 +66,6 @@ export function SearchMoreResults({
   onSnapshot?: (snapshot: SearchMoreSnapshot) => void;
   conversationScope?: ConversationScope;
   sources?: readonly SearchSource[];
-  includeHistoricalNames?: boolean;
   recordFilter?: GlobalChatRecordFilter;
   filters?: ReactNode;
   accountBinding?: QQWriteBinding;
@@ -106,7 +104,6 @@ export function SearchMoreResults({
   const expectedAccountUin = accountBinding?.expectedAccountUin;
   const expectedAccountConfigId = accountBinding?.expectedAccountConfigId;
   const relevantFilter = category === 'chatRecord' ? recordFilter : undefined;
-  const searchHistoricalNames = category === 'contact' && includeHistoricalNames;
   const isQQMessageSearch = Boolean(filters);
   const heading = isQQMessageSearch ? '筛选 QQ 消息' : `${CATEGORY_META[category].label}搜索`;
   useLayoutEffect(() => {
@@ -117,7 +114,6 @@ export function SearchMoreResults({
     keyword,
     sources ?? conversationScope,
     relevantFilter,
-    searchHistoricalNames,
   ]);
   const restoredRequest = useRef(
     restored.current
@@ -126,20 +122,19 @@ export function SearchMoreResults({
           restored.current.keyword,
           sources ?? conversationScope,
           relevantFilter,
-          searchHistoricalNames,
         ])
       : null,
   );
 
   const fetchPage = useCallback(
-    async (pageKeyword: string, offset: number, append: boolean, refresh = false) => {
+    async (pageKeyword: string, offset: number, append: boolean) => {
       if (!readEnabled.current) return;
       cancel();
       const request = { generation: ++generation.current, controller: new AbortController() };
       pending.current = request;
       setError(null);
-      if (append) setLoadingMore(true);
-      else if (!refresh) setLoading(true);
+      if (!append) setLoading(true);
+      else setLoadingMore(true);
       try {
         const result = (await client.account.searchMore.query(
           {
@@ -150,7 +145,6 @@ export function SearchMoreResults({
             conversationScope: sources ? 'all' : conversationScope,
             ...(relevantFilter ? { sources: ['qq'] } : sources ? { sources: [...sources] } : {}),
             recordFilter: relevantFilter,
-            ...(searchHistoricalNames ? { includeHistoricalNames: true } : {}),
             expectedAccountUin,
             expectedAccountConfigId,
             searchWindow: { owner, generation: request.generation },
@@ -190,7 +184,6 @@ export function SearchMoreResults({
       conversationScope,
       sources,
       relevantFilter,
-      searchHistoricalNames,
       expectedAccountUin,
       expectedAccountConfigId,
       owner,
@@ -248,28 +241,10 @@ export function SearchMoreResults({
     }
   }, [activity.enabled, activity.revision, keyword, fetchPage, cancel]);
 
-  const historyPending = Boolean(data?.contactHistoryPending);
-  useEffect(() => {
-    if (!historyPending || loading || error || !activity.enabled) return;
-    const timer = window.setTimeout(() => {
-      if (!pending.current) void fetchPage(keyword.trim(), 0, false, true);
-    }, 1500);
-    return () => window.clearTimeout(timer);
-  }, [historyPending, data, loading, error, activity.enabled, fetchPage, keyword]);
-
   // Infinite scroll: fetch the next page near the bottom.
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
-    if (
-      !el ||
-      pending.current ||
-      error ||
-      loading ||
-      loadingMore ||
-      data?.contactHistoryPending ||
-      !data?.hasMore
-    )
-      return;
+    if (!el || pending.current || error || loading || loadingMore || !data?.hasMore) return;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
       void fetchPage(keyword.trim(), nextOffset.current, true);
     }
@@ -348,16 +323,11 @@ export function SearchMoreResults({
             <span>{unavailableMessageSearch}</span>
           </div>
         ) : null}
-        {historyPending ? (
-          <div className="weq-search-index-hint" role="status">
-            正在整理历史称呼，搜索结果会继续补齐…
-          </div>
-        ) : null}
         {error === 'initial' ? (
           retry
         ) : loading ? (
           <SearchListSkeleton rows={5} />
-        ) : historyPending && !data?.items.length ? null : data && data.items.length === 0 ? (
+        ) : data && data.items.length === 0 ? (
           <EmptyState
             icon={<SearchX />}
             title={unavailableMessageSearch ? '可用来源未找到结果' : '无结果'}
@@ -408,7 +378,7 @@ export function SearchMoreResults({
             ))}
             {loadingMore ? <SearchListSkeleton rows={2} /> : null}
             {error === 'more' ? retry : null}
-            {!historyPending && !data.hasMore && data.items.length > 0 ? (
+            {!data.hasMore && data.items.length > 0 ? (
               <div className="weq-search-more-end">
                 {data.limited && !unavailableMessageSearch ? '本轮候选已显示完' : '没有更多了'}
               </div>
