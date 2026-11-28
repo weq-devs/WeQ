@@ -282,6 +282,70 @@ it.each(['direct', 'group'])('%s 会话预览右键精确定位原消息，关�
     host.remove();
   }
 });
+it('会话预览的引用和批量转发交给来源会话，多选跳过隐藏消息', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const demo = createTemplateDemoData();
+  const conversation = demo.conversations.find((item) => item.type === 'group')!;
+  const messages = [1, 2, 3].map((seq) => ({
+    ...demo.messages[0]!,
+    id: String(100 + seq),
+    msgId: String(100 + seq),
+    msgSeq: String(seq),
+    conversationId: conversation.id,
+    qqElements: [{ type: 'text', data: { textContent: `消息 ${seq}` } }],
+  }));
+  const quote = vi.fn();
+  const forward = vi.fn();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const bubble = (index: number) =>
+    host.querySelector<HTMLElement>(`[data-message-id="${messages[index]!.id}"] .message-bubble`)!;
+  const open = () =>
+    act(() => bubble(0).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+  const clickAction = (label: string, role = 'menu') =>
+    act(async () =>
+      document
+        .querySelector<HTMLButtonElement>(`[role="${role}"] [aria-label="${label}"]`)!
+        .click(),
+    );
+  try {
+    await act(async () =>
+      root.render(
+        createElement(GapMessagesModal, {
+          preview: true,
+          embedded: true,
+          conversation,
+          user: demo.user,
+          messages,
+          hiddenIds: new Set([messages[1]!.id]),
+          loading: false,
+          loadingMore: false,
+          error: null,
+          hasMore: false,
+          moreFailed: false,
+          totalCount: messages.length,
+          onLoadMore: vi.fn(),
+          onClose: vi.fn(),
+          actions: { conversation, quote, forward },
+        }),
+      ),
+    );
+    open();
+    expect(quote).not.toHaveBeenCalled();
+    await clickAction('引用');
+    expect(quote.mock.calls).toEqual([[messages[0]]]);
+    open();
+    await clickAction('多选');
+    act(() => bubble(2).dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })));
+    await clickAction('转发', 'toolbar');
+    expect(forward.mock.calls).toEqual([[[messages[0], messages[2]]]]);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it.each(['direct', 'group'])('%s 消息预览初次贴底，向上加载并按新增高度保持阅读锚点', (kind) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   let height = 2000;

@@ -50,3 +50,21 @@ export function MessageTextResult({
     </div>
   );
 }
+
+export function MessageTranslationResult({
+  value,
+  error,
+  onCollapse,
+}: {
+  value: string | null;
+  error?: boolean;
+  onCollapse: () => void;
+}) {
+  return (
+    <MessageTextResult label="译文" error={error} onCollapse={onCollapse}>
+      <span role="status" data-privacy-sensitive={Boolean(value && !error) || undefined}>
+        {value ?? '正在翻译…'}
+      </span>
+    </MessageTextResult>
+  );
+}

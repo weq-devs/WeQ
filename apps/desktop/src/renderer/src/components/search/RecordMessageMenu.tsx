@@ -60,10 +60,10 @@ export function RecordMessageMenu({
   intentPending: boolean;
   onAnalyze: (message: Message) => void;
   onTranslate: (message: Message, text: string) => void;
-  onLocate: () => void;
+  onLocate?: () => void;
   onSelect: () => void;
   onDetails: (selection: MessageDetailsSelection) => void;
-  onResolveBody: (id: string, elements: NonNullable<Message['qqElements']>) => void;
+  onResolveBody?: (id: string, elements: NonNullable<Message['qqElements']>) => void;
   onClose: () => void;
 }) {
   const requestExport = useRequestContentExport();
@@ -78,7 +78,7 @@ export function RecordMessageMenu({
   });
   const body = record.data?.elements as Message['qqElements'];
   useEffect(() => {
-    if (needsBody && body?.length) onResolveBody(menu.message.id, body);
+    if (needsBody && body?.length) onResolveBody?.(menu.message.id, body);
   }, [needsBody, body, menu.message.id, onResolveBody]);
   const message = body?.length ? { ...menu.message, qqElements: body } : menu.message;
   const hasBody = Boolean(message.qqElements?.length);

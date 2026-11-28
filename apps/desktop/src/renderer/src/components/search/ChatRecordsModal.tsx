@@ -53,7 +53,7 @@ import { messageNodeClipboard, selectedMessageClipboard } from '../../lib/messag
 import { selectMessageIds, type SelectionModifiers } from '../../lib/messageSelection';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { MessageSelectionMark } from '../MessageSelectionMark';
-import { MessageTextResult } from '../MessageTextResult';
+import { MessageTranslationResult } from '../MessageTextResult';
 import { IntentSenseContext } from '../intentSense/context.shared';
 import { MessageDetails } from '../lazyMainPanels';
 import { MessageProvenance } from '../MessageProvenance';
@@ -1137,22 +1137,10 @@ export function ChatRecordsModal({
                                           recallRevokerName={message.recallRevokerName}
                                           textResult={
                                             translation ? (
-                                              <MessageTextResult
-                                                label="译文"
-                                                error={translation.error}
+                                              <MessageTranslationResult
+                                                {...translation}
                                                 onCollapse={transforms.collapseTranslation}
-                                              >
-                                                <span
-                                                  role="status"
-                                                  data-privacy-sensitive={
-                                                    Boolean(
-                                                      translation.value && !translation.error,
-                                                    ) || undefined
-                                                  }
-                                                >
-                                                  {translation.value ?? '正在翻译…'}
-                                                </span>
-                                              </MessageTextResult>
+                                              />
                                             ) : undefined
                                           }
                                           textResultRevision={translation}

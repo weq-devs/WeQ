@@ -15,6 +15,14 @@
   width: fit-content;
   margin-inline: auto;
 }
+.weq-preview-message-row.selection-mode {
+  padding-inline-end: var(--weq-message-selection-lane);
+}
+.weq-deleted > .selection-bar {
+  flex: none;
+  padding: 6px 26px 8px 18px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
 .weq-preview-message-note {
   margin: 4px 16px 12px;
   color: var(--weq-fg-secondary);

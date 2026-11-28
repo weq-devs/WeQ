@@ -1,14 +1,25 @@
-import { useCallback, useEffect, useRef, useState, type HTMLAttributes } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type HTMLAttributes,
+  type ReactNode,
+} from 'react';
 import { MessageDetails } from '../components/lazyMainPanels';
 import { useMediaSave } from '../components/MediaSaveControls.shared';
 import { useToast } from '../components/Toast.shared';
+import type { RecordMenuMessage } from '../components/search/RecordMessageMenu';
 import {
   MessageContextMenu,
-  type MessageContextMenuState,
   type MessageDetailsSelection,
 } from '../im-template/template/messageContextMenu';
 import type { Conversation, Message, User } from '../im-template/template/types';
-import { messageContentClipboard, selectedMessageClipboard } from '../lib/messageClipboard';
+import {
+  messageContentClipboard,
+  messageNodeClipboard,
+  selectedMessageClipboard,
+} from '../lib/messageClipboard';
 import { messageDetailsTarget } from '../lib/messageDetailsTarget';
 import { messageMediaSaveSource, messageMediaTarget } from '../lib/messageMediaTarget';
 import { writeMentionClipboard } from '../lib/mentionClipboard';
@@ -24,6 +35,8 @@ export function useReadonlyMessageMenu({
   scope,
   onLocate,
   enterOpensMenu = false,
+  renderMenu,
+  onOpenMenu,
 }: {
   conversation: Conversation | null;
   user?: User | null;
@@ -31,8 +44,16 @@ export function useReadonlyMessageMenu({
   scope: string;
   onLocate?: LocateMessage;
   enterOpensMenu?: boolean;
+  renderMenu?: (menu: {
+    state: RecordMenuMessage;
+    mediaSave: ReturnType<typeof useMediaSave>;
+    onClose: () => void;
+    onLocate?: () => void;
+    onDetails: (selection: MessageDetailsSelection) => void;
+  }) => ReactNode;
+  onOpenMenu?: () => void;
 }) {
-  const [state, setState] = useState<(MessageContextMenuState & { scope: string }) | null>(null);
+  const [state, setState] = useState<(RecordMenuMessage & { scope: string }) | null>(null);
   const [details, setDetails] = useState<{
     selection: MessageDetailsSelection;
     scope: string;
@@ -58,24 +79,38 @@ export function useReadonlyMessageMenu({
     variant: 'desktop' | 'mobile',
   ) {
     const selection = row.ownerDocument.getSelection();
-    const clipboard =
+    const selected =
       selection?.rangeCount && selection.getRangeAt(0).intersectsNode(row)
         ? selectedMessageClipboard()
         : null;
+    const quote =
+      renderMenu && target instanceof Element ? target.closest('.qq-reply-quote') : null;
+    const clipboard = selected ?? (quote ? messageNodeClipboard(quote) : undefined);
+    if (renderMenu) selection?.removeAllRanges();
     setState({
       ...point,
       scope,
       message,
       variant,
       originElement: row,
-      mediaTarget: messageMediaTarget(message, target),
+      target,
       ...(clipboard ? { clipboard } : {}),
     });
+    onOpenMenu?.();
+  }
+
+  function ignoreTarget(row: HTMLElement, target: EventTarget | null) {
+    return (
+      !(target instanceof Node) ||
+      !row.contains(target) ||
+      Boolean(renderMenu && target instanceof Element && target.closest('.qq-message-text-result'))
+    );
   }
 
   function rowProps<T extends HTMLElement>(message: Message): HTMLAttributes<T> {
     return {
       onContextMenuCapture: (event) => {
+        if (ignoreTarget(event.currentTarget, event.target)) return;
         event.preventDefault();
         event.stopPropagation();
         cancelPress();
@@ -94,6 +129,7 @@ export function useReadonlyMessageMenu({
         );
       },
       onKeyDownCapture: (event) => {
+        if (ignoreTarget(event.currentTarget, event.target)) return;
         if (event.nativeEvent.isComposing || event.keyCode === 229) return;
         const rowEnter =
           enterOpensMenu && event.key === 'Enter' && event.target === event.currentTarget;
@@ -108,6 +144,7 @@ export function useReadonlyMessageMenu({
       onPointerDownCapture: (event) => {
         cancelPress();
         consumed.current = 0;
+        if (ignoreTarget(event.currentTarget, event.target)) return;
         if (event.pointerType === 'mouse' || !event.isPrimary || event.button !== 0) return;
         const { pointerId, clientX: x, clientY: y, currentTarget, target } = event;
         press.current = {
@@ -141,17 +178,42 @@ export function useReadonlyMessageMenu({
     };
   }
 
-  const media = state?.mediaTarget ? messageMediaSaveSource(state.mediaTarget) : null;
-  const menu =
-    state?.scope === scope ? (
+  function showMenu(current: RecordMenuMessage) {
+    const locate = onLocate
+      ? () => {
+          closeMenu();
+          void Promise.resolve()
+            .then(() => onLocate(current.message))
+            .catch((error: unknown) =>
+              toast({
+                tone: 'warning',
+                title: '定位原消息失败',
+                detail: error instanceof Error ? error.message : undefined,
+              }),
+            );
+        }
+      : undefined;
+    const openDetails = (selection: MessageDetailsSelection) => setDetails({ selection, scope });
+    if (renderMenu)
+      return renderMenu({
+        state: current,
+        mediaSave,
+        onClose: closeMenu,
+        onLocate: locate,
+        onDetails: openDetails,
+      });
+
+    const mediaTarget = messageMediaTarget(current.message, current.target);
+    const media = mediaTarget && messageMediaSaveSource(mediaTarget);
+    return (
       <MessageContextMenu
-        state={state}
+        state={{ ...current, mediaTarget }}
         metadataPrecision={conversation?.generated ? 'millisecond' : 'second'}
         onClose={closeMenu}
         onCopy={async (message) => {
           closeMenu();
           const value =
-            state.clipboard ?? messageContentClipboard(message.qqElements, message.body);
+            current.clipboard ?? messageContentClipboard(message.qqElements, message.body);
           try {
             if (await writeMentionClipboard(value)) return;
           } catch {
@@ -159,11 +221,7 @@ export function useReadonlyMessageMenu({
           }
           toast({ tone: 'warning', title: '未能写入剪贴板，请重新复制' });
         }}
-        onViewDetails={
-          state.message.qqElements?.length
-            ? (selection) => setDetails({ selection, scope })
-            : undefined
-        }
+        onViewDetails={current.message.qqElements?.length ? openDetails : undefined}
         onSaveMedia={
           media
             ? () => {
@@ -173,30 +231,16 @@ export function useReadonlyMessageMenu({
             : undefined
         }
         downloadDisabled={mediaSave.disabled}
-        onLocate={
-          onLocate
-            ? () => {
-                closeMenu();
-                void Promise.resolve()
-                  .then(() => onLocate(state.message))
-                  .catch((error: unknown) =>
-                    toast({
-                      tone: 'warning',
-                      title: '定位原消息失败',
-                      detail: error instanceof Error ? error.message : undefined,
-                    }),
-                  );
-              }
-            : undefined
-        }
+        onLocate={locate}
       />
-    ) : null;
+    );
+  }
   return {
     rowProps,
     mediaSave,
     menu: (
       <>
-        {menu}
+        {state?.scope === scope ? showMenu(state) : null}
         {details?.scope === scope && conversation ? (
           <MessageDetails
             selection={details.selection}

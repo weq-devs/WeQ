@@ -481,6 +481,7 @@ import type { RoamingTarget } from '@weq/service';
 import {
   conversationAnalysisTarget,
   conversationRoamingTarget,
+  ordinaryQqConversation,
   readonlyConversationKind,
 } from '../lib/conversationActions';
 import { fetchMissingContext } from '../lib/missingMessageFetch';
@@ -10878,6 +10879,25 @@ function MainWorkspace(): ReactElement {
           locatePreviewMessage(target);
         }}
         onLocateReply={locatePreviewReply}
+        actions={{
+          conversation: resolvedPreviewConversation,
+          sendBlockedReason: sendAvailable && !qqReadOnly ? undefined : 'QQ 在线能力暂不可用',
+          quote:
+            !qqReadOnly &&
+            ordinaryQqConversation(resolvedPreviewConversation) &&
+            previewTarget &&
+            !isDatalineUid(previewTarget.conv)
+              ? (message) => {
+                  if (locatePreviewMessage({ seq: message.msgSeq, msgId: message.id }))
+                    setSearchQuote({ scope: previewScope, message });
+                }
+              : undefined,
+          forward: (messages) => void openSequentialForward(messages, resolvedPreviewConversation),
+          merge: (messages) => handleMergeForward(messages, resolvedPreviewConversation),
+          addMaterial: pinSession.binding
+            ? (messages) => handleAddToComposition(messages, resolvedPreviewConversation)
+            : undefined,
+        }}
       />
     ) : null;
 

@@ -62,6 +62,14 @@ import {
   TIMELINE_MESSAGE_SELECTOR,
 } from '../../lib/timelineViewport';
 import { loadHiddenMessageIds } from '../../im-template/template/hiddenMessages';
+import { selectMessageIds, type SelectionModifiers } from '../../lib/messageSelection';
+import { IntentSenseContext } from '../intentSense/context.shared';
+import { MessageSelectionMark } from '../MessageSelectionMark';
+import { MessageTranslationResult } from '../MessageTextResult';
+import { RecordMessageMenu } from '../search/RecordMessageMenu';
+import { RecordSelectionBar } from '../search/RecordSelectionBar';
+import { useRecordTransforms } from '../search/useRecordTransforms';
+import type { RecordMessageActions } from '../search/recordMessageActions';
 
 function captureReadingAnchor(scroll: HTMLElement, first?: string) {
   const top = scroll.getBoundingClientRect().top;
@@ -99,6 +107,7 @@ export function GapMessagesModal({
   messageNotice,
   onLocateMessage,
   onLocateReply,
+  actions,
   showSenderProfiles = true,
   independent = !preview,
   deletedIds,
@@ -134,6 +143,7 @@ export function GapMessagesModal({
   messageNotice?: (message: Message) => string | undefined;
   onLocateMessage?: (target: ReplyJumpTarget) => void | Promise<void>;
   onLocateReply?: (target: ReplyJumpTarget) => boolean | Promise<boolean>;
+  actions?: RecordMessageActions;
   showSenderProfiles?: boolean;
   /** 仅看某个成员、缺少可靠会话位置等选区逐条展示作者与时间。 */
   independent?: boolean;
@@ -141,12 +151,58 @@ export function GapMessagesModal({
   hiddenIds?: ReadonlySet<string>;
 }): ReactElement {
   const [replyError, setReplyError] = useState('');
+  const scope = `${user.id}:${detailsBinding?.expectedAccountConfigId}:${conversation.id}:${independent}`;
+  const binding =
+    detailsBinding?.expectedAccountUin === user.identityValue ? detailsBinding : undefined;
+  const [menuOpenedFor, setMenuOpenedFor] = useState<string>();
+  const transforms = useRecordTransforms({
+    binding,
+    conversation,
+    active: preview && menuOpenedFor === scope,
+  });
+  const [selectionState, setSelection] = useState<{ scope: string; ids: Set<string> } | null>(null);
+  const selection = preview && selectionState?.scope === scope ? selectionState.ids : null;
+  const currentSelection = useRef(selection);
+  currentSelection.current = selection;
+  const selectionAnchor = useRef<string | null>(null);
+  function startSelection(id: string) {
+    selectionAnchor.current = id;
+    setSelection((previous) => ({
+      scope,
+      ids: new Set([...(previous?.scope === scope ? previous.ids : []), id]),
+    }));
+  }
+
   const menu = useReadonlyMessageMenu({
     conversation,
     user,
     detailsBinding,
-    scope: `${user.id}:${detailsBinding?.expectedAccountConfigId}:${conversation.id}:${independent}`,
-    enterOpensMenu: true,
+    scope,
+    enterOpensMenu: !selection,
+    onOpenMenu: preview ? () => setMenuOpenedFor(scope) : undefined,
+    renderMenu: preview
+      ? ({ state, mediaSave, onClose, onLocate, onDetails }) => (
+          <RecordMessageMenu
+            key={state.message.id}
+            menu={state}
+            conversation={conversation}
+            binding={binding}
+            mediaSave={mediaSave}
+            actions={actions}
+            intentAvailable={transforms.intentAvailable}
+            intentPending={Boolean(transforms.pendingIntent)}
+            onAnalyze={transforms.analyze}
+            onTranslate={transforms.translate}
+            onLocate={onLocate}
+            onSelect={() => {
+              onClose();
+              startSelection(state.message.id);
+            }}
+            onDetails={onDetails}
+            onClose={onClose}
+          />
+        )
+      : undefined,
     onLocate:
       onLocateMessage &&
       ((message) =>
@@ -185,6 +241,24 @@ export function GapMessagesModal({
     () => (hidden.size ? messages.filter(({ id }) => !hidden.has(deletionIdentity(id))) : messages),
     [messages, hidden],
   );
+  const pickedMessages = selection
+    ? visibleMessages.filter((message) => selection.has(message.id))
+    : [];
+  function toggleSelection(id: string, modifiers: SelectionModifiers) {
+    if (!selection) return;
+    const anchor = selectionAnchor.current;
+    if (!modifiers.shiftKey || !anchor) selectionAnchor.current = id;
+    setSelection({
+      scope,
+      ids: selectMessageIds(
+        selection,
+        modifiers.shiftKey ? visibleMessages.map((message) => message.id) : [],
+        id,
+        anchor,
+        modifiers,
+      ),
+    });
+  }
   const positions = useMemo(() => {
     if (independent || !groupMessages) return undefined;
     const hiddenBetween = hiddenDeletionLookup(messages, hidden);
@@ -440,19 +514,57 @@ export function GapMessagesModal({
                     const sender = resolveMessageSender(message, conversation, user);
                     const groupPosition = positions?.[index];
                     const note = messageNotice?.(message);
+                    const row = menu.rowProps<HTMLDivElement>(message);
+                    const selected = selection?.has(message.id) ?? false;
+                    const translation =
+                      transforms.translation?.id === message.id ? transforms.translation : null;
                     return (
                       <div
                         key={message.id}
-                        className="weq-preview-message-row"
+                        className={cn(
+                          'weq-preview-message-row',
+                          selection && 'weq-message-selectable selection-mode',
+                          selected && 'is-selected',
+                        )}
                         style={{
                           paddingBlockEnd: messageTimelineSpacing(
                             groupPosition,
                             index === visibleMessages.length - 1,
                           ),
                         }}
+                        role={selection ? 'checkbox' : undefined}
+                        aria-checked={selection ? selected : undefined}
                         tabIndex={0}
-                        {...menu.rowProps(message)}
+                        {...row}
+                        onClickCapture={(event) => {
+                          row.onClickCapture?.(event);
+                          if (
+                            !selection ||
+                            event.defaultPrevented ||
+                            !(event.target instanceof Node) ||
+                            !event.currentTarget.contains(event.target)
+                          )
+                            return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          toggleSelection(message.id, event);
+                        }}
+                        onKeyDownCapture={(event) => {
+                          row.onKeyDownCapture?.(event);
+                          if (
+                            !selection ||
+                            event.defaultPrevented ||
+                            event.nativeEvent.isComposing ||
+                            event.target !== event.currentTarget ||
+                            (event.key !== 'Enter' && event.key !== ' ')
+                          )
+                            return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          toggleSelection(message.id, event);
+                        }}
                       >
+                        {selection ? <MessageSelectionMark selected={selected} /> : null}
                         {!independent ? (
                           <MessageTimeDivider
                             value={message.createdAt}
@@ -478,6 +590,15 @@ export function GapMessagesModal({
                           recallRevokerName={message.recallRevokerName}
                           grayTipClassName="weq-preview-system-row"
                           onAvatarClick={preview && showSenderProfiles ? openMember : undefined}
+                          textResult={
+                            translation ? (
+                              <MessageTranslationResult
+                                {...translation}
+                                onCollapse={transforms.collapseTranslation}
+                              />
+                            ) : undefined
+                          }
+                          textResultRevision={translation}
                         />
                         {note ? <p className="weq-preview-message-note">{note}</p> : null}
                       </div>
@@ -519,6 +640,20 @@ export function GapMessagesModal({
                 </div>
               )}
             </div>
+            {selection ? (
+              <RecordSelectionBar
+                count={pickedMessages.length}
+                conversation={conversation}
+                binding={binding}
+                actions={actions}
+                pick={() => pickedMessages}
+                isCurrent={() => currentSelection.current === selection}
+                onExit={() => {
+                  selectionAnchor.current = null;
+                  setSelection(null);
+                }}
+              />
+            ) : null}
             {menu.menu}
           </ConvContext.Provider>
         </ForwardKindContext.Provider>
@@ -543,6 +678,13 @@ export function GapMessagesModal({
       ) : null}
     </ReplyJumpContext.Provider>
   );
+  const previewContent = preview ? (
+    <IntentSenseContext.Provider value={transforms.intentContext}>
+      {content}
+    </IntentSenseContext.Provider>
+  ) : (
+    content
+  );
   return (
     <ChatMediaGallery
       scopeKey={conversation.id}
@@ -551,7 +693,7 @@ export function GapMessagesModal({
       messages={galleryMessages}
     >
       {embedded ? (
-        content
+        previewContent
       ) : (
         <Modal
           presentation="floating"
@@ -559,7 +701,7 @@ export function GapMessagesModal({
           width={GAP_MESSAGES_WIDTH}
           labelledBy="weq-gap-messages-title"
         >
-          {content}
+          {previewContent}
         </Modal>
       )}
     </ChatMediaGallery>
