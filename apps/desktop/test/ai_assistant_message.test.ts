@@ -9,6 +9,7 @@ import { expect, it, vi } from 'vitest';
 import { AiMessageContent } from '../src/renderer/src/components/ai-assistant/AiMessageContent';
 import { AiAssistantPane } from '../src/renderer/src/components/ai-assistant/AiAssistantPane';
 import { ForwardWindowHost } from '../src/renderer/src/components/ForwardWindow';
+import { messageDetailsTarget } from '../src/renderer/src/lib/messageDetailsTarget';
 import type { MessageRenderer } from '../src/renderer/src/im-template/template/messageRenderers';
 import type {
   DirectConversation,
@@ -19,6 +20,7 @@ import type {
 const fixture = vi.hoisted(() => ({
   messages: vi.fn(),
   forward: vi.fn(),
+  timeline: vi.fn(),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
@@ -46,15 +48,17 @@ vi.mock('../src/renderer/src/im-template/template/chatPane', () => ({
     conversation: DirectConversation;
     messages: Message[];
     messageRenderers: MessageRenderer[];
-  }) =>
-    messages.map((message) => {
+  }) => {
+    fixture.timeline(conversation, messages);
+    return messages.map((message) => {
       const context = { conversation, message, sender: message.sender!, mine: true };
       return createElement(
         'div',
         { key: message.id },
         messageRenderers.find((renderer) => renderer.match(context))?.render(context),
       );
-    }),
+    });
+  },
 }));
 
 it('显示无阶段的小Q推送，并保留 Markdown 名单和推荐头像', async () => {
@@ -200,13 +204,26 @@ it('小Q 的普通卡片打开本会话的转发记录，AI 正文也可带普�
         createElement(
           'div',
           null,
-          createElement(AiAssistantPane, { user, conversationId: '10000', onBack: () => {} }),
+          createElement(AiAssistantPane, {
+            user,
+            conversationId: '10000',
+            sessionId: '20001',
+            onBack: () => {},
+          }),
           createElement(ForwardWindowHost),
         ),
       ),
     );
     expect(host.textContent).toContain('小Q 正文');
     expect(host.textContent).toContain('附带的普通元素');
+    const [conversation, messages] = fixture.timeline.mock.lastCall!;
+    const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' };
+    expect(messageDetailsTarget(binding, conversation, messages[0])).toEqual({
+      ...binding,
+      kind: 'aiAssistant',
+      conv: '20001',
+      msgId: '701',
+    });
     const card = host.querySelector<HTMLButtonElement>('.weq-forward-preview');
     expect(card).toBeTruthy();
     await act(async () => card!.click());

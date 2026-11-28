@@ -25,6 +25,10 @@ export function messageDetailsTarget(
   )
     return undefined;
 
+  if (conversation.type === 'direct' && conversation.directoryKind === 'aiAssistant') {
+    const sessionId = conversation.aiAssistantSessionId;
+    return sessionId ? { ...binding, kind: 'aiAssistant', conv: sessionId, msgId } : undefined;
+  }
   const kind = source ?? (conversation.type === 'group' ? 'group' : 'c2c');
   const conv =
     conversation.type === 'group'

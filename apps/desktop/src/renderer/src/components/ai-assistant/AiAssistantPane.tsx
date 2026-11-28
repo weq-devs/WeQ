@@ -29,6 +29,7 @@ import type {
 } from '../../../../shared/aiAssistantTypes';
 
 const renderers = composeMessageRenderers({ prepend: [aiMessageRenderer, qqMessageRenderer] });
+const noMessages: AiAssistantMessageWire[] = [];
 const emptyDraft = () => {};
 const noSend = async () => {
   throw new Error('AI 助手只读，暂不支持发送消息');
@@ -49,7 +50,8 @@ export function AiAssistantPane({
   const binding = accountBinding();
   const [sessionId, setSessionId] = useState(initialSessionId ?? '10000');
   const [sessions, setSessions] = useState<AiAssistantSessionWire[]>([]);
-  const [messages, setMessages] = useState<AiAssistantMessageWire[]>([]);
+  const [loaded, setLoaded] = useState<{ sessionId: string; rows: AiAssistantMessageWire[] }>();
+  const messages = loaded?.sessionId === sessionId ? loaded.rows : noMessages;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [sessionsError, setSessionsError] = useState('');
@@ -82,11 +84,11 @@ export function AiAssistantPane({
           ...(binding ?? {}),
         });
         if (version !== request.current) return;
-        setMessages(rows);
+        setLoaded({ sessionId: target, rows });
       } catch (reason) {
         if (version !== request.current) return;
         setError(reason instanceof Error ? reason.message : String(reason));
-        setMessages([]);
+        setLoaded({ sessionId: target, rows: noMessages });
       } finally {
         if (version === request.current) setLoading(false);
       }
@@ -108,8 +110,9 @@ export function AiAssistantPane({
     () => ({
       id: conversationId,
       type: 'direct',
-      directoryKind: 'aiAssistant' as DirectConversation['directoryKind'],
+      directoryKind: 'aiAssistant',
       chatType: 45,
+      aiAssistantSessionId: sessionId,
       otherUser: {
         id: conversationId,
         displayName: '小Q',
@@ -125,7 +128,7 @@ export function AiAssistantPane({
       updatedAt: '',
       lastMessage: null,
     }),
-    [conversationId],
+    [conversationId, sessionId],
   );
 
   const timeline = useMemo(
@@ -136,11 +139,12 @@ export function AiAssistantPane({
   return (
     <ForwardKindContext.Provider value="aiAssistant">
       <ChatPane
+        key={sessionId}
         user={user}
         conversation={conversation}
         messages={timeline}
         messageRenderers={renderers}
-        loading={loading && messages.length === 0}
+        loading={(loading || loaded?.sessionId !== sessionId) && messages.length === 0}
         loadError={error || undefined}
         composerVisible={false}
         readOnly

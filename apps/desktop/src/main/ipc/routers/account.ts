@@ -674,13 +674,12 @@ async function readSidebarSearch<T>(
   return result;
 }
 
-const messageRecordInput = exportAccountBindingInput
-  .required()
-  .extend({
-    kind: z.enum(['group', 'c2c', 'official', 'service']),
-    conv: z.string().min(1).max(128),
-    msgId: z.string().regex(/^-?\d{1,20}$/),
-  })
+const messageRecordIdentityInput = exportAccountBindingInput.required().extend({
+  conv: z.string().min(1).max(128),
+  msgId: z.string().regex(/^-?\d{1,20}$/),
+});
+const messageRecordInput = messageRecordIdentityInput
+  .extend({ kind: z.enum(['group', 'c2c', 'official', 'service']) })
   .refine((value) => value.kind !== 'service' || /^\d{1,20}$/.test(value.conv));
 
 const messagePageInput = convInput.merge(exportAccountBindingInput).extend({
@@ -5934,20 +5933,25 @@ export const accountRouter = router({
 
   messageRecordDetails: procedure
     .input(
-      messageRecordInput.and(
-        z.object({
-          cache: z
-            .object({
-              format: z.enum(['native', 'protocol']).optional(),
-              retained: z.boolean(),
-              seq: z
-                .string()
-                .regex(/^-?\d{1,20}$/)
-                .optional(),
-            })
-            .optional(),
-        }),
-      ),
+      z
+        .union([
+          messageRecordIdentityInput.extend({ kind: z.literal('aiAssistant') }),
+          messageRecordInput,
+        ])
+        .and(
+          z.object({
+            cache: z
+              .object({
+                format: z.enum(['native', 'protocol']).optional(),
+                retained: z.boolean(),
+                seq: z
+                  .string()
+                  .regex(/^-?\d{1,20}$/)
+                  .optional(),
+              })
+              .optional(),
+          }),
+        ),
     )
     .query(async ({ input }) => {
       const services = requireExpectedAccount(
@@ -5962,6 +5966,7 @@ export const accountRouter = router({
           throw new Error('账号或数据源已切换');
       }
       if (input.cache) {
+        if (input.kind === 'aiAssistant') return null;
         const { format, retained, seq } = input.cache;
         const cached = await services.gapHistory.findByMsgId(input.msgId, {
           recalledOnly: retained,
