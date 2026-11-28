@@ -15,7 +15,7 @@ import { electronAPI } from '@electron-toolkit/preload';
 import { createRequire } from 'node:module';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
 import { installPerformanceSampling } from './performance_monitor';
-import type { EditMenuState } from '../shared/edit_menu';
+import type { ReadStateUndoAction } from '../shared/edit_menu';
 import {
   CALL_VIDEO_ENCODED_CHANNEL,
   CALL_VIDEO_FRAME_CHANNEL,
@@ -92,13 +92,8 @@ const weqBridge = {
       ipcRenderer.invoke('authorization:remove', expectedDevelopment),
   } satisfies LongTermAuthorizationBridge,
   editUndo: {
-    onRefresh(handler: () => void): () => void {
-      const listener = () => handler();
-      ipcRenderer.on('edit:refresh', listener);
-      return () => ipcRenderer.removeListener('edit:refresh', listener);
-    },
-    update(state: EditMenuState): void {
-      ipcRenderer.send('edit:menu-state', state);
+    update(action: ReadStateUndoAction | null): void {
+      ipcRenderer.send('edit:menu-state', action);
     },
     onUndo(handler: () => boolean): () => void {
       undoHandler = handler;

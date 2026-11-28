@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { hasActiveModal } from '../lib/overlayStack';
-import { EMPTY_EDIT_MENU, type EditMenuState } from '../../../shared/edit_menu';
+import type { ReadStateUndoAction } from '../../../shared/edit_menu';
 
-function editingText(): boolean {
+function editingText(element = document.activeElement): boolean {
   return Boolean(
-    document.activeElement?.closest(
+    element?.closest(
       'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]',
     ),
   );
@@ -14,7 +14,7 @@ function editingText(): boolean {
 export function useReadStateUndo(
   enabled: boolean,
   undo: () => void,
-  action: 'mark-read' | 'mark-unread' = 'mark-read',
+  action: ReadStateUndoAction = 'mark-read',
 ): void {
   const current = useRef({ enabled, undo, action });
   const refresh = useRef<(() => void) | null>(null);
@@ -23,21 +23,21 @@ export function useReadStateUndo(
   useEffect(() => {
     const bridge = window.weq?.editUndo;
     if (!bridge) return;
-    let previous: EditMenuState['undo'] | undefined;
-    const publish = () => {
+    let previous: ReadStateUndoAction | null | undefined;
+    const publish = (focused = document.activeElement) => {
       // 文字撤销与重做由常规 Electron 菜单项处理，桥只需报告会话标记撤销。
       const undo =
         current.current.enabled &&
         document.visibilityState !== 'hidden' &&
-        !editingText() &&
+        !editingText(focused) &&
         !hasActiveModal()
           ? current.current.action
           : null;
       if (undo === previous) return;
       previous = undo;
-      bridge.update?.({ undo, redo: null });
+      bridge.update(undo);
     };
-    const observer = new MutationObserver(publish);
+    const observer = new MutationObserver(() => publish());
     const refreshMenu = () => {
       if (current.current.enabled) {
         observer.observe(document.body, {
@@ -59,15 +59,23 @@ export function useReadStateUndo(
       current.current.undo();
       return true;
     });
-    const events = ['focusin', 'focusout', 'visibilitychange'];
-    for (const event of events) document.addEventListener(event, publish);
+    const onFocusChange = (event: FocusEvent) => {
+      const focused = event.type === 'focusout' ? event.relatedTarget : event.target;
+      publish(focused instanceof Element ? focused : null);
+    };
+    const onVisibilityChange = () => publish();
+    document.addEventListener('focusin', onFocusChange);
+    document.addEventListener('focusout', onFocusChange);
+    document.addEventListener('visibilitychange', onVisibilityChange);
     refreshMenu();
     return () => {
       unsubscribe();
       refresh.current = null;
-      for (const event of events) document.removeEventListener(event, publish);
+      document.removeEventListener('focusin', onFocusChange);
+      document.removeEventListener('focusout', onFocusChange);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       observer.disconnect();
-      bridge.update?.(EMPTY_EDIT_MENU);
+      bridge.update(null);
     };
   }, []);
 }

@@ -1,5 +1,5 @@
 import type { MenuItemConstructorOptions } from 'electron';
-import { editMenuLabels, EMPTY_EDIT_MENU } from '../shared/edit_menu';
+import type { ReadStateUndoAction } from '../shared/edit_menu';
 
 export function nativeMenuLabels(locale: string) {
   return /^zh(?:-|_|$)/i.test(locale)
@@ -51,10 +51,14 @@ export function macApplicationMenu(
   newWindow: () => void,
   restart: () => void,
   locale = 'en',
-  undo?: () => void,
-  redo?: () => void,
+  readStateUndo?: { action: ReadStateUndoAction; click: () => void },
 ): MenuItemConstructorOptions[] {
   const labels = nativeMenuLabels(locale);
+  const zh = /^zh(?:-|_|$)/i.test(locale);
+  const undoLabels = {
+    'mark-read': zh ? '撤销标为已读' : 'Undo Mark as Read',
+    'mark-unread': zh ? '撤销标为未读' : 'Undo Mark as Unread',
+  };
   return [
     {
       role: 'appMenu',
@@ -72,60 +76,32 @@ export function macApplicationMenu(
       ],
     },
     fileMenu(locale, newWindow, 'close'),
-    undo
-      ? {
-          role: 'editMenu',
-          label: /^zh(?:-|_|$)/i.test(locale) ? '编辑' : 'Edit',
-          submenu: [
-            {
-              id: 'weq-edit-undo',
-              label: editMenuLabels(locale, EMPTY_EDIT_MENU).undo,
+    {
+      role: 'editMenu',
+      label: zh ? '编辑' : 'Edit',
+      submenu: [
+        readStateUndo
+          ? {
+              label: undoLabels[readStateUndo.action],
               accelerator: 'CmdOrCtrl+Z',
-              click: undo,
-              enabled: false,
-              acceleratorWorksWhenHidden: false,
-            },
-            {
-              id: 'weq-edit-native-undo',
-              role: 'undo',
-              visible: false,
-              acceleratorWorksWhenHidden: false,
-            },
-            redo
-              ? {
-                  id: 'weq-edit-redo',
-                  label: editMenuLabels(locale, EMPTY_EDIT_MENU).redo,
-                  accelerator: 'CmdOrCtrl+Shift+Z',
-                  click: redo,
-                  enabled: false,
-                  acceleratorWorksWhenHidden: false,
-                }
-              : { role: 'redo' },
-            ...(redo
-              ? [
-                  {
-                    id: 'weq-edit-native-redo',
-                    role: 'redo' as const,
-                    visible: false,
-                    acceleratorWorksWhenHidden: false,
-                  },
-                ]
-              : []),
-            { type: 'separator' },
-            { role: 'cut' },
-            { role: 'copy' },
-            { role: 'paste' },
-            { role: 'pasteAndMatchStyle' },
-            { role: 'delete' },
-            { role: 'selectAll' },
-            { type: 'separator' },
-            {
-              label: /^zh(?:-|_|$)/i.test(locale) ? '语音' : 'Speech',
-              submenu: [{ role: 'startSpeaking' }, { role: 'stopSpeaking' }],
-            },
-          ],
-        }
-      : { role: 'editMenu' },
+              click: readStateUndo.click,
+            }
+          : { role: 'undo' },
+        readStateUndo ? { label: zh ? '重做' : 'Redo', enabled: false } : { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'delete' },
+        { role: 'selectAll' },
+        { type: 'separator' },
+        {
+          label: zh ? '语音' : 'Speech',
+          submenu: [{ role: 'startSpeaking' }, { role: 'stopSpeaking' }],
+        },
+      ],
+    },
     { role: 'viewMenu' },
     { role: 'windowMenu' },
   ];

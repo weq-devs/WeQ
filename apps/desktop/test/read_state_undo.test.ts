@@ -6,40 +6,23 @@ import { macApplicationMenu } from '../src/main/application_menu';
 
 afterEach(() => vi.unstubAllGlobals());
 
-it('系统编辑菜单按桥接状态控制撤销和重做，保留原生剪贴板操作', () => {
+it('系统编辑菜单在文字和会话模式各只提供一组撤销重做项', () => {
   const undo = vi.fn();
-  const redo = vi.fn();
-  const edit = macApplicationMenu(vi.fn(), vi.fn(), 'zh-CN', undo, redo).find(
-    (item) => item.label === '编辑',
-  )!;
-  const items = edit.submenu as import('electron').MenuItemConstructorOptions[];
-  expect(items.find((item) => item.id === 'weq-edit-undo')).toMatchObject({
-    label: '撤销',
-    accelerator: 'CmdOrCtrl+Z',
-    click: undo,
-    enabled: false,
-    acceleratorWorksWhenHidden: false,
-  });
-  expect(items.find((item) => item.id === 'weq-edit-redo')).toMatchObject({
-    label: '重做',
-    accelerator: 'CmdOrCtrl+Shift+Z',
-    click: redo,
-    enabled: false,
-    acceleratorWorksWhenHidden: false,
-  });
-  expect(items.find((item) => item.id === 'weq-edit-native-undo')).toMatchObject({
-    role: 'undo',
-    visible: false,
-    acceleratorWorksWhenHidden: false,
-  });
-  expect(items.find((item) => item.id === 'weq-edit-native-redo')).toMatchObject({
-    role: 'redo',
-    visible: false,
-    acceleratorWorksWhenHidden: false,
-  });
-  expect(items.map((item) => item.role)).toEqual(
+  const items = (readStateUndo?: Parameters<typeof macApplicationMenu>[3]) =>
+    macApplicationMenu(vi.fn(), vi.fn(), 'zh-CN', readStateUndo).find(
+      (item) => item.label === '编辑',
+    )!.submenu as import('electron').MenuItemConstructorOptions[];
+
+  expect(items().slice(0, 2)).toEqual([{ role: 'undo' }, { role: 'redo' }]);
+  const business = items({ action: 'mark-read', click: undo });
+  expect(business.slice(0, 2)).toEqual([
+    { label: '撤销标为已读', accelerator: 'CmdOrCtrl+Z', click: undo },
+    { label: '重做', enabled: false },
+  ]);
+  expect(business.map((item) => item.role)).toEqual(
     expect.arrayContaining(['cut', 'copy', 'paste', 'selectAll']),
   );
+  expect(business.some((item) => item.role === 'undo' || item.role === 'redo')).toBe(false);
 });
 
 it('系统撤销处理当前标记，编辑框、弹窗及无可撤销标记时回退原生撤销，卸载解除监听', async () => {
@@ -82,13 +65,13 @@ it('系统撤销处理当前标记，编辑框、弹窗及无可撤销标记时�
   try {
     act(() => root.render(h(Fixture, { enabled: true })));
     host.querySelector('button')!.focus();
-    expect(update).toHaveBeenLastCalledWith({ undo: 'mark-read', redo: null });
+    expect(update).toHaveBeenLastCalledWith('mark-read');
     act(() => root.render(h(Fixture, { enabled: true, action: 'mark-unread' })));
-    expect(update).toHaveBeenLastCalledWith({ undo: 'mark-unread', redo: null });
+    expect(update).toHaveBeenLastCalledWith('mark-unread');
     expect(handler!()).toBe(true);
     expect(undo).toHaveBeenCalledTimes(1);
     host.querySelector('input')!.focus();
-    expect(update).toHaveBeenLastCalledWith({ undo: null, redo: null });
+    expect(update).toHaveBeenLastCalledWith(null);
     update.mockClear();
     document.dispatchEvent(new Event('input'));
     document.dispatchEvent(new Event('selectionchange'));
@@ -97,19 +80,18 @@ it('系统撤销处理当前标记，编辑框、弹窗及无可撤销标记时�
     expect(update).not.toHaveBeenCalled();
     expect(handler!()).toBe(false);
     host.querySelector<HTMLElement>('[contenteditable]')!.focus();
+    expect(update).not.toHaveBeenCalled();
     expect(handler!()).toBe(false);
     host.querySelector('button')!.focus();
     const modal = document.createElement('div');
     modal.setAttribute('aria-modal', 'true');
     await act(async () => host.append(modal));
-    await vi.waitFor(() => expect(update).toHaveBeenLastCalledWith({ undo: null, redo: null }));
+    await vi.waitFor(() => expect(update).toHaveBeenLastCalledWith(null));
     expect(handler!()).toBe(false);
     modal.remove();
-    await vi.waitFor(() =>
-      expect(update).toHaveBeenLastCalledWith({ undo: 'mark-unread', redo: null }),
-    );
+    await vi.waitFor(() => expect(update).toHaveBeenLastCalledWith('mark-unread'));
     act(() => root.render(h(Fixture, { enabled: false })));
-    expect(update).toHaveBeenLastCalledWith({ undo: null, redo: null });
+    expect(update).toHaveBeenLastCalledWith(null);
     expect(handler!()).toBe(false);
     expect(undo).toHaveBeenCalledTimes(1);
   } finally {

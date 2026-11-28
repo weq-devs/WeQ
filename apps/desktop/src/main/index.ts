@@ -134,10 +134,10 @@ import {
   guardDatabaseMaintenanceQuit,
   guardDatabaseMaintenanceWindow,
 } from './db_maintenance_lifecycle';
-import { desktopApplicationMenu, macApplicationMenu } from './application_menu';
+import { desktopApplicationMenu } from './application_menu';
 import { publishDevelopmentWindow } from './development_window';
 import { createSystemTray } from './system_tray';
-import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
+import { installMacApplicationMenu, registerEditUndoIpc } from './edit_undo';
 import { registerEditContextMenu } from './edit_context_menu';
 import { registerCallVideoIpc } from './call_video_ipc';
 import { currentGroupCall } from './group_call';
@@ -1546,21 +1546,13 @@ async function startDesktop(): Promise<void> {
   });
   logger.info('main window created', { event: 'create-window', autostart });
   const locale = app.getPreferredSystemLanguages()[0] ?? app.getLocale();
-  const menu =
-    process.platform === 'darwin'
-      ? macApplicationMenu(
-          requestAccountPicker,
-          restartFromMenu,
-          locale,
-          undoFocusedContent,
-          redoFocusedContent,
-        )
-      : desktopApplicationMenu(requestAccountPicker, locale);
-  const help =
-    process.platform === 'darwin'
-      ? undefined
-      : Menu.getApplicationMenu()?.items.find((item) => item.role === 'help');
-  Menu.setApplicationMenu(Menu.buildFromTemplate(help ? [...menu, help] : menu));
+  if (process.platform === 'darwin') {
+    installMacApplicationMenu(requestAccountPicker, restartFromMenu, locale);
+  } else {
+    const menu = desktopApplicationMenu(requestAccountPicker, locale);
+    const help = Menu.getApplicationMenu()?.items.find((item) => item.role === 'help');
+    Menu.setApplicationMenu(Menu.buildFromTemplate(help ? [...menu, help] : menu));
+  }
 
   // Silent background update check (packaged builds only). Result is cached and
   // pushed to the renderer via the `update.onEvent` subscription → settings red
