@@ -41,25 +41,20 @@ export function latestGeneratedActivity(
   messages: readonly GeneratedMessage[],
   senderName?: (id: string) => string | undefined,
 ) {
-  let latest: GeneratedMessage | undefined;
-  let preview = '';
-  // 助手会原地补全消息并更新时间，存储顺序不一定是时间顺序。同一毫秒取靠后的记录。
+  const lastMessageTime = Math.floor((messages.at(-1)?.ts ?? 0) / 1000);
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
-    if (latest && message.ts <= latest.ts) continue;
     if ('role' in message && message.status === 'running') continue;
-    const summary = generatedMessageSummary(message);
-    if (!summary) continue;
-    latest = message;
-    preview = summary;
+    const preview = generatedMessageSummary(message);
+    if (!preview) continue;
+    const previewMine = ('role' in message ? message.role : message.senderKind) === 'user';
+    const previewSender =
+      'senderId' in message
+        ? previewMine
+          ? '我'
+          : (senderName?.(message.senderId) ?? '克隆体')
+        : undefined;
+    return { lastMessageTime, preview, previewMine, previewSender };
   }
-  if (!latest) return { lastMessageTime: 0, preview, previewMine: false, previewSender: undefined };
-  const previewMine = ('role' in latest ? latest.role : latest.senderKind) === 'user';
-  const previewSender =
-    'senderId' in latest
-      ? previewMine
-        ? '我'
-        : (senderName?.(latest.senderId) ?? '克隆体')
-      : undefined;
-  return { lastMessageTime: latest.ts / 1000, preview, previewMine, previewSender };
+  return { lastMessageTime, preview: '', previewMine: false, previewSender: undefined };
 }

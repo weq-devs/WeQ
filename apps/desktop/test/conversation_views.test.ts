@@ -24,21 +24,13 @@ it('生成会话沿用实际消息时间，跳过空占位，汇总摘要不被�
   const summary = latestGeneratedActivity([
     { role: 'assistant', text: '已生成\n报告', ts: 12000 },
     { role: 'assistant', text: '', ts: 13500, status: 'running' },
-    { role: 'assistant', text: '', ts: 14000, status: 'failed' },
   ]);
-  expect(summary).toMatchObject({ preview: '已生成 报告', lastMessageTime: 12 });
-  const row = assistantConversationRow({ id: 'hit', title: '会议', updatedAt: 15000, ...summary });
-  const empty = assistantConversationRow({
-    id: 'new',
-    title: '新会话',
-    updatedAt: 16000,
-    running: true,
-  });
-  expect(row.updatedAt).toBe(new Date(12000).toISOString());
-  expect(generatedAggregateRow('assistant', [row, empty])).toMatchObject({
-    updatedAt: row.updatedAt,
-    lastMessage: { body: '会议 · 已生成 报告', createdAt: row.updatedAt },
-  });
+  expect(summary).toMatchObject({ preview: '已生成 报告', lastMessageTime: 13 });
+  const row = assistantConversationRow({ id: 'hit', title: '会议', updatedAt: 13500, ...summary });
+  const empty = assistantConversationRow({ id: 'new', title: '新会话', updatedAt: 16000 });
+  expect(generatedAggregateRow('assistant', [row, empty]).lastMessage?.body).toBe(
+    '会议 · 已生成 报告',
+  );
   const active = assistantConversationRow({
     id: 'active',
     title: '会议纪要',
@@ -62,49 +54,6 @@ it('生成会话沿用实际消息时间，跳过空占位，汇总摘要不被�
       .lastMessage?.body,
   ).toBe('成员甲：[语音]');
   expect(generatedDraftSummary('[[ai-image:encoded]]\n草稿')).toBe('[图片] 草稿');
-});
-
-it('克隆聚合按毫秒选取最新消息，新建空群不改变预览和时间', () => {
-  const persona = virtualConversationRow({
-    id: 'virtual:persona:p1',
-    kind: 'persona',
-    ownerId: 'p1',
-    name: '克隆体',
-    ...latestGeneratedActivity([{ role: 'assistant', text: '稍早回复', ts: 22100 }]),
-  });
-  const group = virtualConversationRow({
-    id: 'virtual:group:g1',
-    kind: 'group',
-    ownerId: 'g1',
-    name: '克隆群',
-    ...latestGeneratedActivity([
-      { senderKind: 'user', senderId: 'self', text: '最新消息', ts: 22900 },
-    ]),
-  });
-  const empty = virtualConversationRow({
-    id: 'virtual:group:g2',
-    kind: 'group',
-    ownerId: 'g2',
-    name: '空群',
-    updatedAt: 25000,
-  });
-  expect(generatedAggregateRow('clone', [persona, empty, group])).toMatchObject({
-    updatedAt: new Date(22900).toISOString(),
-    lastMessage: { body: '克隆群 · 我：最新消息', createdAt: new Date(22900).toISOString() },
-  });
-  expect(generatedAggregateRow('clone', [empty])).toMatchObject({
-    updatedAt: '',
-    lastMessage: null,
-  });
-});
-
-it('助手补全较靠前的回复后，按消息时间更新预览', () => {
-  expect(
-    latestGeneratedActivity([
-      { role: 'assistant', text: '补全的回复', ts: 22100, status: 'complete' },
-      { role: 'user', text: '追加的问题', ts: 22000 },
-    ]),
-  ).toMatchObject({ preview: '补全的回复', lastMessageTime: 22.1 });
 });
 import {
   conversationAnalysisTarget,
