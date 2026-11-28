@@ -15,7 +15,9 @@ import { dirname } from 'node:path';
 import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { compareMessageOrder, FaceSubType } from '@weq/codec';
 import { QqDb, scheduleDatabase } from '@weq/db';
+import { decodeMessage } from '@weqbot/protocol';
 import type { GapFetchedMessage } from './gap_history';
+import { renderDecodedElements } from './msg_view';
 import { nativeHistoryElements } from './native_history_projection';
 import type { ProtocolHistoryObservation } from './sso_history_window';
 import type { UnreadSequenceRange } from './unread_info';
@@ -60,6 +62,20 @@ function parseProtocolMessage(payload: SqlRow[number]): GapFetchedMessage {
       ) {
         element.data.faceId = 0;
       }
+    }
+  } else if (
+    message.kind === 'c2c' &&
+    message.protocolRaw &&
+    message.elements.some((element) => element.type === 'file' && element.data.subType === 1)
+  ) {
+    // 旧缓存将 fileType=1 的接收回执投影为普通文件。用保留的原包重新确认。
+    try {
+      const { elements } = decodeMessage(Buffer.from(message.protocolRaw, 'base64'));
+      if (elements.some((element) => element.kind === 'grayTipFileRecv')) {
+        message.elements = renderDecodedElements(elements);
+      }
+    } catch {
+      // 原包不完整时继续使用已有投影。
     }
   }
   return message;

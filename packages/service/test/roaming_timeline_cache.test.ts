@@ -11,7 +11,7 @@ import { DeletedMsgStore } from '../src/account/deleted_msgs';
 import { MsgService } from '../src/account/msg';
 import { UserConfigService } from '../src/bootstrap/user_config';
 import { MessageSendService } from '../src/account/message_send';
-import { encode, SEND_MESSAGE_RESPONSE } from '@weqbot/protocol';
+import { encode, MSG_CONTENT, PUSH_MSG_BODY, SEND_MESSAGE_RESPONSE } from '@weqbot/protocol';
 import { databasePerformance } from '@weq/db';
 
 const roots: string[] = [];
@@ -75,6 +75,46 @@ it('旧发送缓存恢复经典表情 0，保留其他表情及来信原样', as
     smile,
   ]);
   expect((await cache.findByMsgId(received.msgId))?.elements).toEqual([oldFace]);
+});
+
+it('旧漫游缓存读取时恢复文件接收灰条，普通文件仍可读取', async () => {
+  const { cache, history } = setup();
+  const file = { fileName: 'notes.txt', fileSize: 1024, fileToken: 'transfer-id' };
+  const rows = [1, 2].map(
+    (subcmd): GapFetchedMessage => ({
+      ...message(subcmd, 'c2c', true),
+      msgId: String(subcmd + 10),
+      sourceFormat: 'protocol',
+      elements: [{ type: 'file', data: { ...file, subType: 1 } }],
+      protocolRaw: Buffer.from(
+        encode(PUSH_MSG_BODY, {
+          contentHead: { msgType: 529, subType: 4, c2cCmd: 4 },
+          body: {
+            msgContent: encode(MSG_CONTENT, {
+              notOnlineFile: {
+                fileType: 1,
+                subcmd,
+                fileName: file.fileName,
+                fileSize: BigInt(file.fileSize),
+                fileUuid: file.fileToken,
+              },
+            }),
+          },
+        }),
+      ).toString('base64'),
+    }),
+  );
+  await cache.store(rows);
+
+  const result = await history.cachedTimeline('c2c', rows[0]!.conv, 1, 2, 2, false);
+  expect(result).toMatchObject([
+    { msgId: '11', msgSeq: '1', elements: [{ type: 'file', data: file }] },
+    {
+      msgId: '12',
+      msgSeq: '2',
+      elements: [{ type: 'grayTipFileRecv', data: { ...file, subType: 10 } }],
+    },
+  ]);
 });
 
 it('消息详情仅取撤回缓存，一次索引读取保持协议优先与原生采纳状态', async () => {

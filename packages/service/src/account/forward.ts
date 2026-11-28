@@ -19,8 +19,7 @@ import type { MsgCacheRecord } from '@weq/codec';
 import type { UserProfile } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import { decodeMessage, encode, fetchForwardRaw, PUSH_MSG_BODY } from '@weqbot/protocol';
-import { renderDecodedElements } from './gap_history';
-import type { RenderElement } from './msg_view';
+import { renderDecodedElements, type RenderElement } from './msg_view';
 import { mediaElementFromRenderElement, type MediaElement } from './media_url';
 import { sourceVersionHash } from './collection_capture';
 

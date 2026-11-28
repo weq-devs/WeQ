@@ -629,6 +629,21 @@ export function toObservedRenderElements(elements: Element[]): RenderElement[] {
   return result;
 }
 
+/** 协议引用子元素已经解码，直接递归投影，避免被当成 QQ 原库元素再次解码。 */
+export function renderDecodedElements(elements: Record<string, unknown>[]): RenderElement[] {
+  return elements.map((el) => {
+    if (el.kind === 'reply') {
+      const { kind: _kind, origElements, ...rest } = el;
+      const data: Record<string, unknown> = { ...rest };
+      if (Array.isArray(origElements)) {
+        data.origElements = renderDecodedElements(origElements as Record<string, unknown>[]);
+      }
+      return { type: 'reply', data } as unknown as RenderElement;
+    }
+    return toRenderElements([el as Element])[0]!;
+  });
+}
+
 export function toRenderElements(elements: Element[]): RenderElement[] {
   return elements.map((el) => {
     switch (el.kind) {

@@ -136,7 +136,22 @@ it('只接收当前账号的实时普通文本，私聊采用 NT 会话序号', 
 
 it('将临时会话、跨端本人消息和私聊文件路由到正确会话', () => {
   const file = encode(MSG_CONTENT, {
-    notOnlineFile: { fileName: 'notes.txt', fileUuid: 'file-id', fileSize: 10n },
+    notOnlineFile: {
+      fileType: 0,
+      subcmd: 1,
+      fileName: 'notes.txt',
+      fileUuid: 'file-id',
+      fileSize: 10n,
+    },
+  });
+  const receipt = encode(MSG_CONTENT, {
+    notOnlineFile: {
+      fileType: 1,
+      subcmd: 2,
+      fileName: 'notes.txt',
+      fileUuid: 'file-id',
+      fileSize: 10n,
+    },
   });
   const rows = decodeLivePush(
     body(
@@ -152,8 +167,25 @@ it('将临时会话、跨端本人消息和私聊文件路由到正确会话', (
       },
       {
         ...rawPrivate,
-        contentHead: { ...rawPrivate.contentHead, msgType: 529, ntMsgSeq: 112 },
+        contentHead: {
+          ...rawPrivate.contentHead,
+          msgType: 529,
+          subType: 4,
+          c2cCmd: 4,
+          ntMsgSeq: 112,
+        },
         body: { msgContent: file },
+      },
+      {
+        responseHead: { fromUid: self, fromUin: Number(account), toUid: 'u_peer', toUin: 10002 },
+        contentHead: {
+          ...rawPrivate.contentHead,
+          msgType: 529,
+          subType: 4,
+          c2cCmd: 4,
+          ntMsgSeq: 113,
+        },
+        body: { msgContent: receipt },
       },
       { ...rawPrivate, responseHead: { ...rawPrivate.responseHead, toUid: 'u_other' } },
     ),

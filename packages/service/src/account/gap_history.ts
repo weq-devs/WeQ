@@ -21,7 +21,7 @@ import { measureMessageWork } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import { decodeMessage, fetchC2cHistoryRaw, fetchGroupHistoryRaw } from '@weqbot/protocol';
 import type { SpecialMessageKind } from '@weqbot/protocol/message-fallbacks';
-import { toRenderElements, type RenderElement } from './msg_view';
+import { renderDecodedElements, type RenderElement } from './msg_view';
 import { RoamMsgCacheDb } from './roam_msg_cache';
 import type { UnreadSequenceRange } from './unread_info';
 import type { DeletedMsgStore } from './deleted_msgs';
@@ -141,28 +141,6 @@ function projectSpecialMessage(
   } catch {
     // 缓存里没有可用正文时走正常漫游请求。
   }
-}
-
-/**
- * 把 decodeMessage 产出的 codec 风格元素提升为渲染视图。
- *
- * 大部分元素可直接交给共享的 toRenderElements；但 reply 元素里的
- * origElements 已经被 liftReplyElem 提升成 codec 风格（带 kind），而
- * toRenderElements 的 reply 分支假设它们是原始 wire（会再 decodeElement 一次），
- * 直接复用会把引用内容打成 unknown，所以这里对 reply 单独处理。
- */
-export function renderDecodedElements(elements: Record<string, unknown>[]): RenderElement[] {
-  return elements.map((el) => {
-    if (el.kind === 'reply') {
-      const { kind: _kind, origElements, ...rest } = el;
-      const data: Record<string, unknown> = { ...rest };
-      if (Array.isArray(origElements)) {
-        data.origElements = renderDecodedElements(origElements as Record<string, unknown>[]);
-      }
-      return { type: 'reply', data } as unknown as RenderElement;
-    }
-    return toRenderElements([el as never])[0] as RenderElement;
-  });
 }
 
 export function toGapMessage(
