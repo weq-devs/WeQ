@@ -68,7 +68,7 @@ export function messageMediaTarget(
           ? kind === 'ptt'
             ? localVoiceFileUrl(localPath)
             : localFileUrl(localPath)
-          : forward && kind === 'pic' && (data.isFlash || token.startsWith('/'))
+          : forward && kind === 'pic' && data.isFlash === true
             ? (flashPicUrl(token, 0) ?? undefined)
             : mediaUrl(kind === 'emoji' ? 'pic' : kind, {
                 t,

@@ -123,9 +123,22 @@ describe('添加到表情目标', () => {
     [{ type: 'face', data: { faceId: 1 } }],
     [{ type: 'text', data: { textContent: '正文' } }],
     [{ type: 'pic', data: { isFlash: true } }],
-    [{ type: 'pic', data: { fileToken: '/old-flash-token' } }],
+    [
+      {
+        type: 'pic',
+        data: { isFlash: true, fileToken: '/123-456-00112233445566778899AABBCCDDEEFF' },
+      },
+    ],
   ])('系统表情、文本、闪照不提供入口', (...qqElements) => {
     expect(messageFavoriteEmojiUrl({ ...base, qqElements } as Message)).toBeUndefined();
+  });
+
+  it('使用 offpic 地址的普通图片可以添加到表情', () => {
+    const fileToken = '/123-456-00112233445566778899AABBCCDDEEFF';
+    const originalUrl = `/offpic_new/43210/${fileToken}/0?term=2&is_origin=1`;
+    const qqElements = [{ type: 'pic', data: { fileToken, originalUrl } }];
+    const url = new URL(messageFavoriteEmojiUrl({ ...base, qqElements })!);
+    expect(url.searchParams.get('orig')).toBe(originalUrl);
   });
 
   it('点击内联小表情不能误收藏旁边的图片', () => {

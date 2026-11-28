@@ -45,6 +45,7 @@ import {
   type MsgCacheRecord,
   decodeMsgDressColumn,
   decodeMsgCacheColumn,
+  withFlashPhotoFlag,
   type MsgDecoration,
 } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
@@ -539,10 +540,7 @@ export class MsgService {
           (element) =>
             element.type === 'video' ||
             isChatVideoAttachment(element) ||
-            (element.type === 'pic' &&
-              element.data?.subType !== 1 &&
-              !element.data?.isFlash &&
-              !String(element.data?.fileToken ?? '').startsWith('/')),
+            (element.type === 'pic' && element.data?.subType !== 1 && !element.data?.isFlash),
         ),
     );
     const last = window.at(-1);
@@ -1865,9 +1863,10 @@ function isMediaLessReply(el: Element): boolean {
 function cachedQuotedMedia(cache: MsgCacheRecord[]): unknown[] {
   if (cache.length !== 1) return [];
   const record = cache[0];
-  const els = (record as { elements?: unknown[] } | undefined)?.elements;
-  if (!Array.isArray(els)) return [];
-  return els.some((o) => REPLY_MEDIA_TYPES.has(wireType(o))) ? els : [];
+  if (!record || !Array.isArray(record.elements)) return [];
+  const els = record.elements;
+  if (!els.some((o) => REPLY_MEDIA_TYPES.has(wireType(o)))) return [];
+  return withFlashPhotoFlag(els, record.msgType, record.msgSubType);
 }
 
 /** A 40900 record as far as the media walk cares. */

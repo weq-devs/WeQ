@@ -32,7 +32,7 @@ function fixture(sameSequence = false) {
         imgType: 1000,
         isOriginal: true,
         md5: '0'.repeat(32),
-        fileToken: 'fixture-token',
+        fileToken: '/12345-45678-00112233445566778899AABBCCDDEEFF',
         uploadTime: 0,
         uploadTimestamp: 0,
         fileTTL: 0,
@@ -72,6 +72,23 @@ function fixture(sameSequence = false) {
   } as unknown as AccountSession);
   return { service, sql };
 }
+
+it('本地消息行用 40012 闪照位区分同样使用 offpic 的两张图片', async () => {
+  const { service, sql } = fixture();
+  sql.exec(`UPDATE c2c_msg_table SET "40011"=2,"40012"=2 WHERE "40001"=99;
+    UPDATE c2c_msg_table SET "40011"=2,"40012"=8194 WHERE "40001"=500;`);
+
+  const ordinary = await service.getC2cMessageById('u_peer', 99n);
+  const flash = await service.getC2cMessageById('u_peer', 500n);
+  expect(ordinary?.elements[0]?.type).toBe('pic');
+  expect(ordinary?.elements[0]?.data).not.toHaveProperty('isFlash');
+  expect(flash?.elements[0]?.data).toMatchObject({ isFlash: true });
+  expect(
+    (await service.mediaPage('c2c', 'u_peer', {}, 'older', '10')).items.map((m) => m.msgId),
+  ).toEqual(['99']);
+  expect((await service.mediaPage('c2c', 'u_peer', {}, 'newer', '400')).items).toHaveLength(0);
+});
+
 it.each(['group', 'c2c'] as const)(
   '媒体分页 %s 同时间双向完整，稀疏批次前进且不跨会话',
   async (kind) => {

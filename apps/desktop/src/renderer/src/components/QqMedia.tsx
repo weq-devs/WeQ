@@ -282,14 +282,8 @@ export function QqImage({
     localPreviewUrl || localPath || originalProxySrc,
   );
   const style: CSSProperties = previewSize.size;
-  // 闪照：`fileToken` 是老式 offpic 路径（`/uin-id-md5`），三档 URL 全空、没有
-  // rkey 可用，但 offpic 本身免 rkey。气泡画固定封面，点开才现取 0 档原图。
-  //
-  // 判定闪照看两件事：元素带 `isFlash`（协议链路解出来的），或 token 形状是 offpic
-  // 路径（本地库里落着的真实闪照只留兜底文案、没有 fileToken，补拉回来才带
-  // `isFlash`）。自己刚发出去的那条有本地预览，照常显示预览，别换成封面。
-  const flash =
-    !localPreviewUrl && (Boolean((data as { isFlash?: unknown }).isFlash) || token.startsWith('/'));
+  // 自己刚发出的闪照有本地预览。收到的闪照点击封面后再取 0 档原图。
+  const flash = !localPreviewUrl && data.isFlash === true;
   const flashFullSrc = flash ? flashPicUrl(token, 0) : null;
   const cdnSrc = flash || cdn.remote ? null : cdnImageUrl(cdn, conv !== '', token, orig);
   const directThumbnail =

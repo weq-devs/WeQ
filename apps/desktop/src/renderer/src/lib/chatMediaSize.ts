@@ -7,9 +7,7 @@ export const CHAT_IMAGE_GRID_WIDTH = 240;
 export const CHAT_IMAGE_GRID_GAP = 4;
 
 export function isChatGalleryImage(data: MediaData): boolean {
-  return (
-    Number(data.subType) !== 1 && !data.isFlash && !String(data.fileToken ?? '').startsWith('/')
-  );
+  return Number(data.subType) !== 1 && data.isFlash !== true;
 }
 
 function isGridImage(element: MediaElement | undefined): boolean {
@@ -49,10 +47,7 @@ export function messageMediaSize(kind: MediaKind, data: MediaData, decoded?: Med
   }
   const image = kind === 'pic';
   const emoji = image && Number(data.subType) === 1;
-  const flash =
-    image &&
-    !data.localPreviewUrl &&
-    (Boolean(data.isFlash) || String(data.fileToken ?? '').startsWith('/'));
+  const flash = image && !data.localPreviewUrl && data.isFlash === true;
   const intrinsic =
     intrinsicMediaSize(
       Number(image ? data.imgWidth : data.videoWidth),

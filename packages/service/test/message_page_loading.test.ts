@@ -73,13 +73,13 @@ it('正文可跳过慢引用缓存，但撤回与删除状态仍在首屏；默�
   ).toBe(2);
 });
 
-it('引用后补复用原解析，只返回有媒体的条目，坏条目不影响其余引用', async () => {
+it('引用后补保留闪照标记，坏条目不影响其余引用', async () => {
   const pic = { elementType: ElementType.PIC, elementId: 8n };
   const session = {
     forwardMsgs: {
       listForMessages: async () =>
         new Map([
-          [1n, [{ elements: [pic] }]],
+          [1n, [{ msgType: 2, msgSubType: 8194, elements: [pic] }]],
           [2n, [{ elements: [{ elementType: ElementType.TEXT, textContent: '纯文本' }] }]],
           [3n, []],
           [4n, [{ elements: [null, pic] }]],
@@ -90,6 +90,6 @@ it('引用后补复用原解析，只返回有媒体的条目，坏条目不影�
   expect(result).toHaveLength(1);
   expect(result[0]).toMatchObject({
     msgId: '1',
-    elements: [{ type: 'pic', data: { elementId: 8n } }],
+    elements: [{ type: 'pic', data: { elementId: 8n, isFlash: true } }],
   });
 });

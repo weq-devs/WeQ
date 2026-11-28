@@ -29,6 +29,7 @@ import type {
 import {
   decodeElement,
   decodeMsgDressWire,
+  withFlashPhotoFlag,
   type MsgCacheRecord,
   type SetEmojiItem,
 } from '@weq/codec';
@@ -941,11 +942,9 @@ export function onlineStatusToWire(status: FormattedOnlineStatus): OnlineStatusW
  * passed through {@link sanitize} so bigints / bytes survive IPC.
  */
 export function forwardRecordToWire(record: MsgCacheRecord): unknown {
-  const elements = Array.isArray((record as { elements?: unknown }).elements)
+  const elements = Array.isArray(record.elements)
     ? toRenderElements(
-        ((record as { elements: unknown[] }).elements as never[]).map((w) =>
-          decodeElement(w as never),
-        ),
+        withFlashPhotoFlag(record.elements, record.msgType, record.msgSubType).map(decodeElement),
       )
     : [];
   const subMsgs = Array.isArray((record as { subMsgs?: unknown }).subMsgs)

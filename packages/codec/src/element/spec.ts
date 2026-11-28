@@ -61,6 +61,8 @@ export const PicElementSchema = BaseElementFieldsSchema.extend({
   storeId: z.number().optional(),
   md5: z.string(),
   fileToken: z.string(),
+  /** 由 QQ 消息行标志或在线协议提供，独立于图片下载地址。 */
+  isFlash: z.boolean().optional(),
   uploadTime: z.number(),
   uploadTimestamp: z.number(),
   fileTTL: z.number(),

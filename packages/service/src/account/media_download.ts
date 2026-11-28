@@ -36,6 +36,9 @@ import {
 
 const MEDIA_HOST = 'https://multimedia.nt.qq.com.cn';
 const DOWNLOAD_BASE = `${MEDIA_HOST}/download`;
+const OFFPIC_HOST = 'https://c2cpicdw.qpic.cn';
+const OFFPIC_IMAGE_PATH =
+  /^\/offpic_new\/(?:\d+\/)?\/\d+-\d+-[a-f0-9]{32}\/(?:0|198|720)(?:\?[^#\s]*)?$/i;
 
 /** rkey `type_` values, by (scene × media kind). */
 export const PRIVATE_IMAGE_RKEY_TYPE = 10;
@@ -62,9 +65,8 @@ export interface DownloadOptions {
   /** rkey types allowed for this download. Defaults to image types (10/20). */
   rkeyTypes?: number[];
   /**
-   * CDN path/URL for the original media. When the `fileToken` is all digits the
-   * media predates the rkey scheme — we fetch `<host><originalUrl>` directly
-   * (no rkey) and prefer it over the rkey attempts.
+   * CDN path/URL for the original media. Digit-only tokens and legacy offpic
+   * image paths can be fetched directly before trying rkeys.
    */
   originalUrl?: string;
   /** 仅用户明确请求查看原图时，可在任务列表继续被策略暂停的传输。 */
@@ -220,7 +222,7 @@ export class MediaDownloadService {
     signal?.throwIfAborted();
     let url: URL;
     try {
-      url = new URL(raw, MEDIA_HOST);
+      url = new URL(offpicImageUrl(raw) ?? raw, MEDIA_HOST);
     } catch {
       return null;
     }
@@ -406,10 +408,11 @@ export class MediaDownloadService {
     if (!this.allowOnline() || !scopedNetworkAllowed()) return null;
 
     const urls: Array<{ url: string; source: string }> = [];
-    // Digit-only tokens are pre-rkey media: fetch the original directly, no rkey.
-    if (opts.originalUrl && isAllDigits(fileToken)) {
-      urls.push({ url: resolveOriginalUrl(opts.originalUrl), source: 'original' });
-    }
+    const original = opts.originalUrl;
+    const offpic = original ? offpicImageUrl(original) : null;
+    if (offpic) urls.push({ url: offpic, source: 'original' });
+    else if (original && isAllDigits(fileToken))
+      urls.push({ url: resolveOriginalUrl(original), source: 'original' });
     const allowed = opts.rkeyTypes ?? IMAGE_RKEY_TYPES;
     this.logger.debug('starting media download', {
       event: 'media-download-start',
@@ -437,6 +440,8 @@ export class MediaDownloadService {
     let source = 'unavailable';
     let externalCandidateCount = 0;
     const taskId = opts.activityTaskId ?? globalThis.crypto.randomUUID();
+    // offpic 原图的路径可独立下载，供任务继续时复用。
+    const resumeOriginal = offpic ? original?.split('?', 1)[0] : original;
     const fetchCandidate = (url: string, stage: string) =>
       tryFetch(
         url,
@@ -454,8 +459,8 @@ export class MediaDownloadService {
                 type: 'chat-original',
                 messageSource: opts.activityMessageSource,
                 token: fileToken,
-                originalUrl: /^\/(?!\/)[^?#]*$/.test(opts.originalUrl ?? '')
-                  ? opts.originalUrl
+                originalUrl: /^\/(?!\/)[^?#]*$/.test(resumeOriginal ?? '')
+                  ? resumeOriginal
                   : undefined,
                 ext: opts.ext,
                 rkeyTypes: opts.rkeyTypes,
@@ -548,10 +553,18 @@ function thumbnailRkeyType(url: URL): number | undefined {
   return undefined;
 }
 
-/** `originalUrl` is usually a host-relative path; join it onto the media host. */
+/** Resolve QQ's relative image paths against the corresponding media host. */
 export function resolveOriginalUrl(originalUrl: string): string {
   if (/^https?:\/\//i.test(originalUrl)) return originalUrl;
-  return `${MEDIA_HOST}${originalUrl.startsWith('/') ? '' : '/'}${originalUrl}`;
+  return (
+    offpicImageUrl(originalUrl) ??
+    `${MEDIA_HOST}${originalUrl.startsWith('/') ? '' : '/'}${originalUrl}`
+  );
+}
+
+/** 保留 QQ 提供的收件人路径、双斜杠、尺寸档和查询参数。 */
+function offpicImageUrl(path: string): string | null {
+  return OFFPIC_IMAGE_PATH.test(path) ? `${OFFPIC_HOST}${path}` : null;
 }
 
 /**

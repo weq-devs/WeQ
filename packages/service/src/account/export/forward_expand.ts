@@ -18,7 +18,7 @@
  * trips per depth.
  */
 
-import { decodeElement, type MsgCacheRecord } from '@weq/codec';
+import { decodeElement, type MsgCacheRecord, withFlashPhotoFlag } from '@weq/codec';
 import { forwardCacheIdentity } from '../forward';
 import type { MsgService, RenderC2cMsg, RenderGroupMsg } from '../msg';
 import { toExportedMessage } from './message_source';
@@ -41,7 +41,6 @@ interface CacheRecordLike {
   sendTime?: number | bigint;
   sendNick?: string;
   senderInfo?: { avatar?: { encryptedUin?: string } };
-  elements?: unknown[];
   subMsgs?: MsgCacheRecord[];
 }
 
@@ -60,10 +59,12 @@ function recordSenderName(rec: CacheRecordLike): string {
 }
 
 /** Lift one cache record's raw ElementWire[] into render-view elements. */
-function recordElements(rec: CacheRecordLike): RenderElement[] {
+function recordElements(rec: MsgCacheRecord): RenderElement[] {
   if (!Array.isArray(rec.elements)) return [];
   try {
-    return toRenderElements(rec.elements.map((w) => decodeElement(w as never)));
+    return toRenderElements(
+      withFlashPhotoFlag(rec.elements, rec.msgType, rec.msgSubType).map(decodeElement),
+    );
   } catch {
     return [];
   }
@@ -81,7 +82,7 @@ export function liftForwardRecords(records: MsgCacheRecord[], depth = 0): Forwar
   const out: ForwardMessage[] = [];
   for (const raw of records) {
     const rec = raw as CacheRecordLike;
-    const elements = recordElements(rec);
+    const elements = recordElements(raw);
     normalizeNestedForwards(elements);
     // Attach any nested forward to the multiMsg element(s) in this record.
     const nested = Array.isArray(rec.subMsgs) ? rec.subMsgs : [];

@@ -8,7 +8,7 @@
 
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import { databaseRequestSignal } from '../query_schedule';
-import { ProtoMsg, decodeElement, decodeMsgDressColumn } from '@weq/codec';
+import { ProtoMsg, decodeElement, decodeMsgDressColumn, withFlashPhotoFlag } from '@weq/codec';
 import type { Element, SetEmojiItem, MsgDecoration } from '@weq/codec';
 import { sanitizeBytes } from '@weq/codec/raw';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
@@ -20,13 +20,19 @@ import type { QqDb } from '../qq_db';
 const bodyCodec = new ProtoMsg(MsgBody);
 const emojiCodec = new ProtoMsg(MsgEmoji);
 
-export function decodeBody(blob: SqlValue | undefined): Element[] {
+export function decodeBody(
+  blob: SqlValue | undefined,
+  msgType?: SqlValue,
+  subMsgType?: SqlValue,
+): Element[] {
   if (!(blob instanceof Uint8Array)) return [];
   try {
     // Sanitize first: drop fields whose on-wire type conflicts with the schema
     // so one mis-declared tag can't derail the whole message.
     const decoded = bodyCodec.decode(sanitizeBytes(blob, MsgBody));
-    return (decoded.elements ?? []).map(decodeElement);
+    return withFlashPhotoFlag(decoded.elements ?? [], Number(msgType), Number(subMsgType)).map(
+      decodeElement,
+    );
   } catch (e) {
     console.error('[msg] failed to decode 40800 body:', e);
     return [{ kind: 'text', textContent: '[解析消息失败: 格式错误]' }];

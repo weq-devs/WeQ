@@ -1601,7 +1601,7 @@ function rowToGroupMsg(row: SqlRow): GroupMsg {
     targetGroupCode: toStr(row[2]),
     senderUin: toBigint(row[3]),
     sendTime: toBigint(row[4]),
-    elements: decodeBody(row[5]),
+    elements: decodeBody(row[5], row[8], row[9]),
     setEmojiList: decodeEmoji(row[6]),
     msgSeq: toBigint(row[7]),
     msgType: toBigint(row[8]),

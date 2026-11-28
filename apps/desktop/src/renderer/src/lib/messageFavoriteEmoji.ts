@@ -15,7 +15,7 @@ export function messageFavoriteEmojiUrl(message: Message, target?: EventTarget |
   if (elements.length !== 1) return undefined;
   const element = elements[0]!;
   const data = element.data ?? {};
-  if (element.type === 'pic' && !data.isFlash && !String(data.fileToken ?? '').startsWith('/'))
+  if (element.type === 'pic' && data.isFlash !== true)
     return mediaUrl('pic', {
       t: Date.parse(message.createdAt),
       name: String(data.fileName ?? ''),

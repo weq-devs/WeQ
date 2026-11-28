@@ -75,6 +75,18 @@ const TYPE_TO_KIND: Partial<Record<ElementType, KnownKind>> = {
   [ElementType.ACTION_BAR]: 'actionBar',
 };
 
+/** 40012 的闪照位适用于图片类消息，旧式 offpic 地址本身也见于普通图片。 */
+export function withFlashPhotoFlag<T extends { elementType?: number }>(
+  elements: T[],
+  msgType?: number,
+  subMsgType?: number,
+): T[] {
+  if (msgType !== 2 || !((subMsgType ?? 0) & 0x2000)) return elements;
+  return elements.map((wire) =>
+    wire?.elementType === ElementType.PIC ? { ...wire, isFlash: true } : wire,
+  );
+}
+
 export function decodeElement(wire: ProtoDecodeStructType<typeof ElementWire>): Element {
   const type = (wire.elementType ?? 0) as ElementType;
 

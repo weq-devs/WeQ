@@ -71,10 +71,7 @@ function digest(data: Record<string, unknown>): string {
   return text(data.md5 || data.md5Bytes || data.contentHash).toLowerCase();
 }
 function isFlashPhoto(element: RepeatElement): boolean {
-  return (
-    element.type === 'pic' &&
-    (element.data?.isFlash === true || text(element.data?.fileToken).startsWith('/'))
-  );
+  return element.type === 'pic' && element.data?.isFlash === true;
 }
 function elementIdentity(element: RepeatElement): unknown[] | null {
   const data = element.data ?? {};

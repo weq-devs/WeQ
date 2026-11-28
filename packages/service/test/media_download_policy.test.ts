@@ -97,6 +97,26 @@ it('未允许时缓存凭据及原始 URL 都不发请求，允许后下载，�
   expect(await f.service.download('123')).toBe(path);
   expect(f.fetch).toHaveBeenCalledOnce();
 });
+it('旧式普通图片从 offpic CDN 读取 QQ 提供的原图和缩略图路径', async () => {
+  const f = await fixture();
+  f.allow(true);
+  f.fetch.mockImplementation(
+    async () =>
+      new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }),
+  );
+  const token = '/12345-45678-00112233445566778899AABBCCDDEEFF';
+  const base = `/offpic_new/43210/${token}`;
+  const originalUrl = `${base}/0?term=2&is_origin=1`;
+  const thumbnail = `${base}/198?term=2&is_origin=0`;
+  expect(await f.service.download(token, { originalUrl })).toBeTruthy();
+  expect(await f.service.thumbnail(thumbnail)).toBeTruthy();
+  expect(f.fetch.mock.calls.map(([url]) => url)).toEqual([
+    `https://c2cpicdw.qpic.cn${originalUrl}`,
+    `https://c2cpicdw.qpic.cn${thumbnail}`,
+  ]);
+  expect(f.external.resolveRkeys).not.toHaveBeenCalled();
+});
+
 it('并发请求复用同一次聊天媒体下载，各自收到真实下载进度', async () => {
   const f = await fixture();
   f.allow(true);

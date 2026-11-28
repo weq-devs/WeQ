@@ -186,15 +186,13 @@ it('缩略图损坏时回退原图，不直接显示缺图', async () => {
   expect(host.textContent).not.toContain('未找到');
 });
 
-/**
- * 闪照：`fileToken` 是老式 offpic 路径（以 `/` 开头），三档 URL 与 contentHash
- * 全空，本地也没有原图。气泡画**固定封面**（灰阶马赛克 + 闪电），一张图都不加载；
- * 点开才现取 0 档原图。
- */
+const offpicToken = '/12345-45678-00112233445566778899AABBCCDDEEFF';
+
 it('闪照气泡画固定封面、不加载任何图片，点开是 0 原图', async () => {
   const host = await render({
-    fileName: '91CFB712BCDAB31C397F4CB5F226B718.jpg',
-    fileToken: '/1707889225-1108524972-91CFB712BCDAB31C397F4CB5F226B718',
+    fileName: 'fixture.jpg',
+    fileToken: offpicToken,
+    isFlash: true,
     imgWidth: 1440,
     imgHeight: 1920,
     fileSize: 153909,
@@ -231,13 +229,17 @@ it('元素带 isFlash 但拿不到 offpic token 时，封面点不开也不加�
   expect(state.open).not.toHaveBeenCalled();
 });
 
-it('普通图片不会被打上闪照封面', async () => {
+it('使用同一 offpic 格式的普通图片仍经图片代理渲染', async () => {
+  const originalUrl = `/offpic_new/43210/${offpicToken}/0?term=2&is_origin=1`;
   const host = await render({
     fileName: 'fixture.png',
-    fileToken: 'EhSFggR8RGn2BgoNWCKJxibUo0KvhBj2sgIg',
-    imgWidth: 2000,
-    imgHeight: 1000,
+    fileToken: offpicToken,
+    originalUrl,
+    imgWidth: 2112,
+    imgHeight: 134,
   });
   expect(host.querySelector('.qq-flash-cover')).toBeNull();
-  expect(host.querySelector('img')).not.toBeNull();
+  const source = new URL(host.querySelector('img')!.src);
+  expect(source.hostname).toBe('pic');
+  expect(source.searchParams.get('orig')).toBe(originalUrl);
 });

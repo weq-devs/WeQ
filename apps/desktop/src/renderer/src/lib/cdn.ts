@@ -90,6 +90,8 @@ export function cdnImageUrl(
   originalUrl: string,
 ): string | null {
   if (!state.enabled || !fileToken) return null;
+  // 老式普通图片由图片代理用元素自带的 offpic 地址读取。
+  if (originalUrl.startsWith('/offpic_new/')) return null;
   if (/^\d+$/.test(fileToken)) {
     return originalUrl.startsWith('/') ? `${MEDIA_HOST}${originalUrl}` : null;
   }
@@ -110,8 +112,7 @@ export function cdnImageUrl(
  * `spec` 沿用老图片口径：`0` 原图、`198` 预览、`720` 大图（实测三者都可用，
  * 非法档位回 400）。
  *
- * 判定闪照只看 token 形状：`fileToken` 以 `/` 开头在实测样本里 6/6 命中闪照、
- * 其余 266 条图片 0 命中。行级 `40012` 目前没有透传到渲染元素，这里拿不到。
+ * 调用者先用元素的 `isFlash` 确认消息类型。普通图片也可能使用 offpic。
  */
 export function flashPicUrl(fileToken: string, spec: 0 | 198 | 720 = 198): string | null {
   if (!fileToken.startsWith('/')) return null;

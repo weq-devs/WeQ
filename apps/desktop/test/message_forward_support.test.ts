@@ -102,6 +102,23 @@ it('闪照使用原图代理并保留 flashPhoto，不能在未取得原图时�
   await expect(repeatImageSources([element], 1)).rejects.toThrow('原文件不可用');
 });
 
+it('offpic 普通图片按原图地址读取并作为普通图片转发', async () => {
+  const token = '/12345-45678-00112233445566778899AABBCCDDEEFF';
+  const originalUrl = `/offpic_new/43210/${token}/0?term=2&is_origin=1`;
+  const element = { type: 'pic', data: { fileName: 'photo.png', fileToken: token, originalUrl } };
+  const source = new Uint8Array([1, 2, 3]);
+  const fetcher = vi.fn(async (_url: RequestInfo | URL) => new Response(source));
+  vi.stubGlobal('fetch', fetcher);
+  const images = await repeatImageSources([element], 1);
+  const url = new URL(String(fetcher.mock.calls[0]?.[0]));
+  expect(url.hostname).toBe('pic');
+  expect(url.searchParams.get('orig')).toBe(originalUrl);
+  expect(repeatSendPlan([element], new Map(), false, images)).toEqual({
+    kind: 'elements',
+    elements: [{ kind: 'image', source, fileName: 'photo.png', subType: 0 }],
+  });
+});
+
 it('闪传缺少文件集身份时不可降级 Markdown；普通 Markdown 不受影响', () => {
   expect(
     forwardUnsupportedReason([
