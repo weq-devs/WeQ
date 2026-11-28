@@ -13,7 +13,7 @@ export interface TimelineRow {
   msgSeq: string;
   source?: 'roaming';
   ntSeqVerified?: boolean;
-  recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
+  recall?: { revokeUid: string; sameSender: boolean; recallTs: number; retained?: true };
 }
 
 export function timelineSeq(value: string): bigint | null {
@@ -80,6 +80,46 @@ export function mergeRoamingWindow<T extends TimelineRow>(
   return incoming.length ? mergeRoamingTimeline(kind, local, incoming) : local;
 }
 
+function uniqueBodies<T extends TimelineRow>(rows: T[], seqs: ReadonlySet<string>) {
+  const unique = new Map<string, T | null>();
+  for (const row of rows) {
+    if (!seqs.has(row.msgSeq) || !row.elements?.length) continue;
+    if (
+      row.elements.some((element) => {
+        const type = (element as { type?: unknown } | null)?.type;
+        return typeof type === 'string' && type.startsWith('grayTip');
+      })
+    )
+      continue;
+    const keys = row.senderUid ? [row.msgSeq, `${row.msgSeq}:${row.senderUid}`] : [row.msgSeq];
+    for (const key of keys) {
+      if (!unique.has(key)) unique.set(key, row);
+      else if (unique.get(key)?.msgId !== row.msgId) unique.set(key, null);
+    }
+  }
+  return unique;
+}
+
+/** 同序号多条正文时先按发送者消歧，双边各只有一条时允许发送者缺失。 */
+function matchUniqueBody<T extends TimelineRow>(
+  row: T,
+  own: ReadonlyMap<string, T | null>,
+  other: ReadonlyMap<string, T | null>,
+): T | undefined {
+  if (row.senderUid) {
+    const key = `${row.msgSeq}:${row.senderUid}`;
+    const match = other.get(key);
+    if (match && own.get(key)?.msgId === row.msgId) return match;
+  }
+  const match = other.get(row.msgSeq);
+  if (
+    match &&
+    own.get(row.msgSeq)?.msgId === row.msgId &&
+    (!row.senderUid || !match.senderUid || row.senderUid === match.senderUid)
+  )
+    return match;
+}
+
 /** 同身份撤回副本优先显示原文，普通缓存补齐缺口，并保留同序号的其他灰条。 */
 export function mergeRoamingTimeline<T extends TimelineRow>(
   kind: 'c2c' | 'group',
@@ -88,8 +128,9 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
   options: { descending?: boolean; limit?: number; min?: bigint; max?: bigint } = {},
 ): T[] {
   const identity = timelineMessageIdentity;
-  const cachedRows = [...local.filter((row) => row.source === 'roaming'), ...cached];
-  const protectedRows = cachedRows.filter((row) => {
+  const recordKey = (row: T) => `${row.msgSeq}:${row.msgId}`;
+  const allCached = [...local.filter((row) => row.source === 'roaming'), ...cached];
+  const recalled = allCached.filter((row) => {
     const seq = timelineSeq(row.msgSeq);
     return (
       row.recall &&
@@ -99,14 +140,50 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
       (options.max === undefined || seq <= options.max)
     );
   });
-  const protectedIds = new Set(protectedRows.map((row) => `${row.msgSeq}:${row.msgId}`));
-  const protectedKeys = new Set(protectedRows.map(identity).filter(Boolean));
-  const result = local.filter(
+  const retained = recalled.filter((row) => row.recall?.retained);
+  const sentCopies = new Set<T>();
+  const retainedFromWeq = new Set<string>();
+  if (retained.length) {
+    // 防撤回存档用 QQ 记录 ID，WeQ 发送缓存可能用 random 作 ID。
+    const retainedSeqs = new Set(retained.map((row) => row.msgSeq));
+    const sent = allCached.filter(
+      (row) =>
+        row.localSent &&
+        !row.recall?.retained &&
+        retainedSeqs.has(row.msgSeq) &&
+        (kind === 'group' || row.ntSeqVerified === true),
+    );
+    const retainedByIdentity = new Map(retained.map((row) => [identity(row), row]));
+    const retainedBodies = uniqueBodies(retained, retainedSeqs);
+    const sentBodies = uniqueBodies(sent, retainedSeqs);
+    for (const row of sent) {
+      const key = identity(row);
+      const match =
+        (key && retainedByIdentity.get(key)) || matchUniqueBody(row, sentBodies, retainedBodies);
+      if (!match) continue;
+      sentCopies.add(row);
+      retainedFromWeq.add(recordKey(match));
+    }
+  }
+  const cachedRows = sentCopies.size ? allCached.filter((row) => !sentCopies.has(row)) : allCached;
+  const protectedRows = sentCopies.size ? recalled.filter((row) => !sentCopies.has(row)) : recalled;
+  const protectedIds = new Set([...protectedRows, ...sentCopies].map(recordKey));
+  const protectedKeys = new Set([...protectedRows, ...sentCopies].map(identity).filter(Boolean));
+  let result = local.filter(
     (row) =>
       row.source !== 'roaming' &&
       !protectedKeys.has(identity(row)) &&
-      !protectedIds.has(`${row.msgSeq}:${row.msgId}`),
+      !protectedIds.has(recordKey(row)),
   );
+  if (protectedRows.length && result.length) {
+    const protectedSeqs = new Set(protectedRows.map((row) => row.msgSeq));
+    const localBodies = uniqueBodies(
+      local.filter((row) => row.source !== 'roaming'),
+      protectedSeqs,
+    );
+    const protectedBodies = uniqueBodies(protectedRows, protectedSeqs);
+    result = result.filter((row) => !matchUniqueBody(row, localBodies, protectedBodies));
+  }
   const localSeqs = new Set(result.map((row) => row.msgSeq));
   const localIds = new Set(result.map((row) => row.msgId));
   const localIdentities = new Set(result.map(identity).filter(Boolean));
@@ -134,6 +211,7 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
   for (const row of candidates) {
     const seq = timelineSeq(row.msgSeq);
     const key = identity(row);
+    const addedKey = row.sourceFormat || row.recall?.retained ? recordKey(row) : row.msgSeq;
     if (
       seq === null ||
       (row.localSent && key !== null && syncedIdentities.has(key)) ||
@@ -151,14 +229,16 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
             nativeRandoms.has(
               `${row.msgSeq}:${row.msgRandom || row.msgId}:${row.senderUid ?? ''}`,
             ))) ||
-      added.has(row.sourceFormat ? `${row.msgSeq}:${row.msgId}` : row.msgSeq)
+      added.has(addedKey)
     )
       continue;
-    added.add(row.sourceFormat ? `${row.msgSeq}:${row.msgId}` : row.msgSeq);
+    added.add(addedKey);
     result.push({
       ...row,
       source: 'roaming',
-      ...(!row.localSent && !row.sentFromWeq && key !== null && sentIdentities.has(key)
+      ...(!row.localSent &&
+      !row.sentFromWeq &&
+      (retainedFromWeq.has(recordKey(row)) || (key !== null && sentIdentities.has(key)))
         ? { sentFromWeq: true }
         : {}),
     });

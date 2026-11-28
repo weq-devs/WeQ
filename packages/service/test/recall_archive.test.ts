@@ -260,6 +260,92 @@ it('未经过代理的原文也能持久留存、覆盖 QQ 撤回提示，并在
   );
   expect((await f.history.findByMsgId('9001'))?.elements).toEqual(f.original.elements);
 });
+
+it.each(['77', undefined])(
+  '防撤回存档与发送缓存只显示一条原文（存档 random：%s）',
+  async (random) => {
+    const { archive, history, original, recall } = setup();
+    const snapshot = { ...original, msgRandom: random, senderUid: 'u_self' };
+    const sent: GapFetchedMessage = {
+      ...snapshot,
+      msgId: '77',
+      msgRandom: '77',
+      sourceFormat: 'protocol',
+      localSent: true,
+    };
+    await history.retainForBatch([sent]);
+    const cachedSelfRecall = await history.withSelfRecallProtection(
+      {
+        kind: sent.kind,
+        conv: sent.conv,
+        sequence: 42,
+        clientSequence: 8,
+        random: 77,
+        timestamp: Number(sent.sendTime),
+      },
+      async () => {},
+    );
+    expect(cachedSelfRecall?.recall).toBeDefined();
+    await archive.observe(
+      [snapshot],
+      [{ ...recall, localId: original.msgId, senderUid: 'u_self', revokeUid: 'u_self' }],
+    );
+
+    const cached = await history.cachedTimeline('c2c', original.conv, 1, 50, 20, true);
+    expect(cached.map((row) => row.msgId)).toEqual([original.msgId]);
+    expect(cached[0]).toMatchObject({
+      elements: original.elements,
+      recall: { retained: true, sameSender: true },
+      sentFromWeq: true,
+    });
+
+    const grayTip = {
+      ...original,
+      msgId: '9002',
+      senderUid: 'u_self',
+      msgRandom: '0',
+      elements: [{ type: 'grayTipPoke', data: {} }],
+    };
+    const localBody = { ...snapshot, msgId: '9003', msgRandom: undefined };
+    expect(
+      mergeRoamingTimeline('c2c', [grayTip, localBody], cached).map((row) => row.msgId),
+    ).toEqual([original.msgId, grayTip.msgId]);
+    expect(
+      mergeRoamingTimeline('c2c', [grayTip, ...cached], [sent]).map((row) => row.msgId),
+    ).toEqual([original.msgId, grayTip.msgId]);
+  },
+);
+
+it('同序号有多条撤回原文时按已知身份消歧，保留其余记录', () => {
+  const { original, recall } = setup();
+  const retained = {
+    ...original,
+    recall: {
+      revokeUid: recall.revokeUid,
+      sameSender: true,
+      recallTs: recall.at,
+      retained: true as const,
+    },
+  };
+  const other = { ...retained, msgId: '9002', msgRandom: '78' };
+  const sent: GapFetchedMessage = {
+    ...original,
+    msgId: '77',
+    localSent: true,
+    sourceFormat: 'protocol',
+    recall: { revokeUid: recall.revokeUid, sameSender: true, recallTs: recall.at },
+  };
+  const ids = (rows: GapFetchedMessage[]) =>
+    mergeRoamingTimeline('c2c', [], rows).map((row) => row.msgId);
+  expect(ids([retained, other, sent])).toEqual(['9001', '9002']);
+  expect(ids([retained, other, { ...sent, msgRandom: undefined }])).toEqual(['77', '9001', '9002']);
+  expect(
+    ids([retained, { ...other, senderUid: 'u_other' }, { ...sent, msgRandom: undefined }]),
+  ).toEqual(['9001', '9002']);
+  expect(ids([retained, { ...sent, senderUid: '', msgRandom: undefined }])).toEqual(['9001']);
+  expect(ids([retained, { ...sent, senderUid: 'u_other' }])).toEqual(['77', '9001']);
+});
+
 it('撤回先到时等待原文，重复与迟到原文不会覆盖已保留内容', async () => {
   const f = setup();
   await f.archive.observe([], [f.recall]);
