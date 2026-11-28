@@ -1,3 +1,4 @@
+import { messageDetailsTarget } from '../../lib/messageDetailsTarget';
 import { NumericText } from '../NumericText';
 import { EmptyState } from '../EmptyState';
 /** 会话消息搜索：全局搜索内嵌展示，会话顶栏入口使用单会话浮窗。 */
@@ -10,6 +11,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type HTMLAttributes,
   type ReactElement,
 } from 'react';
 import { CalendarDays, LocateFixed, Search, SearchX, X } from 'lucide-react';
@@ -18,6 +20,11 @@ import { RecordSearchCalendar } from './RecordSearchCalendar';
 import { RecordSenderAvatar, RecordSenderPicker, type RecordSender } from './RecordSenderPicker';
 import { RecordMediaResults } from './RecordMediaResults';
 import { useReadonlyMessageMenu } from '../../hooks/useReadonlyMessageMenu';
+import { useRecordMenuTrigger } from './useRecordContextMenu';
+import { RecordMessageMenu, type RecordMenuMessage } from './RecordMessageMenu';
+import { RecordSelectionBar } from './RecordSelectionBar';
+import type { RecordMessageActions } from './recordMessageActions';
+import { useRecordTransforms } from './useRecordTransforms';
 import { daySeconds, pickCalendarRange } from '../../lib/messageCalendar';
 import { RecordDayHeading } from './recordDays';
 import { recordDay, groupRecordDays } from './recordDays.shared';
@@ -40,8 +47,16 @@ import { closeForwardWindows } from '../../state/forwardWindow';
 import { ChatMediaGallery } from '../ChatMediaGallery';
 import { MessageRow } from '../../im-template/template/messageRow';
 import { grayTipOf } from '../../im-template/template/messageRow.shared';
-import { MessageProvenance } from '../MessageProvenance';
 import { displayUserName } from '../../im-template/template/user';
+import type { MessageDetailsSelection } from '../../im-template/template/messageContextMenu';
+import { messageNodeClipboard, selectedMessageClipboard } from '../../lib/messageClipboard';
+import { selectMessageIds, type SelectionModifiers } from '../../lib/messageSelection';
+import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
+import { MessageSelectionMark } from '../MessageSelectionMark';
+import { MessageTextResult } from '../MessageTextResult';
+import { IntentSenseContext } from '../intentSense/context.shared';
+import { MessageDetails } from '../lazyMainPanels';
+import { MessageProvenance } from '../MessageProvenance';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, GroupMember, Message, User } from '../../im-template/template/types';
 import '../../styles/qzone.css';
@@ -96,6 +111,7 @@ export function ChatRecordsModal({
   resolveGroupMembers,
   localSource,
   embeddedKeyword,
+  actions,
 }: {
   /** 非 QQ 数据源复用同一搜索页面；不向原生记录接口提交本地身份。 */
   localSource?: {
@@ -114,6 +130,7 @@ export function ChatRecordsModal({
    */
   fixed?: boolean;
   accountBinding?: QQWriteBinding;
+  actions?: RecordMessageActions;
   globalRecordFilter?: GlobalChatRecordFilter;
   suspended?: boolean;
   onClose: () => void;
@@ -148,6 +165,21 @@ export function ChatRecordsModal({
   const expectedAccountConfigId = accountBinding?.expectedAccountConfigId;
   const [ownUin, setOwnUin] = useState('');
   const [category, setCategory] = useState<ConversationRecordType | ''>('');
+  const { trigger: recordTrigger, cancelPress: cancelRecordPress } = useRecordMenuTrigger();
+  const [contextMenu, setContextMenu] = useState<RecordMenuMessage | null>(null);
+  const [details, setDetails] = useState<MessageDetailsSelection | null>(null);
+  const [recordBodies, setRecordBodies] = useState<
+    ReadonlyMap<string, NonNullable<Message['qqElements']>>
+  >(() => new Map());
+  const resolveRecordBody = useCallback((id: string, body: NonNullable<Message['qqElements']>) => {
+    setRecordBodies((previous) =>
+      previous.get(id) === body ? previous : new Map(previous).set(id, body),
+    );
+  }, []);
+  const [selection, setSelection] = useState<ReadonlySet<string> | null>(null);
+  const selectionAnchor = useRef<string | null>(null);
+  const currentSelection = useRef(selection);
+  currentSelection.current = selection;
   const [msgError, setMsgError] = useState('');
   const [settledFilter, setSettledFilter] = useState<typeof filter>();
   const [browseHasMore, setBrowseHasMore] = useState(false);
@@ -166,6 +198,12 @@ export function ChatRecordsModal({
   );
   const refreshing = fixed && settledFilter !== filter;
   const hasSearch = fixed || Boolean(filter.keyword);
+  useLayoutEffect(() => {
+    setContextMenu(null);
+    setSelection(null);
+    selectionAnchor.current = null;
+    cancelRecordPress();
+  }, [filter, cancelRecordPress]);
   useEffect(() => {
     let active = true;
     if (localSource) {
@@ -188,6 +226,9 @@ export function ChatRecordsModal({
     };
   }, [fixed, localSource, user]);
   const selected = initialHit;
+  const { source: searchSource, targetUid } = selected;
+  const localMessages = localSource?.messages;
+  const localMode = Boolean(localMessages);
   const [messages, setMessages] = useState<ConversationRecordHit[]>([]);
   const [msgLoading, setMsgLoading] = useState(() => !localSource && hasSearch);
   const [msgLoadingMore, setMsgLoadingMore] = useState(false);
@@ -241,12 +282,12 @@ export function ChatRecordsModal({
       : emptySelf;
   }, [localSource, user, ownUin]);
   const localMessagesById = useMemo(
-    () => new Map(localSource?.messages.map((message) => [message.id, message])),
-    [localSource],
+    () => new Map(localMessages?.map((message) => [message.id, message])),
+    [localMessages],
   );
   const localRows = useMemo(() => {
-    if (!localSource) return [];
-    return localSource.messages
+    if (!localMessages) return [];
+    return localMessages
       .filter((message) => !message.generatedPending)
       .map(
         (message): ConversationRecordHit => ({
@@ -263,7 +304,7 @@ export function ChatRecordsModal({
         }),
       )
       .sort((a, b) => Number(b.sendTime) - Number(a.sendTime));
-  }, [localSource]);
+  }, [localMessages]);
   const localDays = useMemo(
     () =>
       localSource
@@ -355,13 +396,20 @@ export function ChatRecordsModal({
     () => localSource?.conversation ?? conversationFromHit(selected, members, essence.data),
     [selected, localSource, members, essence.data],
   );
+  const actionConversation = actions?.conversation ?? conversation;
+  const transforms = useRecordTransforms({
+    binding: accountBinding,
+    conversation: actionConversation,
+    active: fixed && hasSearch && !suspended,
+  });
+
   const queryMessages = useCallback(
     async (offset: number, signal: AbortSignal) => {
       if (!fixed) {
         return client.account.searchConversationRecords.query(
           {
-            source: selected.source,
-            conv: selected.targetUid,
+            source: searchSource,
+            conv: targetUid,
             keyword: filter.keyword ?? '',
             offset,
             limit: 30,
@@ -379,8 +427,8 @@ export function ChatRecordsModal({
         const cursor = browseCursor.current;
         const page = await client.account.browseConversation.query(
           {
-            kind: selected.source === 'group' ? 'group' : 'c2c',
-            conv: selected.targetUid,
+            kind,
+            conv: targetUid,
             filter,
             expectedAccountUin,
             expectedAccountConfigId,
@@ -403,7 +451,16 @@ export function ChatRecordsModal({
           return { items: page.items, total: undefined, limited: false };
       }
     },
-    [fixed, selected, filter, expectedAccountUin, expectedAccountConfigId, globalRecordFilter],
+    [
+      fixed,
+      searchSource,
+      kind,
+      targetUid,
+      filter,
+      expectedAccountUin,
+      expectedAccountConfigId,
+      globalRecordFilter,
+    ],
   );
 
   // Fetch messages for the selected conversation.
@@ -425,11 +482,11 @@ export function ChatRecordsModal({
       return;
     }
     // 筛选切换时滚动回调仍可能看到上一轮的分页状态，首屏和续页共用这个同步标记。
-    const run = { controller: new AbortController(), requestPending: !localSource };
+    const run = { controller: new AbortController(), requestPending: !localMode };
     const { signal } = run.controller;
     msgRunRef.current = run;
     const cancel = () => run.controller.abort();
-    if (localSource) {
+    if (localMode) {
       const selectedSenders = new Set(filter.senders);
       const keyword = filter.keyword?.toLocaleLowerCase();
       const rows = localRows.filter((message) => {
@@ -476,7 +533,7 @@ export function ChatRecordsModal({
         }
       });
     return cancel;
-  }, [hasSearch, filter, localRows, localSource, queryMessages]);
+  }, [hasSearch, filter, localRows, localMode, queryMessages]);
 
   const loadMoreMessages = useCallback(() => {
     if (localSource) {
@@ -548,12 +605,22 @@ export function ChatRecordsModal({
     return () => observer.disconnect();
   }, [fixed, browseHasMore, msgLoading, msgLoadingMore, msgError, onMsgScroll, suspended]);
 
+  const suspendSearch = useCallback(() => {
+    if (onSuspend) {
+      savedScrollTop.current = msgScrollRef.current?.scrollTop ?? null;
+      setCalendarOpen(false);
+      setSenderOpen(false);
+    }
+    setContextMenu(null);
+    (onSuspend ?? onClose)();
+  }, [onClose, onSuspend]);
+
   const jumpTo = useCallback(
     (msg: Pick<ConversationRecordHit, 'msgSeq' | 'msgId'>) => {
       if (localSource) {
         closeForwardWindows();
         localSource.onJump(msg.msgId);
-        onClose();
+        suspendSearch();
         return;
       }
       if (!selected) return;
@@ -564,11 +631,6 @@ export function ChatRecordsModal({
         setDayNotice('该消息没有可定位的原生序号。');
         return;
       }
-      if (onSuspend) {
-        savedScrollTop.current = msgScrollRef.current?.scrollTop ?? null;
-        setCalendarOpen(false);
-        setSenderOpen(false);
-      }
       closeForwardWindows();
       onJumpMessage({
         source: selected.source,
@@ -576,9 +638,9 @@ export function ChatRecordsModal({
         msgSeq: msg.msgSeq,
         msgId: msg.msgId,
       });
-      (onSuspend ?? onClose)();
+      suspendSearch();
     },
-    [onJumpMessage, onClose, onSuspend, selected, localSource],
+    [onJumpMessage, selected, localSource, suspendSearch],
   );
 
   const jumpToReply = useCallback(
@@ -634,7 +696,7 @@ export function ChatRecordsModal({
       localMessagesById.get(hit.msgId) ??
       messageFromHit(
         body ? { ...hit, elements: body } : hit,
-        conversation,
+        actionConversation,
         recordUser,
         members,
         memberByUin,
@@ -643,6 +705,80 @@ export function ChatRecordsModal({
         recordedSenderNames?.get(hit.msgId)?.name,
       )
     );
+  }
+
+  function exitSelection() {
+    selectionAnchor.current = null;
+    setSelection(null);
+  }
+
+  function toggleSelection(id: string, modifiers: SelectionModifiers) {
+    const anchor = selectionAnchor.current;
+    if (!modifiers.shiftKey || !anchor) selectionAnchor.current = id;
+    setSelection((selected) =>
+      selectMessageIds(
+        selected ?? new Set(),
+        modifiers.shiftKey ? messages.map((row) => row.msgId) : [],
+        id,
+        anchor,
+        modifiers,
+      ),
+    );
+  }
+
+  function resultActions<T extends HTMLElement>(
+    message: Message,
+    elementIndex?: number,
+  ): HTMLAttributes<T> {
+    if (!fixed) return recordMenu.rowProps<T>(message);
+    const context = recordTrigger<T>(
+      (point) => {
+        const selectedText = point.originElement.ownerDocument.getSelection();
+        const selected =
+          selectedText?.rangeCount && selectedText.getRangeAt(0).intersectsNode(point.originElement)
+            ? selectedMessageClipboard(msgScrollRef.current)
+            : null;
+        const quote =
+          point.target instanceof Element ? point.target.closest('.qq-reply-quote') : null;
+        selectedText?.removeAllRanges();
+        setContextMenu({
+          ...point,
+          message,
+          elementIndex,
+          clipboard: selected ?? (quote ? messageNodeClipboard(quote) : undefined),
+        });
+      },
+      (target) => target instanceof Element && Boolean(target.closest('.qq-message-text-result')),
+    );
+    return {
+      ...context,
+      onClickCapture: (event) => {
+        context.onClickCapture?.(event);
+        if (
+          !selection ||
+          event.defaultPrevented ||
+          !(event.target instanceof Node) ||
+          !event.currentTarget.contains(event.target)
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        toggleSelection(message.id, event);
+      },
+      onKeyDownCapture: (event) => {
+        context.onKeyDownCapture?.(event);
+        if (
+          !selection ||
+          event.defaultPrevented ||
+          event.target !== event.currentTarget ||
+          (event.key !== 'Enter' && event.key !== ' ')
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        toggleSelection(message.id, event);
+      },
+    };
   }
 
   const convKey = isGroup ? selected.targetUid : '';
@@ -867,7 +1003,15 @@ export function ChatRecordsModal({
       ) : null}
       {hasSearch || !fixed ? (
         <div className="weq-chatrecords-body is-fixed">
-          <div className="weq-chatrecords-msgs" ref={bindMsgScroll} onScroll={onMsgScroll}>
+          <div
+            className="weq-chatrecords-msgs"
+            ref={bindMsgScroll}
+            onScroll={() => {
+              cancelRecordPress();
+              setContextMenu(null);
+              onMsgScroll();
+            }}
+          >
             <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
               <ConvContext.Provider value={convKey}>
                 <ChatMediaGallery
@@ -920,7 +1064,10 @@ export function ChatRecordsModal({
                           <RecordMediaResults
                             groups={resultsByDay}
                             type={mediaType}
-                            contextProps={(message) => recordMenu.rowProps(recordMessage(message))}
+                            selection={selection}
+                            contextProps={(message, index) =>
+                              resultActions(recordMessage(message), index)
+                            }
                           />
                         ) : (
                           [...resultsByDay].map(([day, rows]) => (
@@ -931,15 +1078,19 @@ export function ChatRecordsModal({
                                 const rich = Boolean(
                                   localSource || message.qqElements?.length || hit.deletedKind,
                                 );
+                                const selected = selection?.has(message.id) ?? false;
+                                const translation =
+                                  transforms.translation?.id === message.id
+                                    ? transforms.translation
+                                    : null;
                                 return (
                                   <div
                                     key={hit.msgId}
-                                    className={
-                                      rich ? 'weq-chatrecords-msg is-bubble' : 'weq-chatrecords-msg'
-                                    }
+                                    className={`weq-chatrecords-msg${rich ? ' is-bubble' : ''}${selection ? ' weq-message-selectable selection-mode' : ''}${selected ? ' is-selected' : ''}`}
                                     data-weq-record-match={rich || undefined}
-                                    {...recordMenu.rowProps(message)}
-                                    role={fixed ? 'group' : 'button'}
+                                    {...resultActions(message)}
+                                    role={selection ? 'checkbox' : fixed ? 'group' : 'button'}
+                                    aria-checked={selection ? selected : undefined}
                                     tabIndex={0}
                                     onClick={(event) => {
                                       if (
@@ -968,6 +1119,9 @@ export function ChatRecordsModal({
                                     }}
                                     title={fixed ? undefined : '点击跳转到该消息'}
                                   >
+                                    {selection ? (
+                                      <MessageSelectionMark selected={selected} />
+                                    ) : null}
                                     {rich ? (
                                       <>
                                         <MessageRow
@@ -981,6 +1135,27 @@ export function ChatRecordsModal({
                                           alwaysShowDate={!fixed}
                                           deletedKind={message.deletedKind}
                                           recallRevokerName={message.recallRevokerName}
+                                          textResult={
+                                            translation ? (
+                                              <MessageTextResult
+                                                label="译文"
+                                                error={translation.error}
+                                                onCollapse={transforms.collapseTranslation}
+                                              >
+                                                <span
+                                                  role="status"
+                                                  data-privacy-sensitive={
+                                                    Boolean(
+                                                      translation.value && !translation.error,
+                                                    ) || undefined
+                                                  }
+                                                >
+                                                  {translation.value ?? '正在翻译…'}
+                                                </span>
+                                              </MessageTextResult>
+                                            ) : undefined
+                                          }
+                                          textResultRevision={translation}
                                         />
                                         {!highlightRichText &&
                                         !message.deletedKind &&
@@ -1055,7 +1230,76 @@ export function ChatRecordsModal({
           ) : null}
         </div>
       ) : null}
-      {recordMenu.menu}
+      {selection ? (
+        <RecordSelectionBar
+          count={selection.size}
+          conversation={actionConversation}
+          binding={accountBinding}
+          actions={actions}
+          pick={() =>
+            messages
+              .filter((row) => selection.has(row.msgId))
+              .reverse()
+              .map(recordMessage)
+          }
+          isCurrent={() => currentSelection.current === selection}
+          onExit={exitSelection}
+        />
+      ) : null}
+      {!fixed ? recordMenu.menu : null}
+      {contextMenu ? (
+        <RecordMessageMenu
+          key={contextMenu.message.id}
+          menu={contextMenu}
+          conversation={actionConversation}
+          binding={accountBinding}
+          mediaSave={recordMenu.mediaSave}
+          actions={
+            actions?.quote
+              ? {
+                  ...actions,
+                  quote: (message) => {
+                    suspendSearch();
+                    actions.quote?.(message);
+                  },
+                }
+              : actions
+          }
+          intentAvailable={transforms.intentAvailable}
+          intentPending={Boolean(transforms.pendingIntent)}
+          onAnalyze={(message) => void transforms.analyze(message)}
+          onTranslate={(message, text) => void transforms.translate(message, text)}
+          onLocate={() => {
+            setContextMenu(null);
+            jumpTo({
+              msgId: contextMenu.message.msgId ?? contextMenu.message.id,
+              msgSeq: contextMenu.message.msgSeq ?? '',
+            });
+          }}
+          onSelect={() => {
+            setContextMenu(null);
+            selectionAnchor.current = contextMenu.message.id;
+            setSelection((selected) => new Set([...(selected ?? []), contextMenu.message.id]));
+          }}
+          onDetails={setDetails}
+          onResolveBody={resolveRecordBody}
+          onClose={() => setContextMenu(null)}
+        />
+      ) : null}
+      {details ? (
+        <MessageDetails
+          key={details.message.id}
+          selection={details}
+          conversation={actionConversation}
+          user={recordUser}
+          target={messageDetailsTarget(accountBinding, actionConversation, details.message)}
+          isSender={isSelfIdentity(
+            new Set(selfIdentityValues(recordUser)),
+            details.message.senderId,
+          )}
+          onClose={() => setDetails(null)}
+        />
+      ) : null}
     </div>
   );
   if (embedded) return content;
@@ -1065,14 +1309,18 @@ export function ChatRecordsModal({
       centered
       resizeEdges
       onClose={() => {
-        if (calendarOpen) setCalendarOpen(false);
+        if (contextMenu) setContextMenu(null);
+        else if (calendarOpen) setCalendarOpen(false);
         else if (senderOpen) setSenderOpen(false);
+        else if (selection) exitSelection();
         else onClose();
       }}
       width={960}
       labelledBy="weq-chatrecords-title"
     >
-      {content}
+      <IntentSenseContext.Provider value={transforms.intentContext}>
+        {content}
+      </IntentSenseContext.Provider>
     </Modal>
   );
 }

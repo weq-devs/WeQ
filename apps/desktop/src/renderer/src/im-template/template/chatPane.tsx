@@ -341,9 +341,7 @@ import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
 import { canRepeatMessage, repeatTarget } from '../../lib/messageRepeat';
 import { messageForwardTarget } from '../../lib/messageForwardTarget';
-import { parseFlashShareCode } from '../../lib/flashShare';
-import { soleLink } from '../../lib/linkify';
-import { textMarkdownBody } from '../../state/textMarkdown';
+import { messageTranslationText } from '../../lib/messageTranslation';
 import { MessageMenuButton } from '../../components/MessageMenuButton';
 import { MessageTextResult } from '../../components/MessageTextResult';
 import { mediaUrl } from '../../lib/resourceUrl';
@@ -493,16 +491,6 @@ function pureImageUrl(message: Message) {
   return elements.length === 1 && elements[0]?.type === 'pic'
     ? getMessageDownloadUrl(message)
     : undefined;
-}
-
-function messageTranslationText(message: Message): string | null {
-  if (message.flashPhotoPlaceholder) return null;
-  const elements = message.qqElements?.filter(
-    ({ type }) => type !== 'reply' && type !== 'at' && type !== 'face',
-  );
-  const text = (elements ? textMarkdownBody(elements) : message.body)?.trim();
-  if (!text || text.length > 4096 || !/\b[A-Za-z]{2,}\b/.test(text)) return null;
-  return parseFlashShareCode(text) || soleLink(text) ? null : text;
 }
 
 function formatUnreadJumpCount(value: number) {
@@ -742,7 +730,9 @@ export type ChatPaneProps = {
   messageRecords?: React.ReactNode;
   onCloseMessageRecords?: () => void;
   /** 顶栏「搜索聊天记录」按钮：在当前会话内搜索并跳转。 */
-  onSearchChatRecords?: (conversation: Conversation) => void;
+  onSearchChatRecords?: (conversation: Conversation, quote?: (message: Message) => void) => void;
+  searchQuote?: Message;
+  onSearchQuoteHandled?: (message: Message) => void;
   onOpenRoamingBackfill?: (conversation: Conversation) => void;
   /** 缺失消息占位条点击：携带占位条两侧消息的 seq（开区间即缺失窗口）。 */
   onOpenGapMessages?: (
@@ -885,6 +875,8 @@ function ChatPaneContent({
   onOpenGapMessages,
   onLoadSelectionMessages,
   onSearchChatRecords,
+  searchQuote,
+  onSearchQuoteHandled,
   onOpenRoamingBackfill,
   deletedIds,
   hiddenDeletedIds,
@@ -1963,6 +1955,22 @@ function ChatPaneContent({
   const rowRestore = useStableCallback(onRestoreMessage);
   const rowSwipeReply = useStableCallback(startQuote);
   const rowContext = useStableCallback(openMessageMenu);
+  const quoteSearchMessage = useStableCallback((message: Message) => {
+    if (tabActive && !restrictedSource && !readOnly && message.conversationId === conversation?.id)
+      startQuote(message);
+  });
+  useEffect(() => {
+    if (!searchQuote || !tabActive || searchQuote.conversationId !== conversation?.id) return;
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      onSearchQuoteHandled?.(searchQuote);
+      quoteSearchMessage(searchQuote);
+    });
+    return () => {
+      active = false;
+    };
+  }, [searchQuote, tabActive, conversation?.id, quoteSearchMessage, onSearchQuoteHandled]);
   const rowLongPress = useStableCallback(
     (point: { x: number; y: number }, message: Message, target?: EventTarget | null) =>
       openMobileMessageMenu(point, message, undefined, undefined, target),
@@ -6693,7 +6701,17 @@ function ChatPaneContent({
                 }
                 compact={compactHeader}
                 showPortrait={Boolean(portraitPeer && intentStatus.data?.profileEnabled)}
-                onSearch={onSearchChatRecords ? () => onSearchChatRecords(conversation) : undefined}
+                onSearch={
+                  onSearchChatRecords
+                    ? () =>
+                        onSearchChatRecords(
+                          conversation,
+                          !restrictedSource && !readOnly && composerVisible
+                            ? quoteSearchMessage
+                            : undefined,
+                        )
+                    : undefined
+                }
                 onImportant={canOpenImportant ? openImportantMessages : undefined}
                 dismissJumpActions={
                   compactHeader

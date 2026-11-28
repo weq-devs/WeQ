@@ -38,6 +38,12 @@
   border-top: 0;
 }
 
+.weq-conversation-records > .selection-bar {
+  flex: none;
+  padding: 6px 26px 8px 18px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
 .weq-record-search-bar {
   display: flex;
   flex: none;
@@ -246,6 +252,34 @@
 
 button.weq-record-media-thumbnail {
   cursor: pointer;
+}
+
+.weq-conversation-records .weq-chatrecords-msg.selection-mode {
+  padding-inline-start: calc(18px + var(--weq-message-selection-lane));
+}
+
+.weq-conversation-records .weq-chatrecords-msg.selection-mode > .message-select-mark {
+  inset-inline-start: 18px;
+}
+
+.weq-record-media-thumbnail.selection-mode {
+  padding-inline-start: 0;
+}
+
+.weq-record-media-thumbnail.selection-mode > .message-select-mark {
+  z-index: 1;
+  inset-block-start: 6px;
+  inset-inline-start: 6px;
+  translate: none;
+}
+
+.weq-record-media-thumbnail.selection-mode:not(.is-selected) > .message-select-mark {
+  background-color: var(--weq-bg-surface, var(--background));
+}
+
+.weq-record-media-thumbnail.is-selected {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
 }
 
 .weq-record-filter-trigger:focus-visible,

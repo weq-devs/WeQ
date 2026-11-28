@@ -120,7 +120,7 @@ export function GroupChatPanel({
   const addingMember = useRef(false);
   const removingMember = useRef(false);
   const [settingsSection, setSettingsSection] = useState<'members' | 'management'>('members');
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchState, setSearchState] = useState<'closed' | 'open' | 'suspended'>('closed');
   const [memberSearchKeyword, setMemberSearchKeyword] = useState('');
   const [jumpRequest, setJumpRequest] = useState(
     searchTarget ? { messageId: searchTarget.messageId, revision: 0 } : undefined,
@@ -466,14 +466,16 @@ export function GroupChatPanel({
               setSettingsAnchor(anchor);
               setMembersOpen(true);
             }}
-            onSearchChatRecords={() => setSearchOpen(true)}
+            onSearchChatRecords={() => setSearchState('open')}
             jumpRequest={jumpRequest}
           />
         )}
       </AiImageComposer>
-      {searchOpen ? (
+      {searchState !== 'closed' ? (
         <ChatRecordsModal
+          key={viewId}
           fixed
+          suspended={searchState === 'suspended'}
           initialKeyword=""
           initialHit={{
             category: 'chatRecord',
@@ -495,7 +497,8 @@ export function GroupChatPanel({
                 revision: (request?.revision ?? 0) + 1,
               })),
           }}
-          onClose={() => setSearchOpen(false)}
+          onClose={() => setSearchState('closed')}
+          onSuspend={() => setSearchState('suspended')}
           onJumpMessage={() => {}}
         />
       ) : null}

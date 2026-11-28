@@ -127,7 +127,7 @@ export function AssistantPanel({
   const [draftGeneration, setDraftGeneration] = useState<AssistantSessionGeneration>({});
   const [generationError, setGenerationError] = useState('');
   const generationWrite = useRef(false);
-  const [search, setSearch] = useState(false);
+  const [searchState, setSearchState] = useState<'closed' | 'open' | 'suspended'>('closed');
   const [jump, setJump] = useState(
     searchTarget ? { messageId: searchTarget.messageId, revision: 0 } : undefined,
   );
@@ -636,7 +636,7 @@ export function AssistantPanel({
             }
             onOpenConversationSettings={(_conversation, anchor) => setSettings({ anchor })}
             settingsLabel="助手设置"
-            onSearchChatRecords={() => setSearch(true)}
+            onSearchChatRecords={() => setSearchState('open')}
             jumpRequest={jump}
             emptyTimeline={
               <section className="weq-assistant-starters" aria-label="推荐提示词">
@@ -753,9 +753,11 @@ export function AssistantPanel({
           }}
         />
       ) : null}
-      {search ? (
+      {searchState !== 'closed' ? (
         <ChatRecordsModal
+          key={viewId}
           fixed
+          suspended={searchState === 'suspended'}
           initialKeyword=""
           initialHit={{
             category: 'chatRecord',
@@ -773,7 +775,8 @@ export function AssistantPanel({
             user,
             onJump: (messageId) => setJump({ messageId, revision: Date.now() }),
           }}
-          onClose={() => setSearch(false)}
+          onClose={() => setSearchState('closed')}
+          onSuspend={() => setSearchState('suspended')}
           onJumpMessage={() => {}}
         />
       ) : null}

@@ -193,6 +193,7 @@ export function useReadonlyMessageMenu({
     ) : null;
   return {
     rowProps,
+    mediaSave,
     menu: (
       <>
         {menu}

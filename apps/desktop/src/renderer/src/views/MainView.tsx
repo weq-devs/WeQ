@@ -2798,7 +2798,7 @@ function MainWorkspace(): ReactElement {
 
   // 聊天顶栏「搜索聊天记录」：把当前会话固化为搜索目标，打开单会话版聊天记录模态。
   const handleSearchChatRecords = useCallback(
-    (conversation: Conversation) => {
+    (conversation: Conversation, quote?: (message: Message) => void) => {
       const scope = messageScopeRef.current;
       if (!scope) return;
       let hit: ChatRecordSearchHit;
@@ -2831,8 +2831,8 @@ function MainWorkspace(): ReactElement {
         previous?.scope === scope &&
         previous.hit.source === hit.source &&
         previous.hit.targetUid === hit.targetUid
-          ? { ...previous, suspended: false }
-          : { hit, scope, suspended: false },
+          ? { ...previous, conversation, quote, suspended: false }
+          : { hit, scope, conversation, quote, suspended: false },
       );
     },
     [messageScopeRef],
@@ -2967,10 +2967,17 @@ function MainWorkspace(): ReactElement {
   const [chatRecordsTarget, setChatRecordsTarget] = useState<{
     hit: ChatRecordSearchHit;
     scope: string;
+    conversation: Conversation;
+    quote?: (message: Message) => void;
     suspended: boolean;
   } | null>(null);
+  const [searchQuote, setSearchQuote] = useState<{ scope: string; message: Message } | null>(null);
+  const clearSearchQuote = useCallback((message: Message) => {
+    setSearchQuote((previous) => (previous?.message === message ? null : previous));
+  }, []);
   useEffect(() => {
     setChatRecordsTarget((previous) => (previous?.scope === messageScope ? previous : null));
+    setSearchQuote((previous) => (previous?.scope === messageScope ? previous : null));
   }, [messageScope]);
 
   // 统一的 profile 内存缓存：listProfiles 预热 + 缺失项按需批量补全，所有消费方
@@ -12220,6 +12227,10 @@ function MainWorkspace(): ReactElement {
                             onOpenGapMessages={handleOpenGapMessages}
                             onLoadSelectionMessages={loadSelectionMessages}
                             onSearchChatRecords={handleSearchChatRecords}
+                            searchQuote={
+                              searchQuote?.scope === messageScope ? searchQuote.message : undefined
+                            }
+                            onSearchQuoteHandled={clearSearchQuote}
                             onOpenRoamingBackfill={(conversation) => {
                               const target = conversationRoamingTarget(conversation);
                               if (target) handleRoamingTargets([target]);
@@ -12819,6 +12830,35 @@ function MainWorkspace(): ReactElement {
               initialKeyword=""
               fixed
               accountBinding={pinSession.binding ?? undefined}
+              actions={{
+                conversation: chatRecordsTarget.conversation,
+                sendBlockedReason: sendAvailable && !qqReadOnly ? undefined : 'QQ 在线能力暂不可用',
+                quote: chatRecordsTarget.quote
+                  ? (message) => {
+                      if (selectedConversation?.id === chatRecordsTarget.conversation.id) {
+                        chatRecordsTarget.quote?.(message);
+                        return;
+                      }
+                      const { source, targetUid } = chatRecordsTarget.hit;
+                      setSearchQuote({ scope: chatRecordsTarget.scope, message });
+                      jumpToConvSeq(
+                        source === 'group' ? 'group' : 'c2c',
+                        targetUid,
+                        undefined,
+                        false,
+                        undefined,
+                        undefined,
+                        { retainChatRecords: true },
+                      );
+                    }
+                  : undefined,
+                forward: (messages) =>
+                  void openSequentialForward(messages, chatRecordsTarget.conversation),
+                merge: (messages) => handleMergeForward(messages, chatRecordsTarget.conversation),
+                addMaterial: pinSession.binding
+                  ? (messages) => handleAddToComposition(messages, chatRecordsTarget.conversation)
+                  : undefined,
+              }}
               suspended={chatRecordsTarget.suspended}
               renderers={messageRenderers}
               user={user}

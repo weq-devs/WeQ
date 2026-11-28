@@ -699,3 +699,115 @@ it('群发送者打开即使用当前排序读取完整名单，按昵称筛选�
     host.remove();
   }
 });
+
+it('会话搜索的消息菜单显示原消息元数据，引用和多选转发保留确切对象', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const root = createRoot(document.createElement('div'));
+  const time = String(Date.parse('2026-11-27T16:05:06Z') / 1000);
+  const makeHit = (id: string, seq: string) => ({
+    msgId: id,
+    msgSeq: seq,
+    clientSeq: String(Number(seq) + 10),
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    senderName: '成员',
+    sendTime: time,
+    content: `合成结果 ${id}`,
+    elements: [{ type: 'text', data: { textContent: `合成结果 ${id}` } }],
+  });
+  const items = [
+    { ...makeHit('920', '35'), source: 'roaming', sourceFormat: 'native' },
+    makeHit('918', '32'),
+    makeHit('910', '14'),
+  ];
+  nativeReads.mockImplementation((path: string) =>
+    path === 'account.browseConversation' ? { items, cursor: null, hasMore: false } : undefined,
+  );
+  const peer = {
+    id: 'u_peer',
+    kind: 'human' as const,
+    username: 'u_peer',
+    identityLabel: 'QQ',
+    identityValue: '20001',
+    displayName: '成员',
+    avatarUrl: null,
+  };
+  const { props } = nativeRecords();
+  const onSuspend = vi.fn();
+  const quote = vi.fn();
+  const forward = vi.fn();
+  const button = (label: string) => {
+    const entry = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (item) => (item.getAttribute('aria-label') ?? item.textContent?.trim()) === label,
+    );
+    expect(entry, label).toBeDefined();
+    return entry!;
+  };
+  const open = async (record: HTMLElement) =>
+    act(async () =>
+      record.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+    );
+  try {
+    await act(async () =>
+      root.render(
+        h(ChatRecordsModal, {
+          ...props,
+          initialHit: { ...props.initialHit, source: 'buddy', targetUid: peer.id },
+          onSuspend,
+          actions: {
+            conversation: {
+              type: 'direct',
+              id: peer.id,
+              otherUser: peer,
+              group: null,
+              members: [],
+              updatedAt: '',
+              lastMessage: null,
+              unreadCount: 0,
+            },
+            quote,
+            forward,
+          },
+        }),
+      ),
+    );
+    const rows = [...document.querySelectorAll<HTMLElement>('.weq-chatrecords-msg')];
+    expect(rows).toHaveLength(3);
+    await open(rows[0]!);
+    const menu = document.querySelector<HTMLElement>('[aria-label="消息操作"]')!;
+    expect(menu.textContent).toContain('2026-11-28 00:05:06');
+    expect(menu.textContent).toContain('QQ 原生漫游');
+    expect(button('复制消息序号 35')).toBeTruthy();
+    expect(button('显示 Markdown')).toBeTruthy();
+    expect(menu.textContent).not.toMatch(/撤回|本地删除|\+1|更多表情/);
+    await act(async () => button('引用').click());
+    expect(onSuspend).toHaveBeenCalledOnce();
+    expect(quote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        msgId: '920',
+        msgSeq: '35',
+        clientSeq: '45',
+        conversationId: peer.id,
+      }),
+    );
+    await open(rows[0]!);
+    await act(async () => button('多选').click());
+    await act(async () =>
+      rows[2]!.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true }),
+      ),
+    );
+    const selection = document.querySelector<HTMLElement>('[aria-label="消息多选操作"]')!;
+    expect(selection.textContent).toContain('3');
+    await act(async () =>
+      selection.querySelector<HTMLButtonElement>('[aria-label="转发"]')!.click(),
+    );
+    expect(forward.mock.lastCall?.[0].map((row: { id: string }) => row.id)).toEqual([
+      '910',
+      '918',
+      '920',
+    ]);
+  } finally {
+    act(() => root.unmount());
+  }
+});

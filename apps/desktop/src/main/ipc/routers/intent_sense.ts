@@ -294,13 +294,23 @@ export const intentSenseFeatureProcedures = {
         conv: z.string().min(1),
         msgId: z.string().min(1),
         manual: z.boolean().optional(),
+        ...optionalAccountBinding,
       }),
     )
-    .mutation(({ input }) =>
-      requireServices().intentSense.analyzeMessage(input.kind, input.conv, input.msgId, {
-        manual: input.manual,
-      }),
-    ),
+    .mutation(async ({ input }) => {
+      assertAccountBinding(input);
+      const services = requireServices();
+      const result = await services.intentSense.analyzeMessage(
+        input.kind,
+        input.conv,
+        input.msgId,
+        {
+          manual: input.manual,
+        },
+      );
+      assertAccountBinding(input);
+      return result;
+    }),
 
   analyzeForwardMessage: procedure
     .input(
