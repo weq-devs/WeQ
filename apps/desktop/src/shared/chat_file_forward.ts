@@ -1,4 +1,5 @@
 import { z } from 'zod/v3';
+import { forwardCacheKindInput } from './forward_cache';
 
 const msgId = z.string().regex(/^\d{1,20}$/);
 
@@ -9,7 +10,7 @@ export const chatFileForwardInput = z.object({
   token: z.string().max(4096),
   conv: z.string().min(1).max(256),
   fwdMsgId: msgId.optional(),
-  fwdKind: z.enum(['c2c', 'group']).optional(),
+  fwdKind: forwardCacheKindInput.optional(),
   fwdResId: z.string().max(4096).optional(),
 });
 

@@ -9,6 +9,7 @@ import {
   type ReactElement,
 } from 'react';
 import { createPortal } from 'react-dom';
+import type { ForwardCacheKind } from '@weq/db';
 import { X } from 'lucide-react';
 import { ForwardCarrierContext, ConvContext } from '../state/messageContext';
 import {
@@ -250,8 +251,8 @@ export function ForwardMultiMsgPreview({
   nestedRecords?: ForwardRecordWire[];
   /** msgId of the carrying message — what we look up in `getForwardMessages`. */
   msgId: string;
-  /** Conversation kind so the lookup hits the right table. */
-  kind: 'c2c' | 'group';
+  /** 承载消息所在的表。 */
+  kind: ForwardCacheKind;
   elementIndex?: number;
   source?: Pick<NonNullable<ForwardWindowState['exportSource']>, 'owner' | 'carrierId'>;
   parentRecord?: import('@weq/service').ForwardRecordTarget;

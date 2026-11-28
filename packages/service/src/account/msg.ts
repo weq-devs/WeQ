@@ -1,4 +1,5 @@
 import { assertQqDatabaseWriteAllowed } from '@weq/db';
+import type { ForwardCacheKind } from '@weq/db';
 /**
  * MsgService — fetch the messages of one conversation by seq cursor.
  *
@@ -1622,13 +1623,14 @@ export class MsgService {
    * into the real forwarded content. Returns [] on any miss / decode error.
    */
   async listForward(
-    kind: 'c2c' | 'group' | 'official' | 'service',
+    kind: ForwardCacheKind | 'official' | 'service',
     msgId: bigint,
   ): Promise<MsgCacheRecord[]> {
     try {
-      return kind === 'group'
-        ? await this.session.forwardMsgs.listGroupForward(msgId)
-        : await this.session.forwardMsgs.listC2cForward(msgId);
+      return await this.session.forwardMsgs.listForward(
+        kind === 'official' || kind === 'service' ? 'c2c' : kind,
+        msgId,
+      );
     } catch {
       return [];
     }
@@ -1652,7 +1654,7 @@ export class MsgService {
    * carries several media of the same kind.
    */
   async findForwardedMediaElement(
-    kind: 'c2c' | 'group',
+    kind: ForwardCacheKind,
     msgId: bigint,
     subMsgId: bigint,
     mediaKind: 'video' | 'file' | 'ptt',

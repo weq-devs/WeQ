@@ -1,4 +1,6 @@
 import { bounded, networkFetch } from '@weq/network';
+import type { ForwardCacheKind } from '@weq/db';
+import { forwardCacheKindInput } from '../shared/forward_cache';
 /**
  * `weq-media://` — streams a chat message's on-disk media to the renderer.
  *
@@ -102,7 +104,7 @@ export async function resolveVoiceSilk(
     msgId: string;
     conv: string;
     fwdMsgId?: string;
-    fwdKind?: 'c2c' | 'group';
+    fwdKind?: ForwardCacheKind;
     fwdResId?: string;
   },
   check = () => mediaBinding.getStore()?.(),
@@ -170,7 +172,7 @@ export async function findMediaElement(
   kind: 'video' | 'file' | 'ptt',
   token: string,
   fwdMsgId = '',
-  fwdKind?: 'group' | 'c2c',
+  fwdKind?: ForwardCacheKind,
   fwdResId?: string,
   fileName?: string,
 ): Promise<{ element: MediaElement; conv: 'group' | 'c2c' | null } | null> {
@@ -1131,11 +1133,7 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
           const msgId = q.get('msgId') ?? '';
           const conv = q.get('conv') ?? '';
           const fwdMsgId = q.get('fwdMsgId') ?? '';
-          const fwdKind = q.has('fwdKind')
-            ? q.get('fwdKind') === 'group'
-              ? 'group'
-              : 'c2c'
-            : undefined;
+          const fwdKind = forwardCacheKindInput.safeParse(q.get('fwdKind')).data;
           const fwdResId = q.get('fwdResId') ?? undefined;
           const groupId = Number(conv) || 0;
           const accountServices = services;
@@ -1257,11 +1255,7 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
             conv: q.get('conv') ?? '',
             fwdMsgId: q.get('fwdMsgId') ?? undefined,
             fwdResId: q.get('fwdResId') ?? undefined,
-            fwdKind: q.has('fwdKind')
-              ? q.get('fwdKind') === 'group'
-                ? 'group'
-                : 'c2c'
-              : undefined,
+            fwdKind: forwardCacheKindInput.safeParse(q.get('fwdKind')).data,
           });
           if (!silk) return notFound('ptt not found');
           return await voiceResponse(silk, kind, request);

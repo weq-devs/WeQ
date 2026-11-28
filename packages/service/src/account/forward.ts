@@ -1,7 +1,6 @@
 /**
  * ForwardMsgService — fetch the merged-forward / quote-reply cache (40900) for
- * one message, by msgId. Group and c2c are separate methods because they hit
- * different tables (group_msg_table / c2c_msg_table).
+ * one message, by storage kind and msgId.
  *
  * Returns the repeated `MsgCacheRecord[]` from tag 40900 — each record a
  * full cached message snapshot, possibly nesting its own 40900 list (deep
@@ -16,7 +15,7 @@
 
 import type { AccountSession } from '@weq/account';
 import type { MsgCacheRecord } from '@weq/codec';
-import type { UserProfile } from '@weq/db';
+import type { ForwardCacheKind, UserProfile } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import { decodeMessage, encode, fetchForwardRaw, PUSH_MSG_BODY } from '@weqbot/protocol';
 import { renderDecodedElements } from './gap_history';
@@ -62,14 +61,16 @@ export class ForwardMsgService {
 
   /** Forward/reply cache for a c2c message. */
   async getC2cForward(msgId: bigint): Promise<MsgCacheRecord[]> {
-    const records = await this.session.forwardMsgs.listC2cForward(msgId);
-    await this.resolveSenders(records);
-    return records;
+    return this.getLocal('c2c', msgId);
   }
 
   /** Forward/reply cache for a group message. */
   async getGroupForward(msgId: bigint): Promise<MsgCacheRecord[]> {
-    const records = await this.session.forwardMsgs.listGroupForward(msgId);
+    return this.getLocal('group', msgId);
+  }
+
+  async getLocal(kind: ForwardCacheKind, msgId: bigint): Promise<MsgCacheRecord[]> {
+    const records = await this.session.forwardMsgs.listForward(kind, msgId);
     await this.resolveSenders(records);
     return records;
   }

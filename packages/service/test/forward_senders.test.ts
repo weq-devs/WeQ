@@ -19,8 +19,7 @@ function fixture(records: MsgCacheRecord[] = []) {
     selfUid: 'u_self',
     uidMap: UidMap.from([{ sortNo: 1n, uid: 'u_friend', uin: 10002n }]),
     forwardMsgs: {
-      listC2cForward: async () => records,
-      listGroupForward: async () => records,
+      listForward: async () => records,
     },
     profileInfo: { profilesByUids, getProfileByUin },
   } as unknown as AccountSession;

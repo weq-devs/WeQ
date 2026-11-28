@@ -1,3 +1,5 @@
+import type { ForwardCacheKind } from '@weq/db';
+
 export type MediaSaveSource =
   | { kind: 'url'; url: string; name?: string; progressTarget?: string }
   | {
@@ -7,7 +9,7 @@ export type MediaSaveSource =
       token?: string;
       conv?: string;
       fwdMsgId?: string;
-      fwdKind?: 'c2c' | 'group';
+      fwdKind?: ForwardCacheKind;
       fwdResId?: string;
     }
   | { kind: 'group-file'; groupCode: string; fileId: string; fileName: string; busId?: number };

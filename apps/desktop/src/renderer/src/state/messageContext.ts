@@ -1,4 +1,5 @@
 import { createContext } from 'react';
+import type { ForwardCacheKind } from '@weq/db';
 import type { UnreadMessageIdentity } from '../lib/unreadNavigation';
 
 /**
@@ -32,11 +33,9 @@ export type ReplyJump = (
 const replyJumpContext = createContext<ReplyJump>(() => {});
 
 /**
- * The conversation kind of the open chat. MultiMsg lookups (合并转发) hit a
- * different DB table for c2c vs group, so the preview bubble needs the host
- * to tell it which side to query. Defaults to 'c2c' for safety in tests.
+ * 承载消息所在的表。合并转发详情和附件都要用它定位 40900。
  */
-export const ForwardKindContext = createContext<'c2c' | 'group'>('c2c');
+export const ForwardKindContext = createContext<ForwardCacheKind>('c2c');
 
 /**
  * Group code (群号) of the open chat, or '' for c2c. Video / file OIDB
@@ -57,7 +56,7 @@ export const ConvContext = createContext<string>('');
  */
 export interface ForwardCarrier {
   msgId: string;
-  kind: 'c2c' | 'group';
+  kind: ForwardCacheKind;
   resId?: string;
 }
 export const ForwardCarrierContext = createContext<ForwardCarrier | null>(null);

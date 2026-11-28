@@ -1,5 +1,6 @@
 import type { PreviewNode } from '../../lib/conversationPreview';
 import type { SetEmojiItem } from '@weq/codec';
+import type { ForwardCacheKind } from '@weq/db';
 import type { RecallInfo } from '@weq/service';
 import type { LocalMediaRef } from './composerSend';
 import type { RepeatElement } from '../../lib/messageRepeat';
@@ -382,7 +383,7 @@ export type Message = {
   /** 转发内部的展示快照，不是可用 getRawElements 回读的会话消息。 */
   forwardSnapshot?: {
     carrierId: string;
-    kind: 'c2c' | 'group';
+    kind: ForwardCacheKind;
     conv: string;
     resId?: string;
     replyTargetId?: string;

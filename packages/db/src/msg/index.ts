@@ -15,7 +15,7 @@ export { isSenderUid } from './group';
 export type { GroupMsgDbOptions } from './group';
 
 export { ForwardMsgDb } from './forward';
-export type { ForwardMsgDbOptions } from './forward';
+export type { ForwardMsgDbOptions, ForwardCacheKind } from './forward';
 
 export { BuddyMsgFtsDb } from './buddy_msg_fts';
 export type { BuddyMsgFtsDbOptions } from './buddy_msg_fts';

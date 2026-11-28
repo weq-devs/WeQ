@@ -92,7 +92,12 @@ import {
   watchTransferPolicy,
 } from '../../common/transfer_policy';
 import { MessageJournal } from './message_journal';
-import { beginQqFileWrite, isLikelyCorruptionError, withDatabaseWorkload } from '@weq/db';
+import {
+  beginQqFileWrite,
+  isLikelyCorruptionError,
+  withDatabaseWorkload,
+  type ForwardCacheKind,
+} from '@weq/db';
 import {
   DatabaseRecoveryGate,
   DatabaseRecoveryStopped,
@@ -601,7 +606,7 @@ export type ResumableResourceRequest =
             conv?: string;
             token?: string;
             fwdMsgId?: string;
-            fwdKind?: 'c2c' | 'group';
+            fwdKind?: ForwardCacheKind;
             fwdResId?: string;
           }
         | { kind: 'url'; url: string; name?: string };

@@ -15,8 +15,11 @@ import { client } from '../../trpc/client';
 import { accountBinding } from '../../lib/clientPreferences';
 import { aiAssistantAvatarDataUri } from '../../lib/aiAssistantAvatar';
 import { ChatPane } from '../../im-template/template/chatPane';
+import { composeMessageRenderers } from '../../im-template/template/messageRenderers';
 import type { DirectConversation, User } from '../../im-template/template/types';
+import { ForwardKindContext } from '../../state/messageContext';
 import { EmptyState } from '../EmptyState';
+import { qqMessageRenderer } from '../QqMessageContent.shared';
 import { aiMessageRenderer } from './aiMessageRenderer';
 import { AiSessionSwitcher } from './AiSessionSwitcher';
 import { aiMessagesToTimeline } from './aiTimeline';
@@ -25,7 +28,7 @@ import type {
   AiAssistantSessionWire,
 } from '../../../../shared/aiAssistantTypes';
 
-const renderers = [aiMessageRenderer];
+const renderers = composeMessageRenderers({ prepend: [aiMessageRenderer, qqMessageRenderer] });
 const emptyDraft = () => {};
 const noSend = async () => {
   throw new Error('AI 助手只读，暂不支持发送消息');
@@ -131,54 +134,56 @@ export function AiAssistantPane({
   );
 
   return (
-    <ChatPane
-      user={user}
-      conversation={conversation}
-      messages={timeline}
-      messageRenderers={renderers}
-      loading={loading && messages.length === 0}
-      loadError={error || undefined}
-      composerVisible={false}
-      readOnly
-      sendAvailable={false}
-      preference={undefined}
-      draft=""
-      onDraftChange={emptyDraft}
-      onDraftClear={emptyDraft}
-      onSend={noSend}
-      onBack={onBack}
-      atLatest
-      headerActions={
-        <AiSessionSwitcher
-          sessions={sessions}
-          activeSessionId={sessionId}
-          fallbackTitle="小Q"
-          error={sessionsError}
-          onSelect={(next) => setSessionId(next)}
-        />
-      }
-      timelineNotice={
-        error ? (
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="重新读取消息"
-            title="重新读取消息"
-            onClick={() => void loadMessages(sessionId)}
-          >
-            <RefreshCw size={16} aria-hidden />
-          </button>
-        ) : null
-      }
-      emptyTimeline={
-        activeSession && activeSession.messageCount === 0 ? (
-          <EmptyState
-            title="这个会话还没有消息"
-            body="AI 助手的会话内容在 QQ 内产生，WeQ 只做只读展示。"
-            icon={<MessageSquareText />}
+    <ForwardKindContext.Provider value="aiAssistant">
+      <ChatPane
+        user={user}
+        conversation={conversation}
+        messages={timeline}
+        messageRenderers={renderers}
+        loading={loading && messages.length === 0}
+        loadError={error || undefined}
+        composerVisible={false}
+        readOnly
+        sendAvailable={false}
+        preference={undefined}
+        draft=""
+        onDraftChange={emptyDraft}
+        onDraftClear={emptyDraft}
+        onSend={noSend}
+        onBack={onBack}
+        atLatest
+        headerActions={
+          <AiSessionSwitcher
+            sessions={sessions}
+            activeSessionId={sessionId}
+            fallbackTitle="小Q"
+            error={sessionsError}
+            onSelect={(next) => setSessionId(next)}
           />
-        ) : undefined
-      }
-    />
+        }
+        timelineNotice={
+          error ? (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="重新读取消息"
+              title="重新读取消息"
+              onClick={() => void loadMessages(sessionId)}
+            >
+              <RefreshCw size={16} aria-hidden />
+            </button>
+          ) : null
+        }
+        emptyTimeline={
+          activeSession && activeSession.messageCount === 0 ? (
+            <EmptyState
+              title="这个会话还没有消息"
+              body="AI 助手的会话内容在 QQ 内产生，WeQ 只做只读展示。"
+              icon={<MessageSquareText />}
+            />
+          ) : undefined
+        }
+      />
+    </ForwardKindContext.Provider>
   );
 }

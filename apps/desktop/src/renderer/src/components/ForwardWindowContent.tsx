@@ -308,7 +308,7 @@ function ForwardWindowFrame({
               <ChatMediaGallery
                 scopeKey={String(win.id)}
                 conv={win.conv}
-                kind={win.kind}
+                kind={win.kind === 'group' ? 'group' : 'c2c'}
                 carrier={carrier}
                 messages={galleryMessages}
               >
@@ -361,7 +361,12 @@ function ForwardScroll({
   }
 
   const renderRow = (entry: ForwardEntry) => (
-    <ForwardRow entry={entry} kind={win.kind} windowId={win.id} interactive={Boolean(actions)} />
+    <ForwardRow
+      entry={entry}
+      kind={win.kind === 'group' ? 'group' : 'c2c'}
+      windowId={win.id}
+      interactive={Boolean(actions)}
+    />
   );
   if (actions)
     return (

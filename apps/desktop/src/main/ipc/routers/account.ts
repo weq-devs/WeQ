@@ -21,6 +21,7 @@ import { plainContentText } from '@weq/service/message-plain-text';
 import { setReactionWithRecent } from '../../recent_reactions';
 import { ChatFileForward } from '../../chat_file_forward';
 import { chatFileForwardInput } from '../../../shared/chat_file_forward';
+import { forwardCacheKindInput } from '../../../shared/forward_cache';
 import {
   albumAccessState,
   albumSelectionInput,
@@ -5806,7 +5807,7 @@ export const accountRouter = router({
   getForwardMessages: procedure
     .input(
       z.object({
-        kind: z.enum(['c2c', 'group']),
+        kind: forwardCacheKindInput,
         msgId: z.string().min(1),
         /**
          * Optional server resource id of the merged forward. When the local
@@ -5825,11 +5826,7 @@ export const accountRouter = router({
       // 带服务端签发的 resId，点开就能拉到内容）。
       const msgId = /^\d+$/.test(input.msgId) ? BigInt(input.msgId) : null;
       const records =
-        msgId === null || msgId <= 0n
-          ? []
-          : input.kind === 'group'
-            ? await service.getGroupForward(msgId)
-            : await service.getC2cForward(msgId);
+        msgId === null || msgId <= 0n ? [] : await service.getLocal(input.kind, msgId);
       if (records.length === 0 && input.resId) {
         // 40900 缓存为空 -> 走协议在线拉取。要求 QQ 在线且未开「完全离线模式」。
         const state = albumAccessState(requireServices());
@@ -10334,7 +10331,7 @@ export const accountRouter = router({
         forward: z
           .object({
             carrierId: z.string(),
-            kind: z.enum(['c2c', 'group']),
+            kind: forwardCacheKindInput,
             conv: z.string(),
             resId: z.string().max(4096).optional(),
           })
