@@ -298,7 +298,6 @@
   background: transparent;
   color: var(--weq-fg-primary);
   font: inherit;
-  font-weight: 600;
   text-align: start;
   cursor: pointer;
 }

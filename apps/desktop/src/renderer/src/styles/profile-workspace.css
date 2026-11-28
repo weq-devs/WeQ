@@ -162,11 +162,15 @@ html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
 }
 
 /* 小节标题：名片分区与资料页子块共用，13px 加粗，不喧宾夺主。 */
+.weq-profile-subtitle,
+.weq-profile-disclosure-trigger > span {
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .weq-profile-subtitle {
   margin: 0;
   color: var(--weq-fg-primary);
-  font-size: 13px;
-  font-weight: 600;
   line-height: 1.5;
 }
 
