@@ -69,6 +69,7 @@ type MessageGroupKey = {
   senderId?: string;
   senderUid?: string;
   senderSnapshotId?: string;
+  historicalSenderName?: string | null;
   time: number;
   provisionalTime?: boolean;
 };
@@ -94,6 +95,9 @@ export function consecutiveMessageGroups<T>(
         (!key.senderSnapshotId ||
           !previous.senderSnapshotId ||
           key.senderSnapshotId === previous.senderSnapshotId) &&
+        (key.historicalSenderName === undefined ||
+          previous.historicalSenderName === undefined ||
+          key.historicalSenderName === previous.historicalSenderName) &&
         // 排队占位用本地提交时间，逐条换成 QQ 时间时，相邻两条可能短暂倒序。
         (key.time >= previous.time || key.provisionalTime || previous.provisionalTime) &&
         !shouldShowMessageTime(
@@ -110,6 +114,10 @@ export function consecutiveMessageGroups<T>(
           senderId: key.senderId || previous.senderId,
           senderUid: key.senderUid || previous.senderUid,
           senderSnapshotId: key.senderSnapshotId || previous.senderSnapshotId,
+          historicalSenderName:
+            key.historicalSenderName === undefined
+              ? previous.historicalSenderName
+              : key.historicalSenderName,
         };
         continue;
       }
@@ -146,14 +154,16 @@ export function messageGroups(
         return {
           senderId: message.senderId,
           senderUid: message.senderUid,
+          // 发送占位没有历史称呼，QQ 回声也可能先于历史称呼读回。
+          historicalSenderName:
+            message.historicalSenderName ??
+            (message.optimistic || message.outgoingId ? undefined : null),
           time,
           provisionalTime: Boolean(message.optimistic),
         };
       }
     },
-    (previous, message) =>
-      previous.historicalSenderName !== message.historicalSenderName ||
-      breakBefore(previous, message),
+    breakBefore,
   );
 }
 
