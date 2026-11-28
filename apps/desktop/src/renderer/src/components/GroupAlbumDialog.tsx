@@ -5,6 +5,7 @@ import { observeCompactToolbar } from './CompactToolbar.shared';
 import { NumericText } from './NumericText';
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -45,8 +46,10 @@ import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../lib/autoRead';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { resourceForRenderDocument, useRenderDocument } from '../lib/renderDocument';
-import { usePageDataCache } from './PageSnapshots.shared';
-import { PageDataCache } from '../lib/pageDataCache';
+import { usePageDataCache, usePageState } from './PageSnapshots.shared';
+import { PageScrollSnapshot } from './PageScrollSnapshot';
+import { pageValue } from '../lib/pageSnapshots';
+import { isRecentPageRead, PageDataCache } from '../lib/pageDataCache';
 import { GroupResourceNavigation } from './GroupResourceNavigation';
 import '../styles/group-media.css';
 import '../styles/group-album-browser.css';
@@ -54,6 +57,8 @@ import '../styles/group-album-browser.css';
 type AccountOutput = inferRouterOutputs<AppRouter>['account'];
 export type GroupAlbumWire = AccountOutput['listGroupAlbums'][number];
 type AlbumMediaWire = AccountOutput['listGroupAlbumMedia'][number];
+type AlbumListSnapshot = AccountOutput['listGroupAlbumBrowse'] & { checkedAt: number };
+type AlbumMediaSnapshot = { items: AlbumMediaWire[]; checkedAt: number };
 
 type MediaState =
   | { status: 'idle'; album: GroupAlbumWire | null; items: AlbumMediaWire[]; error: string | null }
@@ -107,18 +112,45 @@ function GroupAlbumDialogBody({
       mediaController.current?.abort();
     };
   }, []);
-  const [albums, setAlbums] = useState<GroupAlbumWire[]>(initialAlbums ?? []);
-  const [hasAlbumSnapshot, setHasAlbumSnapshot] = useState(initialAlbums !== undefined);
-  const [loadingAlbums, setLoadingAlbums] = useState(!initialAlbums);
+  const [fallbackCache] = useState(() => new PageDataCache());
+  const pageCache = usePageDataCache(fallbackCache);
+  const listKey = JSON.stringify(['group-albums', binding, groupCode]);
+  const [albumSnapshot, setAlbumSnapshot] = useState(() =>
+    pageCache.read<AlbumListSnapshot>(listKey),
+  );
+  const albums = albumSnapshot?.albums ?? initialAlbums ?? [];
+  const hasAlbumSnapshot = albumSnapshot !== undefined || initialAlbums !== undefined;
+  const [loadingAlbums, setLoadingAlbums] = useState(activity.enabled && !hasAlbumSnapshot);
   const [albumError, setAlbumError] = useState<string | null>(null);
-  const [albumIncomplete, setAlbumIncomplete] = useState(false);
+  const albumIncomplete = albumSnapshot?.complete === false;
   const [albumRevision, setAlbumRevision] = useState(0);
-  const [search, setSearch] = useState('');
+  const lastAlbumRead = useRef({
+    revision: 0,
+    activityRevision: activity.revision,
+    checkedAt: albumSnapshot?.checkedAt ?? 0,
+  });
+  const [search, setSearch] = usePageState(
+    `group-albums:${groupCode}:search`,
+    '',
+    pageValue.string,
+  );
+  const [lastAlbumId, setLastAlbumId] = usePageState<string | null>(
+    `group-albums:${groupCode}:selected`,
+    null,
+    pageValue.optionalString,
+    false,
+    !initialAlbumId,
+  );
   const [sort, setSort] = usePreferenceState('groupAlbumSort');
-  const [albumVisibleCount, setAlbumVisibleCount] = useState(120);
-  useEffect(() => setAlbumVisibleCount(120), [search, sort]);
+  const [albumVisibleCount, setAlbumVisibleCount] = usePageState(
+    `group-albums:${groupCode}:visible`,
+    120,
+    pageValue.number,
+  );
   const body = useRef<HTMLDivElement>(null);
   const listPosition = useRef(0);
+  const mediaKey = (albumId: string) =>
+    JSON.stringify(['group-album-media', binding, groupCode, albumId]);
   const [mediaState, setMediaState] = useState<MediaState>({
     status: 'idle',
     album: null,
@@ -129,6 +161,7 @@ function GroupAlbumDialogBody({
     const revision = ++run.current;
     mediaController.current?.abort();
     const albumId = mediaState.album?.id;
+    setLastAlbumId(null);
     setMediaState({ status: 'idle', album: null, items: [], error: null });
     view.requestAnimationFrame(() => {
       if (alive.current && revision === run.current && body.current) {
@@ -151,18 +184,46 @@ function GroupAlbumDialogBody({
       setLoadingAlbums(false);
       return;
     }
-    if (initialAlbums && albumRevision === 0 && activity.revision === 0) return undefined;
+    const forced =
+      lastAlbumRead.current.revision !== albumRevision ||
+      lastAlbumRead.current.activityRevision !== activity.revision;
+    if (
+      !forced &&
+      (isRecentPageRead(lastAlbumRead.current.checkedAt) ||
+        (initialAlbums && albumRevision === 0 && activity.revision === 0))
+    )
+      return;
+    lastAlbumRead.current = {
+      revision: albumRevision,
+      activityRevision: activity.revision,
+      checkedAt: 0,
+    };
     const controller = new AbortController();
     setLoadingAlbums(true);
     readWithRetry(
-      () => client.account.listGroupAlbumBrowse.query({ groupCode, ...binding }),
+      () =>
+        client.account.listGroupAlbumBrowse.query(
+          { groupCode, ...binding },
+          { signal: controller.signal },
+        ),
       controller.signal,
     )
       .then((page) => {
         if (controller.signal.aborted) return;
-        setAlbums(page.albums);
-        setHasAlbumSnapshot(true);
-        setAlbumIncomplete(!page.complete);
+        const checkedAt = page.complete ? Date.now() : 0;
+        lastAlbumRead.current.checkedAt = checkedAt;
+        // 不完整的回包可以补入已确认条目，缺失项等完整清单再移除。
+        const previous = page.complete ? undefined : pageCache.read<AlbumListSnapshot>(listKey);
+        const ids = new Set(page.albums.map((album) => album.id));
+        const snapshot = {
+          ...page,
+          albums: previous
+            ? [...page.albums, ...previous.albums.filter((album) => !ids.has(album.id))]
+            : page.albums,
+          checkedAt,
+        };
+        pageCache.write(listKey, snapshot);
+        setAlbumSnapshot(snapshot);
         setAlbumError(null);
       })
       .catch((e) => {
@@ -175,45 +236,56 @@ function GroupAlbumDialogBody({
     return () => {
       controller.abort();
     };
-  }, [groupCode, binding, initialAlbums, albumRevision, activity.enabled, activity.revision]);
+  }, [
+    groupCode,
+    binding,
+    initialAlbums,
+    albumRevision,
+    activity.enabled,
+    activity.revision,
+    pageCache,
+    listKey,
+  ]);
 
-  const [mediaCache] = useState(() => new PageDataCache());
-  const pageCache = usePageDataCache(mediaCache);
   const activeTitle = mediaState.album?.title || '';
   const bodyTitle = mediaState.album ? activeTitle : '群相册';
 
-  async function openAlbum(album: GroupAlbumWire): Promise<void> {
-    if (!activity.enabled) return;
+  async function openAlbum(album: GroupAlbumWire, force = false): Promise<void> {
+    const cacheKey = mediaKey(album.id);
+    const cached = pageCache.read<AlbumMediaSnapshot>(cacheKey);
+    if (!activity.enabled && !cached) return;
     mediaController.current?.abort();
     const controller = new AbortController();
     mediaController.current = controller;
     const revision = ++run.current;
     if (!mediaState.album) listPosition.current = body.current?.scrollTop ?? 0;
-    const cacheKey = JSON.stringify(['group-album-media', binding, groupCode, album.id]);
-    const cached = pageCache.read<AlbumMediaWire[]>(cacheKey);
+    setLastAlbumId(album.id);
     setMediaState((previous) => ({
       status: cached !== undefined ? 'ready' : 'loading',
       album,
-      items: previous.album?.id === album.id ? previous.items : (cached ?? []),
+      items: previous.album?.id === album.id ? previous.items : (cached?.items ?? []),
       error: null,
     }));
+    if (!activity.enabled || (!force && cached && isRecentPageRead(cached.checkedAt))) return;
+    if (force && cached) pageCache.write(cacheKey, { ...cached, checkedAt: 0 });
     try {
-      const access = await client.account.getGroupAlbumAccessState.query();
+      const access = await client.account.getGroupAlbumAccessState.query(undefined, {
+        signal: controller.signal,
+      });
       if (!alive.current || revision !== run.current) return;
       if (!access.qqOnline) {
         throw new Error('需要先登录该账号的 QQ 客户端。');
       }
       const items = await readWithRetry(
         () =>
-          client.account.listGroupAlbumMedia.query({
-            groupCode,
-            albumId: album.id,
-            ...binding,
-          }),
+          client.account.listGroupAlbumMedia.query(
+            { groupCode, albumId: album.id, ...binding },
+            { signal: controller.signal },
+          ),
         controller.signal,
       );
       if (!alive.current || revision !== run.current) return;
-      pageCache.write(cacheKey, items);
+      pageCache.write(cacheKey, { items, checkedAt: Date.now() } satisfies AlbumMediaSnapshot);
       setMediaState({ status: 'ready', album, items, error: null });
     } catch (e) {
       if (!alive.current || revision !== run.current) return;
@@ -230,8 +302,13 @@ function GroupAlbumDialogBody({
   openRef.current = openAlbum;
   const currentAlbum = useRef(mediaState.album);
   currentAlbum.current = mediaState.album;
+  const mediaActivityRevision = useRef(activity.revision);
   useEffect(() => {
-    if (activity.enabled && currentAlbum.current) void openRef.current(currentAlbum.current);
+    if (activity.enabled) {
+      const resumed = mediaActivityRevision.current !== activity.revision;
+      mediaActivityRevision.current = activity.revision;
+      if (currentAlbum.current) void openRef.current(currentAlbum.current, resumed);
+    }
     if (!activity.enabled)
       setMediaState((previous) =>
         previous.status === 'loading' ? { ...previous, status: 'ready' } : previous,
@@ -242,28 +319,38 @@ function GroupAlbumDialogBody({
     };
   }, [activity.enabled, activity.revision]);
   const handledSearch = useRef('');
-  useEffect(() => {
+  const targetAlbumId = initialAlbumId ?? lastAlbumId;
+  useLayoutEffect(() => {
     if (
-      !activity.enabled ||
       !hasAlbumSnapshot ||
-      !initialAlbumId ||
-      loadingAlbums ||
-      handledSearch.current === initialAlbumId
+      !targetAlbumId ||
+      handledSearch.current === targetAlbumId ||
+      mediaState.album
     )
       return;
-    const album = albums.find((item) => item.id === initialAlbumId);
-    if (album) {
-      handledSearch.current = initialAlbumId;
+    const album = albums.find((item) => item.id === targetAlbumId);
+    if (album && activity.enabled) {
+      handledSearch.current = targetAlbumId;
       void openRef.current(album);
-    } else if (!albumIncomplete && !albumError) setAlbumError('指定相册不存在或当前账号不可访问。');
+    } else if (
+      initialAlbumId &&
+      !album &&
+      (albumSnapshot?.complete ?? initialAlbums !== undefined) &&
+      !loadingAlbums &&
+      !albumError
+    )
+      setAlbumError('指定相册不存在或当前账号不可访问。');
   }, [
     initialAlbumId,
+    initialAlbums,
+    targetAlbumId,
     albums,
+    albumSnapshot?.complete,
     loadingAlbums,
     albumError,
-    albumIncomplete,
     activity.enabled,
     hasAlbumSnapshot,
+    mediaState.album,
   ]);
 
   const management = (
@@ -273,6 +360,10 @@ function GroupAlbumDialogBody({
       album={mediaState.album}
       onChanged={() => {
         setAlbumRevision((value) => value + 1);
+        if (mediaState.album) {
+          pageCache.write(mediaKey(mediaState.album.id), { items: mediaState.items, checkedAt: 0 });
+        }
+        setLastAlbumId(null);
         setMediaState({ status: 'idle', album: null, items: [], error: null });
       }}
     />
@@ -310,7 +401,11 @@ function GroupAlbumDialogBody({
           </button>
         </header>
 
-        <div className="group-album-body" ref={body}>
+        <PageScrollSnapshot
+          className="group-album-body"
+          scrollRef={body}
+          snapshotKey={JSON.stringify(['group-albums', groupCode, mediaState.album?.id])}
+        >
           {standalone ? (
             <GroupResourceNavigation
               label="群相册目录"
@@ -335,7 +430,7 @@ function GroupAlbumDialogBody({
               hideNavigation={standalone}
               onChanged={() => {
                 setAlbumRevision((value) => value + 1);
-                if (mediaState.album) void openAlbum(mediaState.album);
+                if (mediaState.album) void openAlbum(mediaState.album, true);
               }}
               onBack={() => {
                 if (standalone || detached || !mobileBack()) backToAlbums();
@@ -346,13 +441,20 @@ function GroupAlbumDialogBody({
               groupCode={groupCode}
               albums={albums}
               loading={loadingAlbums}
+              hasSnapshot={hasAlbumSnapshot}
               error={albumError ?? (albumIncomplete ? '相册列表未读全，已显示取得的相册。' : null)}
               disabled={!activity.enabled || mediaState.status === 'loading'}
               paused={!activity.enabled}
               search={search}
-              onSearch={setSearch}
+              onSearch={(value) => {
+                setSearch(value);
+                setAlbumVisibleCount(120);
+              }}
               sort={sort}
-              onSort={setSort}
+              onSort={(value) => {
+                setSort(value);
+                setAlbumVisibleCount(120);
+              }}
               visibleCount={albumVisibleCount}
               onMore={() => setAlbumVisibleCount((count) => count + 120)}
               onRefresh={() => {
@@ -360,12 +462,12 @@ function GroupAlbumDialogBody({
                 setAlbumRevision((value) => value + 1);
               }}
               onOpenAlbum={(album) => {
-                handledSearch.current = initialAlbumId ?? '';
+                handledSearch.current = initialAlbumId ?? album.id;
                 void openAlbum(album);
               }}
             />
           )}
-        </div>
+        </PageScrollSnapshot>
       </section>
     </ProfileDetailSurface>
   );
@@ -375,6 +477,7 @@ function AlbumListView({
   groupCode,
   albums,
   loading,
+  hasSnapshot,
   error,
   onOpenAlbum,
   disabled,
@@ -390,6 +493,7 @@ function AlbumListView({
   groupCode: string;
   albums: GroupAlbumWire[];
   loading: boolean;
+  hasSnapshot: boolean;
   error: string | null;
   onOpenAlbum: (album: GroupAlbumWire) => void;
   disabled?: boolean;
@@ -494,7 +598,7 @@ function AlbumListView({
           </button>
         </p>
       )}
-      {loading && !paused && !albums.length ? (
+      {loading && !paused && !hasSnapshot ? (
         <div className="group-album-state">
           <Loader2 size={18} className="weq-spin" />
           正在查询群相册

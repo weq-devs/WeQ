@@ -23,6 +23,7 @@ import { eventTimeFormatter } from '@weq/time';
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { isRecentPageRead } from '../lib/pageDataCache';
 import { usePageDataCache, usePageState } from './PageSnapshots.shared';
 import { pageValue } from '../lib/pageSnapshots';
 import { APP_NAVIGATION } from '../lib/appNavigation';
@@ -166,11 +167,10 @@ async function fetchAllCollections(
   const seen = new Set<string>();
   for (let page = 0; page < 1000; page++) {
     signal.throwIfAborted();
-    const res = (await client.account.listCollections.query({
-      limit: 100,
-      offset,
-      source,
-    })) as CollectionPageWire | null;
+    const res = (await client.account.listCollections.query(
+      { limit: 100, offset, source },
+      { signal },
+    )) as CollectionPageWire | null;
     signal.throwIfAborted();
     // network 路径拿不到 p_skey / 请求失败时返回 null —— 保留已有的 db 结果。
     if (!res) return null;
@@ -629,14 +629,21 @@ export function CollectionDialog({
   const activity = useQQReadActivity(open, { onlineOnly: false });
   const networkActivity = useQQReadActivity(open);
   const dataCache = usePageDataCache();
-  const [cached] = useState(() => dataCache.read<CollectionItemWire[]>('collections'));
-  const [items, setItems] = useState<CollectionItemWire[]>(cached ?? []);
+  const [cached] = useState(() =>
+    dataCache.read<{ items: CollectionItemWire[]; localAt: number; cloudAt: number }>(
+      'collections',
+    ),
+  );
+  const [items, setItems] = useState<CollectionItemWire[]>(cached?.items ?? []);
+  const readAt = useRef({ localAt: cached?.localAt ?? 0, cloudAt: cached?.cloudAt ?? 0 });
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const multiSelect = useContentMultiSelect({ kind: 'collections', container: 'all' });
   const [loaded, setLoaded] = useState(Boolean(cached));
+  const loadedRef = useRef(loaded);
+  loadedRef.current = loaded;
   useEffect(() => {
-    if (loaded) dataCache.write('collections', items);
+    if (loaded) dataCache.write('collections', { items, ...readAt.current });
   }, [items, loaded, dataCache]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -644,8 +651,10 @@ export function CollectionDialog({
   const [query, setQuery] = usePageState('collection:query', '', pageValue.string);
   const [kind, setKind] = usePageState('collection:kind', 'all', pageValue.string);
   const { panel: kindPanel, rememberScroll: rememberKindScroll } = useTabPanelMotion(kind, true);
-  const [page, setPage] = useState(0);
+  const [page, setPage] = usePageState('collection:page', 0, pageValue.number);
+  const previousFilter = useRef({ query, kind });
   const [reload, setReload] = useState(0);
+  const handledReload = useRef(reload);
   const [selected, setSelected] = useState<CollectionItemWire | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchRetry, setSearchRetry] = useState(0);
@@ -723,34 +732,54 @@ export function CollectionDialog({
       setRefreshing(false);
       return;
     }
+    const forced = handledReload.current !== reload;
+    handledReload.current = reload;
+    const readCloud =
+      networkActivity.enabled && (forced || !isRecentPageRead(readAt.current.cloudAt));
+    const readLocal = forced || !isRecentPageRead(readAt.current.localAt);
+    if (!readLocal && !readCloud) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     const controller = new AbortController();
     let cancelled = false;
-    const hadItems = itemsRef.current.length > 0;
-    setLoading(true);
+    const hadItems = loadedRef.current;
+    setLoading(readLocal && !hadItems);
     setRefreshing(false);
     setError(null);
     (async () => {
-      try {
-        const local = await fetchAllCollections('db', controller.signal, (page) => {
-          if (cancelled || hadItems) return;
-          setItems(page);
+      if (readLocal) {
+        try {
+          const local = await fetchAllCollections('db', controller.signal, (page) => {
+            if (cancelled || hadItems) return;
+            setItems(page);
+            setLoaded(true);
+          });
+          if (cancelled) return;
+          if (local) {
+            readAt.current.localAt = Date.now();
+            if (!hadItems || !readAt.current.cloudAt) setItems(local);
+            else dataCache.write('collections', { items: itemsRef.current, ...readAt.current });
+          }
           setLoaded(true);
-        });
-        if (cancelled) return;
-        setItems((current) => (hadItems ? current : (local ?? [])));
-        setLoaded(true);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : '加载收藏失败');
-        return;
-      } finally {
-        if (!cancelled) setLoading(false);
+        } catch (e) {
+          if (!cancelled) setError(e instanceof Error ? e.message : '加载收藏失败');
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
       }
 
-      if (!networkActivity.enabled) return;
+      if (cancelled || !readCloud) return;
       setRefreshing(true);
       try {
         const fresh = await fetchAllCollections('network', controller.signal);
-        if (!cancelled && fresh) setItems(fresh);
+        if (!cancelled && fresh) {
+          readAt.current.cloudAt = Date.now();
+          setItems(fresh);
+          setLoaded(true);
+          setError(null);
+        }
       } catch (error) {
         if (!cancelled) setError(detailErrorText(error));
       } finally {
@@ -761,7 +790,7 @@ export function CollectionDialog({
       cancelled = true;
       controller.abort();
     };
-  }, [open, reload, activity.enabled, activity.revision, networkActivity.enabled]);
+  }, [open, reload, activity.enabled, activity.revision, networkActivity.enabled, dataCache]);
 
   const selectedCid = selected?.cid;
   useEffect(() => {
@@ -1020,10 +1049,11 @@ export function CollectionDialog({
     [bySearch, kind],
   );
 
-  // Reset to first page whenever the visible set changes.
   useEffect(() => {
+    if (previousFilter.current.query === query && previousFilter.current.kind === kind) return;
+    previousFilter.current = { query, kind };
     setPage(0);
-  }, [query, kind]);
+  }, [query, kind, setPage]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
@@ -1041,7 +1071,7 @@ export function CollectionDialog({
     if (!selection.focusRequest) return;
     const index = filtered.findIndex((item) => item.cid === selection.focusRequest!.id);
     if (index >= 0) setPage(Math.floor(index / PAGE_SIZE));
-  }, [selection.focusRequest, filtered]);
+  }, [selection.focusRequest, filtered, setPage]);
 
   if (!open) return null;
 
@@ -1201,13 +1231,13 @@ export function CollectionDialog({
               </>
             ) : (
               <>
-                {error && (
+                {!detailSyncRun.current && (
                   <button
                     type="button"
                     className="weq-col-detail-back"
-                    title="重试读取收藏"
-                    aria-label="重试读取收藏"
-                    disabled={loading || refreshing || Boolean(detailSyncRun.current)}
+                    title={error ? '重试读取收藏' : '刷新收藏'}
+                    aria-label={error ? '重试读取收藏' : '刷新收藏'}
+                    disabled={loading || refreshing || !activity.enabled}
                     onClick={() => {
                       setDetailSync(null);
                       setReload((n) => n + 1);

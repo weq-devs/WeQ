@@ -10,6 +10,8 @@ import { useViewState } from '../src/renderer/src/state/view';
 import { albumMediaUrl, interactiveMediaUrl } from '../src/renderer/src/lib/resourceUrl';
 import { makeSolidPng } from '@weqbot/protocol';
 import { MediaPreview } from '../src/renderer/src/components/MediaPreview';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { PAGE_REENTRY_STALE_MS } from '../src/renderer/src/lib/pageDataCache';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
@@ -182,29 +184,34 @@ async function mount(
     initialAlbumId?: string;
     groupCode?: string;
     standalone?: boolean;
+    snapshotScope?: string;
   } = {},
 ) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const update = () =>
+  const update = (open = true) => {
+    const dialog = open
+      ? h(GroupAlbumDialog, {
+          groupCode: options.groupCode || '12345',
+          groupName: '合成群',
+          standalone: options.standalone,
+          embedded: options.standalone,
+          onClose: vi.fn(),
+          initialAlbums: options.initialAlbums,
+          initialAlbumId: options.initialAlbumId,
+        })
+      : null;
     root.render(
-      h(GroupAlbumDialog, {
-        groupCode: options.groupCode || '12345',
-        groupName: '合成群',
-        standalone: options.standalone,
-        embedded: options.standalone,
-        onClose: vi.fn(),
-        initialAlbums: options.initialAlbums,
-        initialAlbumId: options.initialAlbumId,
-      }),
+      options.snapshotScope ? h(PageSnapshots, { scope: options.snapshotScope }, dialog) : dialog,
     );
+  };
   dispose = () => {
     act(() => root.unmount());
     host.remove();
   };
   await act(async () => update());
-  return { host, update: () => act(() => update()) };
+  return { host, update: (open = true) => act(async () => update(open)) };
 }
 function button(label: string) {
   return document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
@@ -447,6 +454,40 @@ it('部分相册可浏览，但不宣称缺失的目标相册不存在', async (
   expect(document.querySelector('[role="alert"]')?.textContent).toContain('相册列表未读全');
   await openFirst();
   expect(state.media).toHaveBeenCalled();
+});
+
+it('重开群相册恢复选中的相册和已读媒体，过期后在后台替换', async () => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const now = vi.spyOn(Date, 'now').mockReturnValue(200_000);
+  const view = await mount({ snapshotScope: 'group-album-reentry' });
+  await openFirst();
+  await view.update(false);
+  await view.update();
+  expect(state.albums).toHaveBeenCalledOnce();
+  expect(state.media).toHaveBeenCalledOnce();
+  expect(button('预览 photo-a.jpg')).not.toBeNull();
+
+  await view.update(false);
+  now.mockReturnValue(200_000 + PAGE_REENTRY_STALE_MS);
+  let finish!: (items: unknown[]) => void;
+  state.media.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  await view.update();
+  expect(state.albums).toHaveBeenCalledTimes(2);
+  expect(state.media).toHaveBeenCalledTimes(2);
+  expect(button('预览 photo-a.jpg')).not.toBeNull();
+  await act(async () => finish([picture('fresh')]));
+  expect(button('预览 fresh.jpg')).not.toBeNull();
+  expect(button('预览 photo-a.jpg')).toBeNull();
 });
 
 it('刷新失败保留原网格，重试恢复，不以失败伪装空相册', async () => {

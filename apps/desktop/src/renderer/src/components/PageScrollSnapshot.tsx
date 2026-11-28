@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { z } from 'zod/v3';
 import { captureReadingPosition, restoreReadingPosition } from '../lib/conversationReadingPosition';
 import { pageSnapshots } from '../lib/pageSnapshots';
@@ -44,15 +44,18 @@ export function PageScrollSnapshot({
   className,
   panel = false,
   snapshotKey = 'scroll',
+  scrollRef,
 }: {
   children: ReactNode;
   style?: CSSProperties;
   className?: string;
   panel?: boolean;
   snapshotKey?: string;
+  scrollRef?: RefObject<HTMLDivElement | null>;
 }) {
   const key = usePageSnapshotKey(snapshotKey);
-  const root = useRef<HTMLDivElement>(null);
+  const internalRef = useRef<HTMLDivElement>(null);
+  const root = scrollRef ?? internalRef;
   useLayoutEffect(() => {
     const container = root.current;
     if (!container || !key) return;
@@ -72,7 +75,7 @@ export function PageScrollSnapshot({
         let element: Element | undefined = container;
         for (const index of item.path) element = element?.children[index];
         if (
-          element instanceof HTMLDetailsElement &&
+          element instanceof owner.HTMLDetailsElement &&
           !element.hasAttribute('data-snapshot-skip-details')
         )
           element.open = item.open;
@@ -88,9 +91,9 @@ export function PageScrollSnapshot({
     const find = (item: Position): HTMLElement | null => {
       let node: Element | undefined = container;
       for (const index of item.path) node = node?.children[index];
-      if (item.reading && !(node instanceof HTMLElement && node.matches('.message-scroll')))
+      if (item.reading && !(node instanceof owner.HTMLElement && node.matches('.message-scroll')))
         return container.querySelector('.message-scroll');
-      return node instanceof HTMLElement ? node : null;
+      return node instanceof owner.HTMLElement ? node : null;
     };
     const save = (resample = false) => {
       clearTimeout(saveTimer);
@@ -131,7 +134,7 @@ export function PageScrollSnapshot({
       const target = event.target;
       if (
         pending.size ||
-        !(target instanceof HTMLElement) ||
+        !(target instanceof owner.HTMLElement) ||
         target.closest('[data-page-snapshot]') !== container
       )
         return;
@@ -152,7 +155,10 @@ export function PageScrollSnapshot({
     };
     const onMessageLocated = (event: Event) => {
       const scroll = event.target;
-      if (!(scroll instanceof HTMLElement) || scroll.closest('[data-page-snapshot]') !== container)
+      if (
+        !(scroll instanceof owner.HTMLElement) ||
+        scroll.closest('[data-page-snapshot]') !== container
+      )
         return;
       // 定位接管聊天视口，该页其他滚动区继续恢复。
       for (const item of pending) {
@@ -255,7 +261,7 @@ export function PageScrollSnapshot({
       container.removeEventListener('scroll', onScroll, true);
       owner.removeEventListener('pagehide', onPageHide);
     };
-  }, [key]);
+  }, [key, root]);
   return (
     <div
       ref={root}

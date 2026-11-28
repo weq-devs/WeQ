@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { CollectionDialog } from '../src/renderer/src/components/CollectionDialog';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { PAGE_REENTRY_STALE_MS } from '../src/renderer/src/lib/pageDataCache';
 
 const rpc = vi.hoisted(() => ({ list: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
@@ -19,6 +20,7 @@ afterEach(() => {
 
 it('收藏断网仍读取本地缓存，联网自动校准，随后读取失败不覆盖已有云端内容', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(100_000);
   const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
   const local = {
     cid: 'fixture',
@@ -65,12 +67,25 @@ it('收藏断网仍读取本地缓存，联网自动校准，随后读取失败�
     online.mockReturnValue(true);
     await act(async () => window.dispatchEvent(new Event('online')));
     expect(host.textContent).toContain('云端新摘要');
-    expect(rpc.list).toHaveBeenCalledTimes(3);
+    expect(rpc.list.mock.calls.map(([input]) => input.source)).toEqual(['db', 'network']);
     active = false;
     await render();
     failRemote = true;
     active = true;
     await render();
+    expect(rpc.list).toHaveBeenCalledTimes(2);
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="刷新收藏"]')!.click(),
+    );
+    expect(rpc.list).toHaveBeenCalledTimes(4);
+    expect(host.textContent).toContain('云端新摘要');
+    expect(host.textContent).toContain('合成网络失败');
+    active = false;
+    await render();
+    clock.mockReturnValue(100_000 + PAGE_REENTRY_STALE_MS);
+    active = true;
+    await render();
+    expect(rpc.list).toHaveBeenCalledTimes(6);
     expect(host.textContent).toContain('云端新摘要');
     expect(host.textContent).toContain('合成网络失败');
     expect(host.querySelector('[aria-label="重试读取收藏"]')).not.toBeNull();
@@ -130,6 +145,7 @@ it('收藏首批未读完已可见，重挂载期间立即恢复已显示结果'
     await render(false);
     rpc.list.mockImplementation(() => new Promise(() => {}));
     await render(true);
+    expect(rpc.list).toHaveBeenCalledTimes(2);
     expect(host.textContent).toContain('首批立即可见');
     expect(host.querySelector('.weq-collection-pager')).not.toBeNull();
   } finally {
