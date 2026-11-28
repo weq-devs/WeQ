@@ -65,6 +65,7 @@ import {
 } from '../../lib/responsiveLayout';
 import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
 import { adjacentMessageId } from '../../lib/messageKeyboardNav';
+import { setInputModality } from '../../lib/inputModality';
 import { IS_WEB } from '../../lib/target.shared';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
@@ -5355,6 +5356,7 @@ function ChatPaneContent({
   function focusTimelineRow(id: string, attempts = 0): void {
     const scroll = messageScrollRef.current;
     if (!scroll) return;
+    if (attempts === 0) setInputModality('keyboard');
     const find = () =>
       [...scroll.querySelectorAll<HTMLElement>('[data-message-id]')].find(
         (element) => element.dataset.messageId === id,

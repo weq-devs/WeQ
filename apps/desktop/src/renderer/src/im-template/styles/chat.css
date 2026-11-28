@@ -606,12 +606,17 @@
   outline: none;
 }
 
-.message-line:not(.selection-mode):focus-visible .message-content {
+/* Esc 关闭浮窗后，浏览器可能把归还给消息的指针焦点标成 focus-visible。 */
+:where(:root:not([data-weq-input-modality='pointer']))
+  .message-line:not(.selection-mode):focus-visible
+  .message-content {
   outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
   outline-offset: 2px;
 }
 
-.weq-system-message-row:not(.selection-mode):focus-visible .weq-system-message-content {
+:where(:root:not([data-weq-input-modality='pointer']))
+  .weq-system-message-row:not(.selection-mode):focus-visible
+  .weq-system-message-content {
   outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
   outline-offset: 2px;
   border-radius: 6px;
