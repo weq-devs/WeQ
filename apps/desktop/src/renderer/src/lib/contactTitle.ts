@@ -18,6 +18,9 @@ export function contactTitle(
   profile?: { remark?: string | null; nick?: string | null },
 ): string {
   const kind = classifyChatType(contact.chatType);
+  // 小Q：recent_contact 里 40094 是空的，targetUid 是内部 sessionId（10000），
+  // 不能当名字显示。固定叫「小Q」。
+  if (kind === 'aiAssistant') return '小Q';
   if (kind === 'dataline')
     return datalineName(contact.targetUid) || contact.targetDisplayName || '我的设备';
   if (kind === 'direct' && profile)

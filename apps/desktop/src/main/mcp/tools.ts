@@ -87,6 +87,8 @@ import {
   normalizeMallItems,
   ocrCacheFor,
   ocrCacheKey,
+  resolveGroupSenderPage,
+  logErrorContext,
 } from '@weq/service';
 import { searchCatalog } from '../market_catalog';
 import { resolveResource } from '../resource';
@@ -524,6 +526,7 @@ interface AiMsgRowLike {
   msgId?: bigint | number | string;
   msgSeq?: bigint | number | string;
   msgRandom?: bigint | number | string;
+  targetGroupCode?: string | bigint;
   senderUid: string;
   /** 普通会话 senderUin 可用；数据线各设备共用同一个 uin，判 mine 走 senderUid。 */
   senderUin?: bigint | number | string;
@@ -548,7 +551,7 @@ function rowIsMine(r: AiMsgRowLike, selfUin: bigint): boolean {
 function projectRows(
   rowsOldestFirst: readonly AiMsgRowLike[],
   selfUin: bigint,
-  nameOf: (uid: string) => string | undefined,
+  nameOf: (row: AiMsgRowLike) => string | undefined,
 ): AiMsgLine[] {
   const lines: AiMsgLine[] = [];
   let prevSec: number | null = null;
@@ -556,7 +559,7 @@ function projectRows(
     const sec = Number(r.sendTime);
     const mine = rowIsMine(r, selfUin);
     const fallback = String(r.senderUin ?? '') || r.senderUid || '未知';
-    const sender = mine ? '我' : (datalineName(r.senderUid) ?? nameOf(r.senderUid) ?? fallback);
+    const sender = mine ? '我' : (datalineName(r.senderUid) ?? nameOf(r) ?? fallback);
     const line: AiMsgLine = {
       time: fmtTime(sec),
       sender,
@@ -575,18 +578,61 @@ function projectRows(
   return lines;
 }
 
-/** 批量解析发送者昵称（自己除外），供撤回/删除等历史行投影用。 */
-async function namesForRows(
+/** Resolve only the selected messages; group name cards take precedence over global nicknames. */
+async function messageSenderLookup(
   svc: AccountServices,
+  kind: 'c2c' | 'group',
+  conv: string,
   rows: readonly AiMsgRowLike[],
   selfUin: bigint,
-): Promise<(uid: string) => string | undefined> {
-  const otherUids = [
-    ...new Set(rows.filter((r) => !rowIsMine(r, selfUin)).map((r) => r.senderUid)),
-  ];
-  if (otherUids.length === 0) return () => undefined;
-  const nameByUid = await svc.profile.nicksByUids(otherUids);
-  return (uid) => nameByUid[uid];
+) {
+  const others = rows.filter((row) => !rowIsMine(row, selfUin));
+  if (kind !== 'group') {
+    const uids = [...new Set(others.map((row) => row.senderUid))];
+    const names = uids.length ? await svc.profile.nicksByUids(uids) : {};
+    return { nameOf: (row: AiMsgRowLike) => names[row.senderUid], senderResolution: undefined };
+  }
+  const result = await resolveGroupSenderPage(
+    conv,
+    others.map((row) => ({
+      targetGroupCode: row.targetGroupCode ?? conv,
+      senderUid: row.senderUid,
+      senderUin: row.senderUin ?? 0n,
+    })),
+    {
+      getMembersByUids: (code, uids) => svc.groupInfo.getMembersByUids(code, uids),
+      getMembersByUins: (code, uins) => svc.groupInfo.getMembersByUins(code, uins),
+      profilesByUids: (uids) => svc.profile.profilesByUids(uids),
+      nicksByUids: (uids) => svc.profile.nicksByUids(uids),
+      authorize: () => {
+        if (toolContext().services !== svc) throw new Error('发送者解析期间账号或数据源已切换。');
+        return true;
+      },
+    },
+  );
+  if (result.status === 'unauthorized') {
+    const cause = result.diagnostics?.find((item) => item.stage === 'authorization');
+    if (cause) throw cause.cause;
+    throw new Error('发送者解析期间账号授权已撤销。');
+  }
+  const names = new Map(others.map((row, i) => [row, result.senders[i]?.displayName]));
+  return {
+    nameOf: (row: AiMsgRowLike) => names.get(row),
+    senderResolution:
+      result.status === 'ok'
+        ? undefined
+        : {
+            status: result.status,
+            ...(result.diagnostics?.length
+              ? {
+                  diagnostics: result.diagnostics.map(({ stage, cause }) => {
+                    const { errorStack: _stack, ...details } = logErrorContext(cause);
+                    return { stage, ...details };
+                  }),
+                }
+              : {}),
+          },
+  };
 }
 
 /** Resolve an account DB file by name (same lookup execute_sql uses). */
@@ -1143,7 +1189,7 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '读取某个会话的消息，按时间正序（旧→新）返回，方便顺读。默认取最新一页。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。会话标识可来自 list_conversations / list_groups。' +
-      '每条为精简形：time 时间、sender 发送者昵称、mine 是否本人发送、text 文本；间隔较大时附 gap（距上一条多久）。' +
+      '每条为精简形：time 时间、sender 发送者（群名片优先，缺失时回退昵称或身份号）、mine 是否本人发送、text 文本；间隔较大时附 gap（距上一条多久）。' +
       'includeIds=true 附带消息 ID、原始发送时间、发送者 UID、元素数量、删除标记（若有），以及群消息的原生 @全体类型（若有）。' +
       '\n【翻页】返回带 hasMore / nextBefore：还想往更早读，就把 nextBefore 原样传回 before 参数取上一页；' +
       '一次别把 limit 开太大，顺着翻更省 token 也更聚焦。',
@@ -1181,17 +1227,20 @@ export const AI_TOOLS: AiTool[] = [
       const nextBefore = hasMore ? nextMessageBefore(page.at(-1)) : '';
 
       // 名字解析：自己=「我」，其余批量取昵称（私聊就对方一个人，群聊各发言人）。
-      const otherUids = [
-        ...new Set(page.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid)),
-      ];
-      const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
+      const { nameOf, senderResolution } = await messageSenderLookup(
+        svc,
+        kind,
+        conv,
+        page,
+        selfUin,
+      );
 
       const ordered = [...page].reverse(); // 翻成旧→新方便顺读
       const messages: AiMsgLine[] = ordered.map((r, i) => {
         const line: AiMsgLine = {
           time: fmtTime(r.sendTime),
-          sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
-          mine: r.senderUin === selfUin,
+          sender: rowIsMine(r, selfUin) ? '我' : nameOf(r) || String(r.senderUin),
+          mine: rowIsMine(r, selfUin),
           text: flattenElements(r.elements),
           ...(includeIds
             ? {
@@ -1221,6 +1270,7 @@ export const AI_TOOLS: AiTool[] = [
         ...(nextBefore ? { nextBefore } : {}),
         coverage: RANK_COVERAGE,
         messages,
+        ...(senderResolution ? { senderResolution } : {}),
         ...(messages.length === 0
           ? {
               hint:
@@ -2400,7 +2450,7 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '读取【某个会话】在【某一天】的逐条消息，按时间正序返回——用于「今天/某天和 XX 聊了什么」做话题归纳，或回看某天群里的讨论。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）；会话标识可由 find_contact 解析。date 默认今天，可传 YYYY-MM-DD。' +
-      '每条为精简形：time（北京时间完整日期与时分秒）、sender 发送者昵称、mine 是否本人、text 文本；间隔较大时附 gap（距上一条多久）。' +
+      '每条为精简形：time（北京时间完整日期与时分秒）、sender 发送者（群名片优先，缺失时回退昵称或身份号）、mine 是否本人、text 文本；间隔较大时附 gap（距上一条多久）。' +
       '需要 msgId/msgSeq 供 get_message_details 回查时把 includeIds 设为 true。' +
       '直接按北京时间查本机历史。hasMore 为 true 时，将同一 date 和返回的 nextBefore 传给 before 继续读取当天更早的消息。',
     input: z.object({
@@ -2444,17 +2494,20 @@ export const AI_TOOLS: AiTool[] = [
         cursor,
       );
 
-      const otherUids = [
-        ...new Set(page.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid)),
-      ];
-      const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
+      const { nameOf, senderResolution } = await messageSenderLookup(
+        svc,
+        kind,
+        conv,
+        page,
+        selfUin,
+      );
 
       const slice = page.reverse();
       const messages: AiMsgLine[] = slice.map((r, i) => {
         const line: AiMsgLine = {
           time: hhmm(r.sendTime),
-          sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
-          mine: r.senderUin === selfUin,
+          sender: rowIsMine(r, selfUin) ? '我' : nameOf(r) || String(r.senderUin),
+          mine: rowIsMine(r, selfUin),
           text: flattenElements(r.elements),
           ...(includeIds ? msgIdsOf(r) : {}),
         };
@@ -2474,6 +2527,7 @@ export const AI_TOOLS: AiTool[] = [
         hasMore: Boolean(nextBefore),
         ...(nextBefore ? { nextBefore: `${nextBefore.time}:${nextBefore.rowId}` } : {}),
         messages,
+        ...(senderResolution ? { senderResolution } : {}),
         ...(messages.length
           ? {}
           : { hint: cursor ? '当天没有更早的本地消息。' : '这一天该会话没有本地消息记录。' }),
@@ -2653,7 +2707,7 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '列出某个会话里最近被撤回过的消息（需曾开启防撤回且拦截成功才有记录；整页消息按原时间由旧到新顺读，覆盖最新的一批撤回）。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。' +
-      '返回每条：msgId/msgSeq、time 发送时间、sender 发送者昵称、mine 是否本人发送、text 原文，以及 recall（byUid 撤回者、bySender 是否本人自撤、time 撤回时间）。' +
+      '返回每条：msgId/msgSeq、time 发送时间、sender 发送者（群名片优先，缺失时回退昵称或身份号）、mine 是否本人发送、text 原文，以及 recall（byUid 撤回者、bySender 是否本人自撤、time 撤回时间）。' +
       '用来回答「TA 撤回了什么」「这个群里最近谁撤回过消息」。只读本地，不发网络。',
     input: z.object({
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
@@ -2676,7 +2730,13 @@ export const AI_TOOLS: AiTool[] = [
       const hasMore = rows.length > limit;
       const page = rows.slice(0, limit);
       const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
-      const nameOf = await namesForRows(svc, page, selfUin);
+      const { nameOf, senderResolution } = await messageSenderLookup(
+        svc,
+        kind,
+        conv,
+        page,
+        selfUin,
+      );
       const ordered = [...page].reverse(); // 旧→新给聊天式的顺读体验
       const lines = projectRows(ordered, selfUin, nameOf);
       const items = lines.map((line, i) => {
@@ -2697,6 +2757,7 @@ export const AI_TOOLS: AiTool[] = [
         count: items.length,
         hasMore,
         messages: items,
+        ...(senderResolution ? { senderResolution } : {}),
         ...(items.length === 0
           ? {
               hint: '该会话没有撤回记录：可能是防撤回从未开启/从未拦截到撤回，或该会话没在保护范围内（可用 get_anti_recall_status 查）。',
@@ -2727,7 +2788,13 @@ export const AI_TOOLS: AiTool[] = [
       const hasMore = rows.length > limit;
       const page = rows.slice(0, limit);
       const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
-      const nameOf = await namesForRows(svc, page, selfUin);
+      const { nameOf, senderResolution } = await messageSenderLookup(
+        svc,
+        kind,
+        conv,
+        page,
+        selfUin,
+      );
       const ordered = [...page].reverse();
       const lines = projectRows(ordered, selfUin, nameOf);
       const items = lines.map((line, i) => {
@@ -2744,6 +2811,7 @@ export const AI_TOOLS: AiTool[] = [
         hasMore,
         deletedCount: rows.length,
         messages: items,
+        ...(senderResolution ? { senderResolution } : {}),
         ...(items.length === 0
           ? { hint: '该会话没有已删除（(1,1) 删除签名）的消息记录。' }
           : hasMore
@@ -2875,7 +2943,7 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '取回【某一条消息】的完整结构化详情：逐条 element 的可读文案（回复引用、markdown 正文、' +
       '灰条/卡片等不再只是占位）、可选 payload 字段，以及本地媒体信息（图片/语音/视频/文件是否已在磁盘、' +
-      '语音转写文本等）。' +
+      '语音转写文本等）。戳一戳 payload 包含已确认的发起者和目标身份。' +
       '\n【怎么定位消息】msgId 来自 get_messages / get_messages_by_date 的 includeIds=true 输出，' +
       '或 list_recalled_messages / list_deleted_messages 返回的 msgId；也可以像 get_forward_messages 一样先 execute_sql 查 40001。' +
       '\n【回复引用】includePayload=true 时，若在同一会话定位到唯一原消息，elements[].payload.original 返回 msgId、msgSeq、sendTime（Unix 秒）。' +
@@ -2930,12 +2998,17 @@ export const AI_TOOLS: AiTool[] = [
         };
       }
 
-      const mine = row.senderUin === selfUin;
-      const otherUids = mine ? [] : [row.senderUid];
-      const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
+      const mine = rowIsMine(row, selfUin);
+      const { nameOf, senderResolution } = await messageSenderLookup(
+        svc,
+        kind,
+        conv,
+        [row],
+        selfUin,
+      );
       const sender = mine
         ? '我'
-        : (datalineName(row.senderUid) ?? nameByUid[row.senderUid] ?? String(row.senderUin));
+        : (datalineName(row.senderUid) ?? nameOf(row) ?? String(row.senderUin));
 
       const details = await Promise.all(
         row.elements.map(async (el, i) => {
@@ -2971,6 +3044,7 @@ export const AI_TOOLS: AiTool[] = [
         sender,
         mine,
         senderUid: row.senderUid,
+        ...(senderResolution ? { senderResolution } : {}),
         text: flattenElements(row.elements),
         elementCount: row.elements.length,
         ...(kind === 'group' ? { mentionAll: mentionAllKind(row.elements) } : {}),

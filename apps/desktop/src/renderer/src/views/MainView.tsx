@@ -400,6 +400,7 @@ import {
   GroupCallInvite,
   GroupCallWindow,
   OfficialConversationPane,
+  AiAssistantConversationPane,
   ContactNoticeDialog,
   GroupNoticeDialog,
   GroupAnnouncementsDialog,
@@ -1385,10 +1386,12 @@ function MainWorkspace(): ReactElement {
 
   // ARK Feed 显示状态（公众号/服务号消息流）
   const [arkFeedState, setArkFeedState] = useState<{
-    kind: 'official' | 'service';
+    kind: 'official' | 'service' | 'aiAssistant';
     conversationId: string;
     title: string;
     anchorId?: string;
+    /** AI 助手打开时默认展示的 sessionId。 */
+    sessionId?: string;
   } | null>(null);
 
   const liveTimelineKeys = useRef(new Map<string, string>());
@@ -4139,7 +4142,11 @@ function MainWorkspace(): ReactElement {
           shell.switchView('messages');
           return;
         }
-        if (row?.directoryKind === 'official' || row?.directoryKind === 'service') {
+        if (
+          row?.directoryKind === 'official' ||
+          row?.directoryKind === 'service' ||
+          row?.directoryKind === 'aiAssistant'
+        ) {
           syncDraftsFromPending();
           setSpecialChat(null);
           setArkFeedState({
@@ -9859,7 +9866,12 @@ function MainWorkspace(): ReactElement {
         : null;
     if (specialChat === 'guild')
       return activeGuildNodeId ? { id: `guild:${activeGuildNodeId}`, category: 'guild' } : null;
-    if (arkFeedState) return { id: arkFeedState.conversationId, category: arkFeedState.kind };
+    // AI 助手（小Q）在常规视图里，不另设 category —— 目录行本身就能对上。
+    if (arkFeedState)
+      return {
+        id: arkFeedState.conversationId,
+        category: arkFeedState.kind === 'aiAssistant' ? undefined : arkFeedState.kind,
+      };
     return shell.activeConversationId ? { id: shell.activeConversationId } : null;
   })();
   useGeneratedReplyNotifications(
@@ -10439,6 +10451,12 @@ function MainWorkspace(): ReactElement {
     setPrivatePreview(null);
   };
   function previewMenuConversation(conversation: ConcreteConversation) {
+    // AI 助手（小Q）消息不在 c2c_msg_table，预览读不到内容；不弹空预览。
+    if (conversation.type === 'direct' && conversation.directoryKind === 'aiAssistant') {
+      closePrivatePreview();
+      setSpecialPreview(null);
+      return;
+    }
     if (conversation.generated || readonlyConversationKind(conversation)) {
       closePrivatePreview();
       setSpecialPreview(conversation);
@@ -10496,6 +10514,12 @@ function MainWorkspace(): ReactElement {
     source: PreviewSource,
     sender?: string,
   ) {
+    // 小Q 不在 c2c_msg_table 里，预览读不到消息；不弹空预览。
+    if (conversation.type === 'direct' && conversation.directoryKind === 'aiAssistant') {
+      closePrivatePreview();
+      setSpecialPreview(null);
+      return;
+    }
     const account = user.identityValue;
     const binding = messageBindingRef.current ?? undefined;
     const scope = messageScope;
@@ -11894,6 +11918,16 @@ function MainWorkspace(): ReactElement {
                         onActiveSessionChange={setActiveGuildNodeId}
                         onClose={() => {
                           setMobileConversationList(true);
+                        }}
+                      />
+                    ) : shell.view === 'messages' && arkFeedState?.kind === 'aiAssistant' ? (
+                      <AiAssistantConversationPane
+                        user={user}
+                        conversationId={arkFeedState.conversationId}
+                        sessionId={arkFeedState.sessionId}
+                        onBack={() => {
+                          if (mobileLayout) setMobileConversationList(true);
+                          else setArkFeedState(null);
                         }}
                       />
                     ) : shell.view === 'messages' && arkFeedState ? (

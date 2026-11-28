@@ -41,7 +41,8 @@ export function ordinaryQqConversation(conversation: Conversation): boolean {
   if (conversation.id.startsWith('guild:') || conversation.id.startsWith('service:')) return false;
   if (conversation.type === 'direct' && conversation.chatType !== undefined) {
     const kind = classifyChatType(conversation.chatType);
-    if (kind === 'official' || kind === 'service' || kind === 'dataline') return false;
+    if (kind === 'official' || kind === 'service' || kind === 'dataline' || kind === 'aiAssistant')
+      return false;
   }
   return true;
 }

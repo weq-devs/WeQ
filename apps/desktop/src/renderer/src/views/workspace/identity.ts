@@ -4,6 +4,7 @@ import { groupNoticeId } from '../../lib/contactNotice';
 import { buddyRequestDirection, buddyRequestState } from '@weq/service/buddy-request';
 import { timeDate } from '@weq/time';
 import { isDataline, deviceAvatarDataUri } from '../../lib/deviceAvatar';
+import { aiAssistantAvatarDataUri } from '../../lib/aiAssistantAvatar';
 import { previewNodes, previewNodesToText } from '../../lib/conversationPreview';
 import { selfIdentityValues } from '../../lib/selfIdentity';
 import { classifyChatType, isGroupTempChatType } from '@weq/codec';
@@ -44,6 +45,9 @@ export function groupAvatarSrc(groupCode: string): string | null {
 export function avatarSrc(
   c: Pick<RecentContactWire, 'chatType' | 'targetUid' | 'targetUin'>,
 ): string | null {
+  // 小Q 没有 CDN 头像，用自绘图标；必须在 direct 分支之前判，否则会拿
+  // targetUin=0 拼出一个空头像。
+  if (classifyChatType(c.chatType) === 'aiAssistant') return aiAssistantAvatarDataUri();
   // C2C 必须先判：KCHATTYPETEMPC2CFROMGROUP 的名字里同时含 C2C 和 GROUP，先匹配
   // GROUP 会把对方 uid 当群号去拼 p.qlogo.cn，临时会话头像必裂。走 uin 外链才是真人头像。
   if (chatTypeKind(c.chatType) === 'direct') return senderAvatarSrc(c.targetUin);
@@ -65,7 +69,8 @@ export function secondsToIsoTime(seconds: number | string | undefined): string |
 export function chatTypeKind(chatType: string | number): 'direct' | 'group' | null {
   const kind = classifyChatType(chatType);
   // 数据线（我的手机/我的电脑）按单聊解析，头像用设备图标兜底（isDataline()）。
-  if (kind === 'direct' || kind === 'dataline') return 'direct';
+  // AI 助手（小Q）同样按单聊处理 —— 它在会话列表里就是一行，头像自绘。
+  if (kind === 'direct' || kind === 'dataline' || kind === 'aiAssistant') return 'direct';
   if (kind === 'group') return 'group';
   return null;
 }
@@ -510,13 +515,21 @@ export function contactToConversation(
 
   if (kind === 'direct') {
     const device = isDataline(c.chatType);
+    const aiAssistant = classifyChatType(c.chatType) === 'aiAssistant';
     const otherUser: User = {
       id: c.targetUid,
-      identityLabel: device ? '设备' : c.targetUin && c.targetUin !== '0' ? 'QQ' : 'UID',
-      identityValue: !device && c.targetUin && c.targetUin !== '0' ? c.targetUin : c.targetUid,
+      identityLabel: aiAssistant
+        ? 'AI'
+        : device
+          ? '设备'
+          : c.targetUin && c.targetUin !== '0'
+            ? 'QQ'
+            : 'UID',
+      identityValue:
+        !aiAssistant && !device && c.targetUin && c.targetUin !== '0' ? c.targetUin : c.targetUid,
       username: c.targetUid,
-      displayName: title,
-      kind: botUids.has(c.targetUid) ? 'bot' : 'human',
+      displayName: aiAssistant ? title || '小Q' : title,
+      kind: botUids.has(c.targetUid) || aiAssistant ? 'bot' : 'human',
       avatarUrl: device ? deviceAvatarDataUri(c.targetUid) : avatarSrc(c),
     };
 
@@ -531,6 +544,7 @@ export function contactToConversation(
       unreadCount: 0,
       lastMessage,
       chatType: c.chatType,
+      ...(aiAssistant ? { directoryKind: 'aiAssistant' as const } : {}),
       tempSourceGroupName: tempSourceGroupName(c, groupNameByCode),
       tempSourceGroupCode: tempSourceGroupCode(c),
     };

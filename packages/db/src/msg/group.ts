@@ -22,7 +22,7 @@
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import { databaseRequestSignal } from '../query_schedule';
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
-import type { AtElement, Element, GrayTipPokeElement } from '@weq/codec';
+import { parsePokeParties, type AtElement, type Element, POKE_DETAILED_ID } from '@weq/codec';
 import type {
   DressTally,
   GroupAtMeTop,
@@ -1091,10 +1091,11 @@ export class GroupMsgDb {
         const elements = decodeBody(row[5]);
 
         for (const element of elements) {
-          if (element.kind === 'grayTipPoke') {
-            const poke = element as GrayTipPokeElement;
-            if (poke.detailedId !== POKE_DETAILED_ID) continue;
-            const parties = pokeParties(poke);
+          if (element.kind === 'grayTipPoke' || element.kind === 'grayTipXml') {
+            const poke = element;
+            const detail = poke.kind === 'grayTipPoke' ? poke.detailedId : poke.detailId;
+            if (detail !== POKE_DETAILED_ID) continue;
+            const parties = parsePokeParties(poke);
             const iAmInitiator =
               (selfUid !== '' && parties.initiatorUid === selfUid) ||
               (selfUin > 0n &&
@@ -1623,7 +1624,6 @@ function rowToGroupMsgWithRowId(row: SqlRow): GroupMsg & { rowId: bigint } {
 /** 复读回合最少条数：用户口径「重复超过 3 次」，即第 4 条起算。 */
 const ECHO_AT_LEAST_COUNT = 4;
 /** QQ nudge（戳一戳）灰条的 detailedId。 */
-const POKE_DETAILED_ID = 1061;
 /** 页面展示的复读正文最长保留长度；匹配签名始终用完整正文，只在落盘时截断。 */
 const ECHO_TEXT_KEEP = 72;
 
@@ -1661,59 +1661,6 @@ function visibleText(elements: Element[]): string {
 function isPersonMention(at: AtElement): boolean {
   if (String(at.atMentionMask ?? '') !== '') return false;
   return !/全体|all/i.test(String(at.textContent ?? ''));
-}
-
-/** 灰条里戳一戳的双方。actionTarget 只在部分版本有，其余从 XML/tipJson 补。 */
-function pokeParties(poke: GrayTipPokeElement): {
-  initiatorUid: string;
-  initiatorUin: string;
-  initiatorName: string;
-  targetUid: string;
-  targetUin: string;
-  targetName: string;
-} {
-  const attrs = new Map<string, string>();
-  for (const item of poke.actionAttributes ?? []) {
-    const key = String(item.key ?? '').trim();
-    if (key) attrs.set(key, String(item.value ?? '').trim());
-  }
-  const attr = (key: string): string => attrs.get(key) ?? '';
-
-  const xmlPeople: string[] = [];
-  const xmlRe = /<qq\s[^>]*\buin\s*=\s*["']([^"']*)["']/gi;
-  for (const match of String(poke.grayTipXmlContent ?? '').matchAll(xmlRe)) {
-    const value = String(match[1] ?? '').trim();
-    if (value) xmlPeople.push(value);
-  }
-
-  let jsonPeople: Array<{ uid?: string; uin?: string; nm?: string }> = [];
-  try {
-    const parsed = JSON.parse(poke.tipJson ?? '') as {
-      items?: Array<{ type?: string; uid?: string; uin?: string; nm?: string }>;
-    };
-    jsonPeople = (parsed.items ?? []).filter((item) => item.type === 'qq' || item.type === 'url');
-  } catch {
-    jsonPeople = [];
-  }
-
-  const initiatorUid =
-    poke.actionInitiator?.uid?.trim() ?? xmlPeople[1] ?? jsonPeople[1]?.uid ?? '';
-  const targetUid = poke.actionTarget?.uid?.trim() ?? xmlPeople[0] ?? jsonPeople[0]?.uid ?? '';
-  const targetUin = /^\d+$/.test(attr('uin_str1')) ? attr('uin_str1') : '';
-  const initiatorUin = /^\d+$/.test(attr('uin_str2')) ? attr('uin_str2') : '';
-  const targetName =
-    poke.actionTarget?.nickname?.trim() || attr('nick_str1') || jsonPeople[0]?.nm?.trim() || '';
-  const initiatorName =
-    poke.actionInitiator?.nickname?.trim() || attr('nick_str2') || jsonPeople[1]?.nm?.trim() || '';
-
-  return {
-    initiatorUid: String(initiatorUid ?? ''),
-    initiatorUin,
-    initiatorName,
-    targetUid: String(targetUid ?? ''),
-    targetUin,
-    targetName,
-  };
 }
 
 /** 一个数字/字符串值转十进制字符串；空值返回 ''。 */

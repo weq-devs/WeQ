@@ -24,12 +24,15 @@ export type {
 } from './search_history';
 export { ServiceAssistantContactDb } from './service_assistant_contact';
 export type { ServiceAssistantContactDbOptions } from './service_assistant_contact';
+export { AiAssistantDb } from './ai_assistant';
+export type { AiAssistantDbOptions } from './ai_assistant';
 export type {
   RecentContact,
   RecentContactTop,
   HiddenSession,
   DeletedSession,
   ServiceAssistantContact,
+  AiAssistantSession,
 } from './types';
 export type { InteractionMessagePosition, RecentContactSeq } from './recent_contact';
 export { UidMappingDb, UidMap } from './uid_mapping';

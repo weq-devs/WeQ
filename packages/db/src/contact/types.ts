@@ -9,7 +9,7 @@
  * boundary.
  */
 
-import type { PreviewElement } from '@weq/codec';
+import type { Element, PreviewElement } from '@weq/codec';
 
 export interface RecentContact {
   /** 40003 — message sequence number. */
@@ -132,6 +132,28 @@ export interface ServiceAssistantContact {
   lastTime: bigint;
   /** 40001 — latest message id (matches a row in service_assistant_msg_table). */
   lastMsgId: bigint;
+}
+
+/**
+ * Domain shape for one row of `ai_session_table` — a QQ AI 助手（小Q）会话。
+ *
+ * 会话键是 `sessionId`（列 40021），小Q 主入口固定为 `'10000'`。AI 助手不在
+ * `c2c_msg_table` 里，消息在 `ai_assistant_msg_table` 按同一个 sessionId 分区。
+ * 详见 `contact/ai_assistant.ts`。
+ */
+export interface AiAssistantSession {
+  /** 40021 — sessionId；`10000` = 小Q 主入口。 */
+  sessionId: string;
+  /** 40094 — 会话标题（用户提问的短摘要，如「喵喵喵」「询问模型身份」）。 */
+  title: string;
+  /** 40003 — 会话消息条数。 */
+  messageCount: number;
+  /** 40050 — 最后一条消息时间（unix 秒）。 */
+  lastTime: bigint;
+  /** 40051 — 最后一条消息的预览元素（与 recent_contact 同构）。 */
+  preview: Element[];
+  /** 41150 — 会话状态 blob（`{41156, 41157}`），语义未定，原样保留。 */
+  state: Uint8Array | null;
 }
 
 /**

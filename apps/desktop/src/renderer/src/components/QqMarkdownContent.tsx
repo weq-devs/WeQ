@@ -17,14 +17,15 @@
  * 都换行；`==文字==` 也是 QQ 自己的高亮语法。详见该文件注释。
  */
 
-import { memo, useState, type JSX, type ReactElement } from 'react';
+import { memo, type JSX, type ReactElement, useMemo, useState } from 'react';
 import { Streamdown } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { shikiCodeHighlighter } from '../views/agentlab/shikiHighlighter';
+import { useDataSaver } from '../lib/dataSaver';
 import { openLink } from '../lib/linkify';
+import type { QqMarkdownProps } from './QqMarkdown';
 import { imageSizeHint, normalizeBotMarkdown } from './qqBotMarkdown';
 import { remarkQqHighlight, remarkQqLineBreaks } from './qqMarkdownPlugins';
-import { useDataSaver } from '../lib/dataSaver';
 
 const REMARK_PLUGINS = [remarkGfm, remarkQqLineBreaks, remarkQqHighlight];
 const PLUGINS = { code: shikiCodeHighlighter };
@@ -107,17 +108,25 @@ const COMPONENTS = { img: MarkdownImage, a: MarkdownLink };
 export const QqMarkdown = memo(function QqMarkdown({
   text,
   bot = false,
-}: {
-  text: string;
-  bot?: boolean;
-}): ReactElement {
+  renderLink,
+}: QqMarkdownProps): ReactElement {
   const body = bot ? normalizeBotMarkdown(text) : text;
+  const components = useMemo(() => {
+    if (!renderLink) return COMPONENTS;
+    return {
+      ...COMPONENTS,
+      a: function Link(props: JSX.IntrinsicElements['a']) {
+        const rendered = props.href ? renderLink(props.href, props.children) : undefined;
+        return rendered === undefined ? <MarkdownLink {...props} /> : rendered;
+      },
+    };
+  }, [renderLink]);
   return (
     <div className={bot ? 'qq-md weq-asst-md qq-md-bot' : 'qq-md weq-asst-md'}>
       <Streamdown
         remarkPlugins={REMARK_PLUGINS}
         plugins={PLUGINS}
-        components={COMPONENTS}
+        components={components}
         allowedTags={ALLOWED_TAGS}
         parseIncompleteMarkdown={false}
       >

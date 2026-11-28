@@ -472,6 +472,26 @@ export function OfficialConversationPane(props: OfficialConversationProps) {
     </ConversationRenderBoundary>
   );
 }
+
+type AiAssistantConversationProps = ComponentProps<
+  typeof import('./ai-assistant/AiAssistantPane').AiAssistantPane
+>;
+const AiAssistantContent = lazyPanel<AiAssistantConversationProps>(
+  () => import('./ai-assistant/AiAssistantPane').then((m) => ({ default: m.AiAssistantPane })),
+  'inline',
+);
+
+/** AI 助手（小Q）只读会话面板。 */
+export function AiAssistantConversationPane(props: AiAssistantConversationProps) {
+  return (
+    <ConversationRenderBoundary
+      resetKey={JSON.stringify([props.user.id, props.conversationId])}
+      onBack={props.onBack}
+    >
+      <AiAssistantContent {...props} />
+    </ConversationRenderBoundary>
+  );
+}
 export const ContactNoticeDialog = lazyPanel<
   ComponentProps<typeof import('./ContactNoticeDialogs').ContactNoticeDialog>
 >(

@@ -558,6 +558,18 @@ export const FlashTransferInfoSchema = z.object({
   createTime: z.number().optional(),
 });
 
+/** AI 助手 markdown 的流式元数据（48707 嵌套结构），见 proto/msg/ai_markdown.ts。 */
+export const AiMarkdownSchema = z.object({
+  /** 卡片定义表 JSON，键是正文里 qagent:// 占位符的 id。 */
+  cardPayload: z.string().optional(),
+  /** 阶段：reasoning_content / content / agent_end。 */
+  phase: z.string().optional(),
+  /** 摘要与权限元数据 JSON。 */
+  metaJson: z.string().optional(),
+  flag52963: z.number().optional(),
+  flag52964: z.number().optional(),
+});
+
 export const MarkdownElementSchema = BaseElementFieldsSchema.extend({
   kind: z.literal('markdown'),
   markdownContent: z.string(),
@@ -568,7 +580,11 @@ export const MarkdownElementSchema = BaseElementFieldsSchema.extend({
   markdownFlag48706: z.number(),
   /** 机器人 markdown 卡片的可见正文（49099）；49093 只有 "[Markdown]" 标签时用它。 */
   markdownContent49099: z.string().optional(),
-  flashTransferProto1: z.instanceof(Uint8Array).optional(),
+  /**
+   * AI 助手（小Q）markdown 元数据（48707）。欢迎消息与简报可以省略 `phase`，
+   * 通过卡片表或推送元数据识别。
+   */
+  aiMarkdown: AiMarkdownSchema.optional(),
   flashTransferInfo: FlashTransferInfoSchema.optional(),
   flashTransferProto3: z.instanceof(Uint8Array).optional(),
 });
@@ -616,6 +632,35 @@ export const InlineKeyboardElementSchema = BaseElementFieldsSchema.extend({
   kind: z.literal('inlineKeyboard'),
   keyboardRows: z.array(InlineKeyboardRowSchema),
   keyboardBotAppId: z.bigint().optional(),
+});
+
+/** AI 助手操作栏 / 推荐消息的单个按钮（与内联键盘同结构，动作在 48770）。 */
+export const AiActionButtonSchema = InlineKeyboardButtonSchema.extend({
+  /** 动作码（48770 → 48780）。操作栏：4=重新生成 7=复制 1=喜欢 2=不喜欢 6=分享。 */
+  actionCode: z.number().optional(),
+});
+
+/**
+ * 推荐消息（elementType=43）：AI 回复底部的「接下来可以问」候选。
+ *
+ * 结构与内联键盘完全一致（48751 行 → 48753 按钮），按钮的 label 就是点击后
+ * 要发送的文本。静态展示时按钮禁用即可。
+ */
+export const RecommendedMsgElementSchema = BaseElementFieldsSchema.extend({
+  kind: z.literal('recommendedMsg'),
+  rows: z.array(z.array(AiActionButtonSchema)),
+  /** 外层 JSON（48796）：screen_id / trigger 等，渲染用不到。 */
+  flagJson: z.string().optional(),
+});
+
+/**
+ * 操作栏（elementType=44）：AI 回复底部的「重新生成 / 复制 / 喜欢 / 不喜欢 / 分享」。
+ *
+ * 与推荐消息同结构，动作码区分具体操作（48770 → 48780）。
+ */
+export const ActionBarElementSchema = BaseElementFieldsSchema.extend({
+  kind: z.literal('actionBar'),
+  rows: z.array(z.array(AiActionButtonSchema)),
 });
 
 export const CallElementSchema = BaseElementFieldsSchema.extend({
@@ -783,6 +828,8 @@ export const ElementSchema = z.discriminatedUnion('kind', [
   MultiMsgElementSchema,
   StructLongMsgElementSchema,
   InlineKeyboardElementSchema,
+  RecommendedMsgElementSchema,
+  ActionBarElementSchema,
   CallElementSchema,
   OnlineFileElementSchema,
   OnlineFolderElementSchema,
@@ -816,6 +863,9 @@ export type StructLongMsgElement = z.infer<typeof StructLongMsgElementSchema>;
 export type InlineKeyboardButton = z.infer<typeof InlineKeyboardButtonSchema>;
 export type InlineKeyboardRow = z.infer<typeof InlineKeyboardRowSchema>;
 export type InlineKeyboardElement = z.infer<typeof InlineKeyboardElementSchema>;
+export type AiActionButton = z.infer<typeof AiActionButtonSchema>;
+export type RecommendedMsgElement = z.infer<typeof RecommendedMsgElementSchema>;
+export type ActionBarElement = z.infer<typeof ActionBarElementSchema>;
 export type CallElement = z.infer<typeof CallElementSchema>;
 export type WalletElement = z.infer<typeof WalletElementSchema>;
 export type OnlineFileElement = z.infer<typeof OnlineFileElementSchema>;

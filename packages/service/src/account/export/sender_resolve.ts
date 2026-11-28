@@ -78,6 +78,274 @@ export function avatarUrlForUin(uin: string): string {
   return `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`;
 }
 
+function projectGroupSenderIdentity(
+  uid: string,
+  msgUin: string,
+  t: ResolvedGroupMember | undefined,
+  ownerUid: string,
+): ResolvedSender {
+  const uin = t?.uin || msgUin;
+  const platformId = uin && uin !== '0' ? uin : uid;
+  const role: ResolvedSender['role'] =
+    uid && uid === ownerUid ? 'owner' : t?.adminFlag === 1 ? 'admin' : undefined;
+  return {
+    uin: uin && uin !== '0' ? uin : undefined,
+    ...(t ? { sourceName: t.nick || t.card } : {}),
+    displayName: t?.card?.trim() || t?.remark?.trim() || t?.nick?.trim() || undefined,
+    platformId,
+    accountName: t?.nick || t?.card || (uin && uin !== '0' ? uin : uid),
+    groupNickname: t?.card || undefined,
+    role,
+  };
+}
+
+export interface GroupPageSenderMessage {
+  targetGroupCode: string | bigint;
+  senderUid: string;
+  senderUin: string | bigint | number;
+}
+
+export interface GroupPageSenderMember extends Omit<ResolvedGroupMember, 'uin'> {
+  groupCode: string | bigint;
+  uin: string | bigint;
+  memberFlag?: number;
+}
+
+export interface GroupPageSenderDeps {
+  getMembersByUids: (
+    groupCode: bigint,
+    uids: string[],
+  ) => Promise<ReadonlyArray<GroupPageSenderMember>>;
+  getMembersByUins?: (
+    groupCode: bigint,
+    uins: bigint[],
+  ) => Promise<ReadonlyArray<GroupPageSenderMember>>;
+  profilesByUids?: (
+    uids: string[],
+  ) => Promise<
+    ReadonlyArray<{ uid: string; uin?: bigint | string; nick: string; remark?: string }>
+  >;
+  nicksByUids?: (uids: string[]) => Promise<Record<string, string>>;
+  /** Optional account-scope check for external hosts. */
+  authorize?: () => boolean | Promise<boolean>;
+}
+
+export interface ProjectedGroupPageSender extends ResolvedSender {
+  senderUid: string;
+  displayName: string;
+  /** groupNickname can be historical when the member has left. */
+  memberFlag?: number;
+}
+
+export interface GroupPageSenderDiagnostic {
+  stage: 'group_members' | 'group_members_by_uin' | 'profiles' | 'profile_nicks' | 'authorization';
+  /** Original error for local diagnostic handling. */
+  cause: unknown;
+}
+
+export interface GroupPageSenderResult {
+  status: 'ok' | 'partial' | 'unauthorized';
+  senders: ProjectedGroupPageSender[];
+  diagnostics?: GroupPageSenderDiagnostic[];
+}
+
+function positiveUin(value: string | bigint | number): string {
+  if (typeof value === 'number' && !Number.isSafeInteger(value)) return '';
+  const text = String(value);
+  return /^[0-9]+$/.test(text) && BigInt(text) > 0n ? text : '';
+}
+
+function groupCodeOf(value: string | bigint): bigint {
+  const code = positiveUin(value);
+  if (!code) throw new RangeError('invalid_group_code');
+  return BigInt(code);
+}
+
+function checkGroup(value: string | bigint, group: bigint): void {
+  if (positiveUin(value) && BigInt(value) === group) return;
+  throw new RangeError(`group_scope_mismatch: expected ${group}, got ${value}`);
+}
+
+/**
+ * Resolve an already selected group message batch, in input order.
+ * Query distinct UIDs only, without scanning message history.
+ * The caller controls the batch size and selects the account and group.
+ */
+export async function resolveGroupSenderPage(
+  groupCode: string | bigint,
+  messages: ReadonlyArray<GroupPageSenderMessage>,
+  deps: GroupPageSenderDeps,
+  ownerUid = '',
+): Promise<GroupPageSenderResult> {
+  const group = groupCodeOf(groupCode);
+  for (const message of messages) checkGroup(message.targetGroupCode, group);
+
+  const diagnostics: GroupPageSenderDiagnostic[] = [];
+  let revoked = false;
+  const authorized = async (): Promise<boolean> => {
+    if (revoked) return false;
+    if (!deps.authorize) return true;
+    try {
+      revoked = (await deps.authorize()) !== true;
+    } catch (cause) {
+      diagnostics.push({ stage: 'authorization', cause });
+      revoked = true;
+    }
+    return !revoked;
+  };
+  const denied = (): GroupPageSenderResult => ({
+    status: 'unauthorized',
+    senders: [],
+    ...(diagnostics.length ? { diagnostics } : {}),
+  });
+  if (!(await authorized())) return denied();
+
+  // 按既有归档查询的 500 个绑定参数分批，处理全部输入，不限制页长。
+  async function readBatches<K, V>(
+    keys: K[],
+    stage: GroupPageSenderDiagnostic['stage'],
+    read: (keys: K[]) => Promise<ReadonlyArray<V>>,
+  ): Promise<V[]> {
+    const rows: V[] = [];
+    for (let offset = 0; offset < keys.length; offset += 500) {
+      if (!(await authorized())) break;
+      try {
+        rows.push(...(await read(keys.slice(offset, offset + 500))));
+      } catch (cause) {
+        // Preserve the database scheduler's explicit cancellation contract.
+        if (cause instanceof Error && cause.name === 'AbortError') throw cause;
+        diagnostics.push({ stage, cause });
+      }
+    }
+    return rows;
+  }
+
+  const uinByUid = new Map<string, string>();
+  for (const { senderUid, senderUin } of messages) {
+    if (senderUid && !uinByUid.get(senderUid)) uinByUid.set(senderUid, positiveUin(senderUin));
+  }
+  const uids = [...uinByUid.keys()];
+  const members = new Map<string, GroupPageSenderMember>();
+  const membersByUin = new Map<bigint, GroupPageSenderMember>();
+  const addMember = (member: GroupPageSenderMember) => {
+    const previous = members.get(member.uid);
+    // 同一身份存在多条本地记录时，当前在群记录优先。
+    if (previous && previous.memberFlag !== 1 && member.memberFlag === 1) return;
+    members.set(member.uid, member);
+    const uin = positiveUin(member.uin);
+    if (uin) membersByUin.set(BigInt(uin), member);
+  };
+  for (const member of await readBatches(uids, 'group_members', (batch) =>
+    deps.getMembersByUids(group, batch),
+  )) {
+    checkGroup(member.groupCode, group);
+    if (!uinByUid.has(member.uid))
+      throw new TypeError(`invalid_member_batch: unexpected UID ${member.uid}`);
+    addMember(member);
+  }
+  if (!(await authorized())) return denied();
+
+  const getMembersByUins = deps.getMembersByUins;
+  if (getMembersByUins) {
+    const missingUins = [
+      ...new Set(
+        messages
+          .filter((row) => !row.senderUid)
+          .map((row) => positiveUin(row.senderUin))
+          .filter((uin) => uin && !membersByUin.has(BigInt(uin))),
+      ),
+    ];
+    const requested = new Set(missingUins.map(BigInt));
+    for (const member of await readBatches([...requested], 'group_members_by_uin', (batch) =>
+      getMembersByUins(group, batch),
+    )) {
+      checkGroup(member.groupCode, group);
+      const uin = positiveUin(member.uin);
+      if (!uin || !requested.has(BigInt(uin)))
+        throw new TypeError(`invalid_member_batch: unexpected UIN ${member.uin}`);
+      addMember(member);
+    }
+  }
+  if (!(await authorized())) return denied();
+
+  const allUids = [...new Set([...uids, ...members.keys()])].filter(Boolean);
+  const needProfile = allUids.filter((uid) => {
+    const member = members.get(uid);
+    return (
+      !member ||
+      member.memberFlag === 1 ||
+      !(member.card.trim() || member.remark?.trim()) ||
+      !member.nick.trim() ||
+      !(uinByUid.get(uid) || positiveUin(member.uin))
+    );
+  });
+  type PageProfile = { uid: string; uin?: string | bigint; nick: string; remark?: string };
+  const profiles = new Map<string, PageProfile>();
+  if (deps.profilesByUids) {
+    const lookup = deps.profilesByUids;
+    const requested = new Set(needProfile);
+    for (const profile of await readBatches(needProfile, 'profiles', lookup)) {
+      if (requested.has(profile.uid)) profiles.set(profile.uid, profile);
+    }
+  }
+  if (!(await authorized())) return denied();
+  if (deps.nicksByUids) {
+    const lookup = deps.nicksByUids;
+    const missing = needProfile.filter((uid) => !profiles.has(uid));
+    const requested = new Set(missing);
+    for (const profile of await readBatches(missing, 'profile_nicks', async (batch) =>
+      Object.entries(await lookup(batch)).map(([uid, nick]) => ({ uid, nick })),
+    )) {
+      if (requested.has(profile.uid)) profiles.set(profile.uid, profile);
+    }
+  }
+  if (!(await authorized())) return denied();
+
+  let unresolved = false;
+  const senders = messages.map((message): ProjectedGroupPageSender => {
+    const messageUin = positiveUin(message.senderUin);
+    const member = message.senderUid
+      ? members.get(message.senderUid)
+      : messageUin
+        ? membersByUin.get(BigInt(messageUin))
+        : undefined;
+    const uid = message.senderUid || member?.uid || '';
+    const profile = profiles.get(uid);
+    const active = member && member.memberFlag !== 1;
+    // 消息原始 UIN 优先；资料库用于补全缺失字段。
+    const uin =
+      messageUin ||
+      uinByUid.get(uid) ||
+      (member ? positiveUin(member.uin) : '') ||
+      positiveUin(profile?.uin ?? '');
+    const current: ResolvedGroupMember | undefined =
+      member || profile
+        ? {
+            uid,
+            uin,
+            card: active ? member.card : '',
+            nick: profile?.nick || member?.nick || '',
+            remark: profile?.remark || (active ? member.remark : undefined),
+            adminFlag: active ? member.adminFlag : 0,
+          }
+        : undefined;
+    const resolved = projectGroupSenderIdentity(uid, uin, current, ownerUid);
+    if (!resolved.displayName) unresolved = true;
+    return {
+      ...resolved,
+      ...(member?.memberFlag !== undefined ? { memberFlag: member.memberFlag } : {}),
+      ...(member?.memberFlag === 1 && member.card ? { groupNickname: member.card } : {}),
+      senderUid: message.senderUid,
+      displayName: resolved.displayName || resolved.platformId || '未知成员',
+    };
+  });
+  return {
+    status: diagnostics.length || unresolved ? 'partial' : 'ok',
+    senders,
+    ...(diagnostics.length ? { diagnostics } : {}),
+  };
+}
+
 /** The conversation's message iterator for the current kind (pageSize 2000). */
 export function iterateConv(
   msgs: MsgService,
@@ -153,20 +421,7 @@ export async function resolveGroupSenders(
 
   const out = new Map<string, ResolvedSender>();
   for (const [uid, msgUin] of uinByUid) {
-    const t = table.get(uid);
-    const uin = t?.uin || msgUin;
-    const platformId = uin && uin !== '0' ? uin : uid;
-    const role: ResolvedSender['role'] =
-      uid === ownerUid ? 'owner' : t?.adminFlag === 1 ? 'admin' : undefined;
-    out.set(uid, {
-      uin: uin && uin !== '0' ? uin : undefined,
-      ...(t ? { sourceName: t.nick || t.card } : {}),
-      displayName: t?.card?.trim() || t?.remark?.trim() || t?.nick?.trim() || undefined,
-      platformId,
-      accountName: t?.nick || t?.card || (uin && uin !== '0' ? uin : uid),
-      groupNickname: t?.card || undefined,
-      role,
-    });
+    out.set(uid, projectGroupSenderIdentity(uid, msgUin, table.get(uid), ownerUid));
   }
   return out;
 }

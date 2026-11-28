@@ -330,6 +330,12 @@ export { OfficialAccountService } from './account/official_account';
 export type { OfficialAccountSummary } from './account/official_account';
 export { ServiceAccountService } from './account/service_account';
 export type { ServiceAccountSummary } from './account/service_account';
+export { AiAssistantService, aiMessagePlainText } from './account/ai_assistant';
+export type {
+  AiAssistantSessionSummary,
+  AiAssistantMessage,
+  AiAssistantConversation,
+} from './account/ai_assistant';
 export { ForwardMsgService, forwardCacheIdentity } from './account/forward';
 export { MsgService } from './account/msg';
 export type { MsgSalvageSource } from './account/msg';
@@ -1093,6 +1099,13 @@ export {
   toExportedMessage,
   elementToText,
   elementsToText,
+  resolveGroupSenderPage,
+  type GroupPageSenderMessage,
+  type GroupPageSenderMember,
+  type GroupPageSenderDeps,
+  type GroupPageSenderResult,
+  type GroupPageSenderDiagnostic,
+  type ProjectedGroupPageSender,
   messageToText,
   formatTime,
 } from './account/export';

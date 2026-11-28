@@ -1,0 +1,380 @@
+/* AI 助手（小Q）—— 消息卡片、操作栏、推荐按钮、session 切换器。
+ *
+ * 全部走语义 token，跟随主题；卡片视觉对齐 QQ 自己的浅色卡片（圆角、细边、
+ * 次级文字用 --weq-fg-secondary）。
+ */
+
+/* ── 消息正文 ─────────────────────────────────────────────────────────── */
+
+.ai-message {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(100%, 560px);
+}
+
+.ai-message .ai-message-text {
+  min-width: 0;
+  white-space: normal;
+}
+
+.ai-message-text .qq-md {
+  line-height: inherit;
+}
+
+.ai-message-text .qq-md :is(p, ul, ol) {
+  margin-block: 4px;
+}
+
+.ai-message-text .qq-md :is(ul, ol) {
+  padding-inline-start: 1.25em;
+}
+
+.ai-message-text .qq-md li {
+  margin-block: 1px;
+  padding-block: 0;
+}
+
+.ai-message-text .qq-md li > p {
+  margin-block: 0;
+}
+
+.ai-quser {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  vertical-align: baseline;
+}
+
+.ai-quser-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+
+/* qlink 外链：沿用 qq-link 配色。 */
+.ai-qlink {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--weq-accent-ink);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ── qui 结构化卡片 ───────────────────────────────────────────────────── */
+
+.ai-qui-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 12px;
+  background: var(--weq-skin-surface);
+}
+
+.ai-qui-eyebrow {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ai-qui-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-qui-title {
+  color: var(--weq-fg-primary);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ai-qui-text {
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ai-qui-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-qui-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 4%, transparent);
+}
+
+.ai-qui-item-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ai-qui-item-avatar {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.ai-qui-feed-body {
+  white-space: pre-wrap;
+}
+
+.ai-qui-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ai-qui-item-title {
+  overflow: hidden;
+  color: var(--weq-fg-primary);
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-qui-item-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.ai-qui-item-label {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 7%, transparent);
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.ai-qui-item-pics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 4px;
+}
+
+.ai-qui-item-pics img {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.ai-qui-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 卡片按钮：与机器人内联键盘同一套观感（描边 + 次级底色）。 */
+.ai-qui-button {
+  display: inline-flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 12px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 8px;
+  background: var(--weq-skin-surface);
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.ai-qui-button .truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-qui-button.is-link {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  color: var(--weq-accent-ink);
+  cursor: pointer;
+}
+
+.ai-qui-button.is-link:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.ai-qui-button.is-static {
+  color: var(--weq-fg-secondary);
+  cursor: default;
+}
+
+/* ── 操作栏（44）────────────────────────────────────────────────────── */
+
+.ai-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.ai-action-bar-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: default;
+}
+
+.ai-action-bar-button:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+}
+
+/* ── 推荐消息（43）──────────────────────────────────────────────────── */
+
+.ai-recommended {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.ai-recommended-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+}
+
+.ai-recommended-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-recommended-chip {
+  padding: 5px 11px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  border-radius: 999px;
+  color: var(--weq-accent-ink);
+  font-size: 12.5px;
+  line-height: 1.3;
+  cursor: default;
+}
+
+/* ── session 切换器 ──────────────────────────────────────────────────── */
+
+.ai-session-switcher {
+  position: relative;
+}
+
+.ai-session-switcher-trigger {
+  display: inline-flex;
+  max-width: 220px;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 8px;
+  background: var(--weq-skin-surface);
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.ai-session-switcher-trigger:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.ai-session-switcher-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-session-switcher-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 10px;
+  background: var(--weq-skin-surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+
+.ai-session-switcher-error {
+  padding: 6px 8px;
+  color: var(--weq-danger-ink, #c0392b);
+  font-size: 12px;
+}
+
+.ai-session-switcher-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-session-switcher-item:hover,
+.ai-session-switcher-item.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.ai-session-switcher-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-session-switcher-item-meta {
+  flex: none;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+}
+
+/* ── 层级修正 ────────────────────────────────────────────────────────── */
+
+/* .chat-pane 的子项都吃 z-index:1，header 与 message-scroll 同层时后者按 DOM
+ * 顺序画在上面，session 切换器的下拉会被消息区盖住。这里只在存在切换器时把
+ * header 抬到消息区之上（不加 position，保持网格项语义）。 */
+.chat-pane:has(.ai-session-switcher) > .chat-header {
+  z-index: 2;
+}
