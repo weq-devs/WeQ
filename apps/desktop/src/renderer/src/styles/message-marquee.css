@@ -1,9 +1,13 @@
-.message-scroll {
+.message-scroll,
+.weq-marquee-grid {
   position: relative;
 }
 .is-marquee-selecting {
   user-select: none;
   cursor: crosshair;
+}
+.weq-marquee-grid.is-marquee-selecting :is(button, [data-weq-select-id]) {
+  cursor: inherit;
 }
 .weq-message-marquee {
   position: absolute;

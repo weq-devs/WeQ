@@ -30,7 +30,6 @@ const server = await createServer({
   resolve: {
     alias: [
       { find: /^.*\/trpc\/client$/, replacement: stub },
-      { find: /^.*\/lib\/clientPreferences$/, replacement: stub },
       { find: /^.*\/hooks\/useExportSavePolicy$/, replacement: stub },
       { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
       { find: '@resources', replacement: resolve(root, '../../resources') },
@@ -73,7 +72,10 @@ try {
   await page.getByRole('button', { name: '全选已加载项', exact: true }).click();
   await page.getByRole('button', { name: '导出所选内容', exact: true }).click();
   assert.equal(await page.getByRole('heading', { name: '已选 2 项内容' }).count(), 1);
-  assert.equal(await page.getByLabel('报告结果版本').locator('option').count(), 2);
+  const reportVersion = page.getByLabel('报告结果版本');
+  await reportVersion.click();
+  assert.equal(await page.getByRole('listbox').getByRole('option').count(), 2);
+  await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('button', { name: '下载选中', exact: true }).count(), 0);
   assert.equal(await page.getByRole('button', { name: '编辑列表', exact: true }).count(), 0);
   assert.equal(await page.getByRole('button', { name: '开始导出', exact: true }).count(), 1);
@@ -177,10 +179,42 @@ try {
   assert.equal(exported.savePolicy.directory, '.');
   assert.equal(exported.includeIntegrityReport, true);
   await page.getByRole('button', { name: '退出多选', exact: true }).click();
+  await page.setViewportSize({ width: 1180, height: 800 });
   await page.getByRole('button', { name: '相册列表', exact: true }).click();
-  await page.getByRole('button', { name: '选择相册 相册甲', exact: true }).click();
-  await page.getByRole('button', { name: '相册乙', exact: true }).click();
-  await page.getByRole('button', { name: '选择', exact: true }).click();
+  const dragWithin = async (target, inspect) => {
+    await target.scrollIntoViewIfNeeded();
+    const { x, y, width, height } = await target.boundingBox();
+    await page.mouse.move(x + width * 0.25, y + height * 0.35);
+    await page.mouse.down();
+    await page.mouse.move(x + width * 0.6, y + height * 0.65);
+    await page.locator('.weq-message-marquee').waitFor();
+    await inspect?.();
+    await page.mouse.up();
+    await page.locator('.weq-message-marquee').waitFor({ state: 'detached' });
+  };
+  const albumCards = page.locator('.weq-qzal-album-card');
+  const albumA = page.getByRole('button', { name: '选择相册 相册甲', exact: true });
+  await dragWithin(albumCards.first(), async () => {
+    assert.equal(await page.locator('.weq-qzal-album-card.is-checked').count(), 1);
+    assert.match(await page.locator('.weq-qzal-album-card.is-checked').textContent(), /相册甲/);
+    assert.equal(await page.getByRole('button', { name: '多选', exact: true }).count(), 1);
+  });
+  assert.equal(await albumA.getAttribute('aria-pressed'), 'true');
+  await page.keyboard.down('Meta');
+  try {
+    await dragWithin(albumCards.first());
+  } finally {
+    await page.keyboard.up('Meta');
+  }
+  assert.equal(await albumA.getAttribute('aria-pressed'), 'false');
+  await albumCards
+    .first()
+    .locator('.weq-qzal-album-open')
+    .click({ modifiers: ['Meta'] });
+  assert.equal(await albumA.getAttribute('aria-pressed'), 'true');
+  await albumCards.last().locator('.weq-qzal-album-open').click();
+  await dragWithin(page.locator('.weq-qzal-media-thumb img'));
+  assert.equal(await page.locator('.weq-qzal-media-check').getAttribute('aria-pressed'), 'true');
   await page.getByRole('button', { name: '导出所选内容', exact: true }).click();
   await page.getByRole('button', { name: '开始导出', exact: true }).click();
   await page.waitForFunction(() => window.requirementsQa.exports.length === 2);
@@ -190,6 +224,24 @@ try {
     ),
     ['qzone-album', 'qzone-photo'],
   );
+  await page.getByRole('button', { name: '退出多选', exact: true }).click();
+  await page.getByRole('button', { name: '相册列表', exact: true }).click();
+  const scroller = page.locator('main');
+  await scroller.evaluate((element) => {
+    element.classList.add('weq-qzn-scroll');
+    Object.assign(element.style, { width: '270px', height: '255px', overflow: 'auto' });
+  });
+  const visible = await scroller.boundingBox();
+  const first = await albumCards.first().boundingBox();
+  await page.mouse.move(first.x + first.width / 2, first.y + 35);
+  await page.mouse.down();
+  await page.mouse.move(first.x + first.width * 0.6, visible.y + visible.height - 4);
+  await page.locator('.weq-qzal-album-card.is-checked').nth(1).waitFor();
+  assert.ok(await scroller.evaluate((element) => element.scrollTop > 0));
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await page.locator('.weq-message-marquee').waitFor({ state: 'detached' });
+  assert.equal(await page.getByRole('button', { name: '多选', exact: true }).count(), 1);
   assert.deepEqual(errors, []);
   assert.deepEqual(diagnostics, []);
   console.log(
@@ -201,6 +253,7 @@ try {
       remoteSavePolicy: true,
       singleSubmit: true,
       sharedAlbumAndPhotoSelection: true,
+      albumMarquee: true,
       touchTargets: true,
       themeControls: true,
       consoleErrors: diagnostics,

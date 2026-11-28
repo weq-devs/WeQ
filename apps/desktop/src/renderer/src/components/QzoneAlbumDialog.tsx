@@ -28,6 +28,8 @@ import {
   useEffect,
   useRef,
   useState,
+  type Dispatch,
+  type PointerEvent,
   type ReactElement,
   type ReactNode,
   type SetStateAction,
@@ -62,6 +64,7 @@ import { useDebouncedLoading } from '../hooks/useDebouncedLoading';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { useMultiSelection } from '../hooks/useMultiSelection';
+import { useAlbumGridMarquee } from '../hooks/useAlbumGridMarquee';
 import { QzonePageButton } from '../views/QzonePagination';
 import { hasNewQzoneItems, useQzoneRefreshRequest } from '../views/qzoneRefresh';
 import { QZONE_ALBUM_PAGE_SIZE as PAGE_NUM } from '../../../shared/qzone_album_export';
@@ -861,7 +864,7 @@ export function QzoneAlbumDialog({
           </div>
         ) : selected ? (
           <MediaView
-            key={`${hostUin}:${selected.id}`}
+            key={`${selfUin}:${hostUin}:${selected.id}`}
             active={active}
             embedded={embedded}
             photos={media}
@@ -891,6 +894,7 @@ export function QzoneAlbumDialog({
         ) : (
           <>
             <AlbumGridView
+              key={`${selfUin}:${hostUin}`}
               active={active}
               albums={albums}
               hostUin={hostUin}
@@ -944,6 +948,50 @@ export function QzoneAlbumDialog({
   );
 }
 
+function useAlbumGridSelection({
+  ids,
+  selected,
+  onChange,
+  selectionMode,
+  setSelectionMode,
+  marqueeEnabled,
+}: {
+  ids: readonly string[];
+  selected: ReadonlySet<string>;
+  onChange: Dispatch<SetStateAction<Set<string>>>;
+  selectionMode: boolean;
+  setSelectionMode: (enabled: boolean) => void;
+  marqueeEnabled: boolean;
+}) {
+  const anchorRef = useRef<string | null>(null);
+  const multi = useMultiSelection({
+    ids,
+    selected,
+    onChange,
+    enabled: selectionMode,
+    normalClick: 'passthrough',
+    onStart: () => setSelectionMode(true),
+    onExit: () => setSelectionMode(false),
+    anchorRef,
+  });
+  const marquee = useAlbumGridMarquee({ enabled: marqueeEnabled, selected, onChange, anchorRef });
+  return {
+    itemProps: multi.itemProps,
+    toggle: multi.toggle,
+    selected: marquee.previewIds ?? selected,
+    box: marquee.box,
+    className: `weq-marquee-grid${marquee.box ? ' is-marquee-selecting' : ''}`,
+    rootProps: {
+      ...multi.rootProps,
+      ...marquee.handlers,
+      onPointerDownCapture: (event: PointerEvent<HTMLDivElement>) => {
+        multi.rootProps.onPointerDownCapture();
+        marquee.handlers.onPointerDownCapture(event);
+      },
+    },
+  };
+}
+
 export function AlbumGridView({
   active = true,
   albums,
@@ -974,20 +1022,18 @@ export function AlbumGridView({
     [albums, hostUin],
   );
   const selection = useContentMultiSelect(owner, active, references);
-  const multi = useMultiSelection({
-    ids: [...references.keys()],
+  const ids = useMemo(() => [...references.keys()], [references]);
+  const multi = useAlbumGridSelection({
+    ids,
     selected: selection.selectedIds,
     onChange: selection.setSelectedIds,
-    enabled: selection.selectionMode,
-    normalClick: 'passthrough',
-    onStart: () => selection.setSelectionMode(true),
-    onExit: () => selection.setSelectionMode(false),
+    selectionMode: selection.selectionMode,
+    setSelectionMode: selection.setSelectionMode,
+    marqueeEnabled: active,
   });
   const albumKey = (album: QzoneAlbumWire) =>
     contentReferenceKey({ kind: 'qzone-album', uin: hostUin, albumId: album.id });
-  const toolbar = (
-    <ContentReferenceToolbar owner={owner} selection={selection} loaded={[...references.keys()]} />
-  );
+  const toolbar = <ContentReferenceToolbar owner={owner} selection={selection} loaded={ids} />;
 
   return (
     <div className="weq-qzal-album-list">
@@ -1004,7 +1050,7 @@ export function AlbumGridView({
           {toolbar}
         </div>
       )}
-      <div className="weq-qzal-album-grid" {...multi.rootProps}>
+      <div className={`weq-qzal-album-grid ${multi.className}`} {...multi.rootProps}>
         {albums.map((album) => {
           const key = albumKey(album);
           return (
@@ -1025,13 +1071,14 @@ export function AlbumGridView({
                   ) : null}
                 </>
               }
-              selected={selection.selectedIds.has(key)}
+              selected={multi.selected.has(key)}
               onSelect={selection.selectionMode ? () => multi.toggle(key) : undefined}
               onOpen={() => onOpen(album)}
               selectionProps={multi.itemProps(key)}
             />
           );
         })}
+        {multi.box ? <div className="weq-message-marquee" aria-hidden style={multi.box} /> : null}
       </div>
     </div>
   );
@@ -1135,14 +1182,15 @@ export function MediaView({
     },
     [sharedSelection.setSelectedIds, localToReference],
   );
-  const photoMulti = useMultiSelection({
-    ids: [...localToReference.keys()],
+  const ids = useMemo(() => [...localToReference.keys()], [localToReference]);
+  const [preview, setPreview] = useState<number | null>(null);
+  const photoMulti = useAlbumGridSelection({
+    ids,
     selected,
     onChange: setSelected,
-    enabled: !onJumpToAlbum && sharedSelection.selectionMode,
-    normalClick: 'passthrough',
-    onStart: () => sharedSelection.setSelectionMode(true),
-    onExit: () => sharedSelection.setSelectionMode(false),
+    selectionMode: !onJumpToAlbum && sharedSelection.selectionMode,
+    setSelectionMode: sharedSelection.setSelectionMode,
+    marqueeEnabled: active && !onJumpToAlbum && preview === null && !loading && photos.length > 0,
   });
 
   /** 勾选的媒体行键集合（全选作用于已加载的条目）。
@@ -1155,7 +1203,6 @@ export function MediaView({
   const rootProps = onJumpToAlbum ? undefined : photoMulti.rootProps;
   /** 正在取 mp4 播放地址的视频行键（同上，不能裸用 photo.id）。 */
   const [videoResolving, setVideoResolving] = useState<string | null>(null);
-  const [preview, setPreview] = useState<number | null>(null);
   const [details, setDetails] = useState<
     Record<string, { name: string; width: number | null; height: number | null }>
   >({});
@@ -1337,10 +1384,10 @@ export function MediaView({
         </div>
       ) : photos.length > 0 ? (
         <>
-          <div className="weq-qzal-media-grid" {...rootProps}>
+          <div className={`weq-qzal-media-grid ${photoMulti.className}`} {...rootProps}>
             {photos.map((photo, index) => {
               const row = rowKey(index);
-              const checked = !onJumpToAlbum && selected.has(row);
+              const checked = !onJumpToAlbum && photoMulti.selected.has(row);
               const detail = details[row];
               return (
                 <div
@@ -1402,6 +1449,9 @@ export function MediaView({
                 </div>
               );
             })}
+            {photoMulti.box ? (
+              <div className="weq-message-marquee" aria-hidden style={photoMulti.box} />
+            ) : null}
           </div>
           <div ref={sentinelRef} className="weq-qzal-sentinel">
             {loadFailed ? (
