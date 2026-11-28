@@ -144,20 +144,15 @@ export class GroupSenderNameIndex {
       params.push(filter.keyword);
     }
     const subset = `SELECT * FROM names ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`;
-    const matches = filter.profileHistory
-      ? `SELECT CASE WHEN kind = 'display' THEN groupCode END AS groupCode,
-           uid, MAX(uin) AS uin, name, kind, MIN(first) AS first, MAX(last) AS last
-           FROM (${subset}) GROUP BY 1, uid, name, kind`
-      : subset;
-    const order = `${filter.profileHistory ? 'kind DESC,' : filter.keyword ? 'length(name),' : ''}last DESC,`;
+    const order = filter.keyword ? 'length(name),last DESC,' : 'last DESC,';
     const sql = filter.distinctSenders
-      ? `WITH matches AS (${matches}), ranked AS (
+      ? `WITH matches AS (${subset}), ranked AS (
            SELECT *, ROW_NUMBER() OVER (PARTITION BY uid ORDER BY ${order} groupCode,name,kind) AS rank
            FROM matches
          )
          SELECT groupCode,uid,uin,name,kind,first,last FROM ranked WHERE rank=1
            ORDER BY ${order} groupCode,uid,name,kind LIMIT ? OFFSET ?`
-      : `SELECT groupCode,uid,uin,name,kind,first,last FROM (${matches})
+      : `SELECT groupCode,uid,uin,name,kind,first,last FROM (${subset})
            ORDER BY ${order} groupCode,uid,name,kind LIMIT ? OFFSET ?`;
     const rows = db.prepare(sql).all(...params, filter.limit, filter.offset ?? 0);
     if (!rows.length && this.error) throw this.error;

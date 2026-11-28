@@ -269,24 +269,36 @@ export class MsgService {
     return this.session.c2cMsgs.recordedSenderNames(conv, ids);
   }
 
-  get groupSenderNamesPending() {
-    return this.session.groupMsgs.senderNamesPending;
-  }
-
-  async groupSenderNames(filter: Parameters<AccountSession['groupMsgs']['senderNames']>[0]) {
-    const rows = await this.session.groupMsgs.senderNames(filter);
-    if (!rows.length) return [];
-    const codes = [...new Set(rows.flatMap((row) => (row.groupCode ? [row.groupCode] : [])))];
-    const groups = codes.length
-      ? await this.session.groupDetail.detailsByGroupCodes(codes.map(BigInt))
+  async groupSenderNames(
+    filter: Parameters<AccountSession['groupMsgs']['senderNames']>[0] & {
+      profileHistory?: boolean;
+    },
+  ) {
+    const db = this.session.groupMsgs;
+    const { rows, indexPending } =
+      filter.profileHistory && filter.senderUid
+        ? await db.senderNamePeriods({ ...filter, senderUid: filter.senderUid })
+        : {
+            rows: await db.senderNames(filter),
+            indexPending: !filter.groupCode && db.senderNamesPending,
+          };
+    const codes = new Set<string>();
+    for (const { groupCode, first, last } of rows) {
+      for (const code of [groupCode, first.groupCode, last.groupCode]) if (code) codes.add(code);
+    }
+    const groups = codes.size
+      ? await this.session.groupDetail.detailsByGroupCodes(Array.from(codes, BigInt))
       : [];
     const names = new Map(
       groups.map((group) => [String(group.groupCode), group.groupName || group.remark]),
     );
-    return rows.map((row) => ({
+    const withNames = rows.map((row) => ({
       ...row,
       groupName: row.groupCode && (names.get(row.groupCode) || row.groupCode),
+      first: { ...row.first, groupName: row.first.groupCode && names.get(row.first.groupCode) },
+      last: { ...row.last, groupName: row.last.groupCode && names.get(row.last.groupCode) },
     }));
+    return { rows: withNames, indexPending };
   }
 
   async messageRecordDetails(target: MessageRecordTarget) {

@@ -43,11 +43,10 @@ function History({
 }) {
   const { binding } = useQQWriteSession(`sender-name-history:${uid}`, true);
   const active = useTabActive();
-  const jump = useContext(GroupHistoryNavigationContext);
   const speech = useContext(GroupSpeechPreviewContext);
   const result = useInfiniteQuery({
     ...PROFILE_QUERY_OPTIONS,
-    queryKey: ['profile-sender-name-history', binding, uid, groupCode],
+    queryKey: ['profile-sender-name-periods', binding, uid, groupCode],
     enabled: active && Boolean(binding),
     queryFn: ({ pageParam = 0, signal }) =>
       client.account.groupSenderNames.query(
@@ -92,13 +91,7 @@ function History({
         </ContactSection>
       ) : null}
       {[...groups].map(([code, { name, rows: groupRows }]) => {
-        const items = (
-          <HistoryNames
-            key={code}
-            rows={groupRows}
-            onJump={jump ? (point) => jump({ code, name }, point) : undefined}
-          />
-        );
+        const items = <HistoryNames key={code} rows={groupRows} />;
         return groupCode ? (
           items
         ) : (
@@ -140,59 +133,55 @@ function History({
   );
 }
 
-function HistoryNames({
-  rows,
-  currentName,
-  onJump,
-}: {
-  rows: HistoryRow[];
-  currentName?: string;
-  onJump?: (point: HistoryRow['first']) => void;
-}) {
+function HistoryNames({ rows, currentName }: { rows: HistoryRow[]; currentName?: string }) {
   return (
     <ul className="weq-profile-message-names" role="list">
-      {rows.map(({ name, first, last }) => (
-        <li key={name} className="weq-profile-message-name" data-privacy-sensitive>
+      {rows.map(({ name, first, last }, index) => (
+        <li
+          key={`${first.groupCode}:${first.msgId}`}
+          className="weq-profile-message-name"
+          data-privacy-sensitive
+        >
           <span className="weq-profile-message-name-value">{name}</span>
           <div className="weq-profile-message-name-dates">
-            {name === currentName ? <span>当前</span> : null}
-            {(
-              [
-                ['最早见于', first],
-                ['最晚见于', last],
-              ] as const
-            )
-              .filter(([, point], index) => index === 0 || point.msgId !== first.msgId)
-              .map(([label, point]) => {
-                const instant = new Date(point.sendTime * 1000);
-                if (!Number.isFinite(instant.getTime())) return null;
-                const date = (
-                  <time
-                    key={label}
-                    className="weq-number weq-number-inherit"
-                    dateTime={instant.toISOString()}
-                  >
-                    {formatDate(instant)}
-                  </time>
-                );
-                return onJump ? (
-                  <button
-                    key={label}
-                    type="button"
-                    className="weq-profile-section-action"
-                    onClick={() => onJump(point)}
-                  >
-                    {label} {date}
-                  </button>
-                ) : (
-                  <span key={label}>
-                    {label} {date}
-                  </span>
-                );
-              })}
+            {index === 0 && name === currentName ? <span>当前</span> : null}
+            <span className="weq-profile-message-name-range">
+              <HistoryDate point={first} label="首条消息" />
+              {first.msgId !== last.msgId || first.groupCode !== last.groupCode ? (
+                <>
+                  <span aria-hidden>~</span>
+                  <HistoryDate point={last} label="末条消息" />
+                </>
+              ) : null}
+            </span>
           </div>
         </li>
       ))}
     </ul>
+  );
+}
+
+function HistoryDate({ point, label }: { point: HistoryRow['first']; label: string }) {
+  const jump = useContext(GroupHistoryNavigationContext);
+  const instant = new Date(point.sendTime * 1000);
+  if (!Number.isFinite(instant.getTime())) return null;
+  const display = formatDate(instant);
+  const date = (
+    <time className="weq-number weq-number-inherit" dateTime={instant.toISOString()}>
+      {display}
+    </time>
+  );
+  const code = point.groupCode;
+  return jump && code ? (
+    <button
+      type="button"
+      className="weq-profile-section-action"
+      aria-label={`定位到 ${display} 的${label}`}
+      onClick={() => jump({ code, name: point.groupName || code }, point)}
+    >
+      {date}
+    </button>
+  ) : (
+    date
   );
 }

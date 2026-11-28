@@ -68,6 +68,7 @@ import { groupDirectoryTimes, recentGroupDirectoryTimes } from './directory_time
 import { listDeletedRefs } from './deleted_refs';
 import { readMessageSourceRows } from './export_source';
 import { GroupSenderNameIndex } from './group_sender_name_index';
+import { profileSenderNamePeriods } from './profile_sender_name_periods';
 import {
   groupSenderNames,
   senderNameAtTime,
@@ -155,14 +156,27 @@ export class GroupMsgDb {
     this.senderNameIndexPath = opts.senderNameIndexPath;
   }
   async senderNames(filter: Parameters<typeof groupSenderNames>[1]) {
-    if (filter.groupCode || !this.senderNameIndexPath) return groupSenderNames(this.qq, filter);
+    const index = this.getSenderNameIndex(filter.groupCode);
+    return index ? index.search(filter) : groupSenderNames(this.qq, filter);
+  }
+
+  async senderNamePeriods(filter: Parameters<typeof profileSenderNamePeriods>[1]) {
+    const index = this.getSenderNameIndex(filter.groupCode);
+    const summaries = await index?.search({ ...filter, offset: 0, limit: -1 });
+    const indexPending = index?.pending ?? false;
+    const rows = await profileSenderNamePeriods(this.qq, filter, summaries);
+    return { rows, indexPending };
+  }
+
+  private getSenderNameIndex(groupCode?: string) {
+    if (groupCode || !this.senderNameIndexPath) return undefined;
     this.senderNameIndex ??= new GroupSenderNameIndex(
       this.qq,
       typeof this.senderNameIndexPath === 'function'
         ? this.senderNameIndexPath()
         : this.senderNameIndexPath,
     );
-    return this.senderNameIndex.search(filter);
+    return this.senderNameIndex;
   }
 
   async recordedSenderNames(conversation: string, ids: readonly string[]) {

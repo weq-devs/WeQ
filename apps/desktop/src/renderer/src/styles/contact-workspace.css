@@ -361,10 +361,17 @@
 
 .weq-profile-message-name-dates {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 2px 10px;
   color: var(--weq-fg-secondary);
   font-size: 12px;
+}
+
+.weq-profile-message-name-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .weq-profile-message-name-dates .weq-profile-section-action {

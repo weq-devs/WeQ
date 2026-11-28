@@ -1,10 +1,12 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ContactGroupWorkspace } from '../src/renderer/src/components/contactProfile/ContactGroupWorkspace';
+import { GroupSenderNameHistory } from '../src/renderer/src/components/contactProfile/GroupSenderNameHistory';
 import { useDraftProtection } from '../src/renderer/src/lib/draftClose';
 import type { Contact } from '../src/renderer/src/im-template/template/types';
+import { GroupHistoryNavigationContext } from '../src/renderer/src/lib/chatNavigation';
 import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import type { GroupProfileSurfaceProps } from '../src/renderer/src/components/groupProfile/GroupProfileSurface';
 
@@ -13,6 +15,7 @@ const rpc = vi.hoisted(() => ({
   busy: false,
   groups: vi.fn(),
   detail: vi.fn(),
+  senderNames: vi.fn(),
 }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({
@@ -21,7 +24,11 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
-    account: { listUserGroups: { query: rpc.groups }, getGroupDetail: { query: rpc.detail } },
+    account: {
+      listUserGroups: { query: rpc.groups },
+      getGroupDetail: { query: rpc.detail },
+      groupSenderNames: { query: rpc.senderNames },
+    },
   },
 }));
 vi.mock('../src/renderer/src/components/contactProfile/ContactContent', () => ({
@@ -60,6 +67,7 @@ const contact: Contact = {
 };
 const roots: Array<{ root: ReturnType<typeof createRoot>; cache: QueryClient }> = [];
 beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   rpc.config = 'source-a';
   rpc.busy = false;
   vi.clearAllMocks();
@@ -79,8 +87,9 @@ afterEach(() => {
   }
   roots.length = 0;
   document.body.innerHTML = '';
+  vi.unstubAllGlobals();
 });
-function fixture(navigate = vi.fn()) {
+function fixture(navigate = vi.fn(), content: ReactNode = h(ContactGroupWorkspace, { contact })) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -95,11 +104,7 @@ function fixture(navigate = vi.fn()) {
         h(
           QueryClientProvider,
           { client: cache },
-          h(
-            ContactWorkspaceNavigationContext.Provider,
-            { value: navigate },
-            h(ContactGroupWorkspace, { contact }),
-          ),
+          h(ContactWorkspaceNavigationContext.Provider, { value: navigate }, content),
         ),
       );
       await new Promise((resolve) => setTimeout(resolve, 15));
@@ -107,6 +112,53 @@ function fixture(navigate = vi.fn()) {
   };
   return { host, render };
 }
+
+it('QQ 昵称同一天的两个日期分别跳到这段的首条和末条消息', async () => {
+  const first = {
+    groupCode: '99999',
+    groupName: '首条所在群',
+    msgId: '1',
+    msgSeq: '11',
+    sendTime: 1783425600,
+  };
+  const last = {
+    groupCode: '10003',
+    groupName: '末条所在群',
+    msgId: '2',
+    msgSeq: '22',
+    sendTime: first.sendTime,
+  };
+  rpc.senderNames.mockResolvedValue({
+    rows: [{ kind: 'nickname', groupCode: null, name: '旧昵称', first, last }],
+    indexPending: false,
+  });
+  const jump = vi.fn();
+  const { host, render } = fixture(
+    vi.fn(),
+    h(
+      GroupHistoryNavigationContext.Provider,
+      { value: jump },
+      h(GroupSenderNameHistory, { person: contact }),
+    ),
+  );
+  await render();
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')!.click(),
+  );
+  const start = () => host.querySelector<HTMLButtonElement>('button[aria-label$="首条消息"]');
+  const end = () => host.querySelector<HTMLButtonElement>('button[aria-label$="末条消息"]');
+  await act(async () => vi.waitFor(() => expect(end()).not.toBeNull()));
+  expect(start()?.textContent).toBe(end()?.textContent);
+  await act(async () => {
+    start()!.click();
+    end()!.click();
+  });
+  expect(jump.mock.calls).toEqual([
+    [{ code: first.groupCode, name: first.groupName }, first],
+    [{ code: last.groupCode, name: last.groupName }, last],
+  ]);
+});
+
 it('查看群名片在按钮旁打开所选群的快速名片，不跳转完整资料页', async () => {
   const navigate = vi.fn();
   const { host, render } = fixture(navigate);

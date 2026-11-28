@@ -5277,7 +5277,7 @@ export const accountRouter = router({
         input.expectedAccountUin,
         input.expectedAccountConfigId,
       );
-      const rows = await services.msgs.groupSenderNames({
+      const { rows, indexPending } = await services.msgs.groupSenderNames({
         groupCode: input.groupCode,
         senderUid: input.senderUid,
         keyword: input.keyword,
@@ -5292,7 +5292,7 @@ export const accountRouter = router({
         throw new Error('账号或数据源已切换');
       return {
         rows: rows.slice(0, 50),
-        indexPending: !input.groupCode && services.msgs.groupSenderNamesPending,
+        indexPending,
         nextOffset: rows.length > 50 ? input.offset + 50 : undefined,
       };
     }),
