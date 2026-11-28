@@ -8,6 +8,7 @@ import {
 import { IntentSuggestionBar } from '../../src/renderer/src/components/intentSense/IntentSuggestionBar';
 import { AffinityPill } from '../../src/renderer/src/components/intentSense/AffinityPill';
 import { IntentProfileDialog } from '../../src/renderer/src/components/intentSense/IntentProfileDialog';
+import { HoverTooltip } from '../../src/renderer/src/components/HoverTooltip';
 import { ContactWorkspaceNavigationContext } from '../../src/renderer/src/lib/profileNavigation';
 import {
   setMode,
@@ -34,6 +35,8 @@ const qa = {
   frames: [] as Array<{ id: string; pills: number; height: number; visible: boolean }>,
 };
 Object.assign(window, { intentQa: qa });
+const showHoverTooltip = new URLSearchParams(location.search).has('hover-tooltip');
+
 function Bubble({ msgId }: { msgId: string }) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -65,6 +68,7 @@ function Fixture() {
   qa.setManualPendingMessages = (ids) => setManualPendingMessageIds(new Set(ids));
   return (
     <>
+      {showHoverTooltip ? <HoverTooltip /> : null}
       <style>{`
       body { margin: 0; background: var(--weq-bg-surface); color: var(--weq-fg-primary); }
       .intent-qa { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; padding: 20px; }

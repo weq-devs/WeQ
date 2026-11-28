@@ -52,7 +52,7 @@ try {
   );
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/intent-loading.html`;
   if (output) await mkdir(output, { recursive: true });
-  await page.goto(url);
+  await page.goto(`${url}?hover-tooltip=1`);
   await page.waitForSelector('.weq-int-profile-skeleton');
   await page.evaluate(() => window.intentQa.setMode('loading'));
   const geometry = () =>
@@ -220,7 +220,7 @@ try {
   );
   await page.getByLabel('定位到本次推荐的最后一条输入消息', { exact: true }).first().click();
   assert.equal(await page.evaluate(() => window.intentQa.located.msgSeq), '66');
-  await page.getByLabel('查看本轮推荐详情', { exact: true }).click();
+  await page.getByRole('button', { name: '查看本轮推荐详情' }).locator('time').click();
   await page.waitForSelector('.weq-int-round-details');
   assert.equal(await detailsBeside('查看本轮推荐详情'), true, '历史推荐详情应贴近对应日期入口');
   assert.ok((await page.locator('.weq-int-round-summary').textContent()).includes('未记录'));

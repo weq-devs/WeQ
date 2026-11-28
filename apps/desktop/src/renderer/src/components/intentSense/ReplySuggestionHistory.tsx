@@ -1,5 +1,4 @@
-import { TimeLabel } from '../TimeLabel';
-import { eventTimeFormatter } from '@weq/time';
+import { eventTimeFormatter, preciseTimeFormatter, timeDate } from '@weq/time';
 import { useLayoutEffect, useRef } from 'react';
 import { Lightbulb, RefreshCw } from 'lucide-react';
 import type { ReplySuggestionHistoryEntry } from '@weq/service';
@@ -124,13 +123,13 @@ export function ReplySuggestionHistory({
               <button
                 type="button"
                 className="weq-int-history-date"
-                title="查看本轮推荐详情"
+                title={`查看本轮推荐详情\n${preciseTimeFormatter.format(entry.createdAt)}（北京时间）`}
                 aria-label="查看本轮推荐详情"
                 onClick={(event) => onDetails(entry.id, event.currentTarget)}
               >
-                <TimeLabel value={entry.createdAt} precision="millisecond">
+                <time dateTime={timeDate(entry.createdAt)?.toISOString()}>
                   {timestamp.format(entry.createdAt)}
-                </TimeLabel>
+                </time>
               </button>
             </div>
           ))
