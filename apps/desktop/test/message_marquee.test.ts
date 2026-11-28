@@ -127,7 +127,7 @@ it('普通状态首次快速框选，即使浏览器未投递中间 pointermove 
       ...['a', 'b', 'c'].map((id) => h('div', { key: id, 'data-message-id': id }, id)),
     );
   }
-  const pointer = (scroll: Element, type: string, x: number, y: number) =>
+  const pointer = (scroll: Element, type: string, x: number, y: number, ctrlKey = false) =>
     act(() =>
       scroll.dispatchEvent(
         new PointerEvent(type, {
@@ -137,6 +137,7 @@ it('普通状态首次快速框选，即使浏览器未投递中间 pointermove 
           pointerId: 1,
           clientX: x,
           clientY: y,
+          ctrlKey,
         }),
       ),
     );
@@ -154,10 +155,18 @@ it('普通状态首次快速框选，即使浏览器未投递中间 pointermove 
     pointer(scroll, 'pointerdown', 10, 30);
     pointer(scroll, 'pointerup', 12, 32);
     expect(host.querySelector('output')?.getAttribute('data-mode')).toBe('false');
+    pointer(scroll, 'pointerdown', 10, 85);
+    pointer(scroll, 'pointerup', 15, 95);
+    expect(host.querySelector('output')?.getAttribute('data-mode')).toBe('false');
+    expect(host.querySelector('output')?.textContent).toBe('');
     pointer(scroll, 'pointerdown', 10, 35);
     pointer(scroll, 'pointerup', 15, 125);
     expect(host.querySelector('output')?.getAttribute('data-mode')).toBe('true');
     expect(host.querySelector('output')?.textContent).toBe('a,b');
+    pointer(scroll, 'pointerdown', 10, 35, true);
+    pointer(scroll, 'pointerup', 15, 125, true);
+    expect(host.querySelector('output')?.getAttribute('data-mode')).toBe('true');
+    expect(host.querySelector('output')?.textContent).toBe('');
   } finally {
     act(() => root.unmount());
     host.remove();
