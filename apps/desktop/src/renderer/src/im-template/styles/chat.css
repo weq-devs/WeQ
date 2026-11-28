@@ -322,6 +322,8 @@
 .chat-header {
   grid-column: 1;
   display: grid;
+  /* 幸运字符可能高于栏内可用空间，行高由顶栏决定。 */
+  grid-template-rows: minmax(0, 1fr);
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
