@@ -25,6 +25,7 @@ export interface Entry {
   request: GroupResourceRequest;
   popup: Window | null;
   instance: number;
+  locationRevision?: number;
 }
 
 /** 群资源窗固定绑定打开时的群；会话切换不销毁，账号或数据源变更才释放。 */
@@ -49,6 +50,16 @@ export function useGroupResourceWindows({ ownerKey }: { ownerKey: string }) {
       if (!readGroupResourceWindowName(key)) return false;
       const existing = registry.current.get(key);
       if (existing && !existing.popup?.closed) {
+        const { initialAlbumId, initialFolderId, initialFileId } = request;
+        if (initialAlbumId || initialFolderId || initialFileId) {
+          const next = {
+            ...existing,
+            request: { ...existing.request, initialAlbumId, initialFolderId, initialFileId },
+            locationRevision: (existing.locationRevision ?? 0) + 1,
+          };
+          registry.current.set(key, next);
+          setEntries((current) => current.map((entry) => (entry === existing ? next : entry)));
+        }
         focusToolPopup(key, existing.popup);
         return true;
       }

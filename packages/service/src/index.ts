@@ -1122,6 +1122,8 @@ export {
   type ResourceExportRunContext,
   type ResourceExportSummary,
   type ResumableResourceRequest,
+  type ExportMessageSource,
+  type ExportResourceSource,
 } from './account/export/task_manager';
 export {
   describeViewerFile,

@@ -55,12 +55,24 @@ export function messageSelectionHash(task: ExportTask): string {
     .digest('hex');
 }
 
-export async function fileSha256(path: string, signal?: AbortSignal): Promise<string> {
+export async function fileSha256(
+  path: string,
+  signal?: AbortSignal,
+  onProgress?: (received: number, total: number) => void,
+): Promise<string> {
   signal?.throwIfAborted();
   const before = lstatSync(path, { bigint: true });
   if (!before.isFile()) throw new Error('格式断点不是普通文件。');
   const hash = createHash('sha256');
-  for await (const chunk of createReadStream(path, { signal })) hash.update(chunk);
+  let received = 0;
+  const total = Number(before.size);
+  for await (const chunk of createReadStream(path, { signal })) {
+    hash.update(chunk);
+    if (onProgress) {
+      received += chunk.length;
+      onProgress(received, total);
+    }
+  }
   const after = lstatSync(path, { bigint: true });
   if (
     before.ino !== after.ino ||

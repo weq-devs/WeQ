@@ -1,15 +1,17 @@
-import { createContext, type ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
+import type { ExportMessageSource } from '@weq/service';
 import type { AppSearchTarget } from '../components/search/appSearchCatalog';
 import type { ForwardedConversationTarget } from '../components/mergeForward/model';
 import type { QzoneCardTarget } from './qzoneNavigation';
 import type { GroupResourceRequest } from '../hooks/useGroupResourceWindows';
+import type { GroupMemberSort, GroupMemberSortView } from '../../../shared/group_member_order';
 import type { GroupWorkspaceTab, ContactWorkspaceTab } from './profileNavigation';
 import type { Message } from '../im-template/template/types';
 import { accountBinding } from './clientPreferences';
 import { IS_WEB } from './target.shared';
 import type { GeneratedReply } from '../../../shared/generated_reply';
 
-export type NotificationTarget =
+export type NotificationTarget = (
   | { kind: 'app'; target: AppSearchTarget; recordId?: string }
   | {
       kind: 'conversation';
@@ -17,17 +19,23 @@ export type NotificationTarget =
       conv: string;
       seq?: string;
       msgId?: string;
-      dismissTaskPanel?: boolean;
     }
   | {
       kind: 'forwarded-conversations';
       targets: readonly ForwardedConversationTarget[];
       binding: NonNullable<ReturnType<typeof accountBinding>>;
+      title?: string;
     }
   | { kind: 'mail'; folderId?: number; mailId: string }
   | { kind: 'task'; id: string }
   | { kind: 'contact'; id: string; tab?: ContactWorkspaceTab }
-  | { kind: 'group'; id: string; section?: GroupWorkspaceTab }
+  | {
+      kind: 'group';
+      id: string;
+      section?: GroupWorkspaceTab;
+      memberSort?: { sort: GroupMemberSort } & GroupMemberSortView;
+    }
+  | { kind: 'flash-share'; filesetId: string; name: string }
   | { kind: 'contact-notice'; notice: 'friend' | 'group' }
   | { kind: 'assistant' }
   | ({ kind: 'generated-reply'; conversationKind: GeneratedReply['kind'] } & Pick<
@@ -36,7 +44,8 @@ export type NotificationTarget =
     >)
   | { kind: 'qzone'; target: QzoneCardTarget }
   | { kind: 'group-resource'; request: Omit<GroupResourceRequest, 'onJumpToMessage'> }
-  | { kind: 'local'; open: () => unknown };
+  | { kind: 'local'; open: () => unknown }
+) & { dismissTaskPanel?: boolean };
 
 export interface NotificationSource {
   label: string;
@@ -89,6 +98,24 @@ export function conversationNotificationSource(
       : { kind: 'app', target: { kind: 'view', view: 'messages' } },
     '返回对应会话',
   );
+}
+
+export function useTaskMessageSource(): ExportMessageSource | undefined {
+  const target = useContext(notificationSourceContext)?.target;
+  if (
+    target?.kind !== 'conversation' ||
+    target.conversationKind === 'dataline' ||
+    !target.msgId ||
+    !target.conv
+  )
+    return;
+  return {
+    kind: 'conversation',
+    conversationKind: target.conversationKind,
+    conv: target.conv,
+    msgId: target.msgId,
+    seq: target.seq && /^[1-9]\d{0,19}$/.test(target.seq) ? target.seq : undefined,
+  };
 }
 
 export function taskNotificationSource(id: string, prefix = 'export') {

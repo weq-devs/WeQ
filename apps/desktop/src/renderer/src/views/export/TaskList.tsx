@@ -1,3 +1,4 @@
+import { useExportTransferProgress } from '../../lib/transferActivity';
 /**
  * 导出任务中心（重构版）。
  *
@@ -333,7 +334,17 @@ function TaskDetail({
     skipRemaining: boolean,
   ) => Promise<void>;
 }): ReactElement {
-  const overall = t.status === 'completed' ? 100 : Math.min(100, Math.max(0, t.progress));
+  const saving = t.save?.status === 'saving';
+  const transfer = useExportTransferProgress(
+    saving || (t.resource && t.status === 'running') ? t.id : undefined,
+  );
+  const overall = transfer
+    ? transfer.percent
+    : saving
+      ? undefined
+      : t.status === 'completed'
+        ? 100
+        : Math.min(100, Math.max(0, t.progress));
   const completion = completionSummary(t.stages);
   const resourceMissing = (t.generatedResources?.missing ?? t.resource?.failed ?? 0) > 0;
   const saveLabel = taskSaveActionLabel(t);
@@ -534,27 +545,32 @@ function TaskDetail({
           ) : (
             <StatusIcon status={t.status} />
           )}
-          {t.databaseRecovery
-            ? '等待处理'
-            : t.networkPaused
-              ? '省流量模式已暂停'
-              : t.isFinalizing
-                ? '收尾中'
-                : t.status === 'paused' && t.partialReady
-                  ? '已收尾'
-                  : t.status === 'paused' && !t.canResume
-                    ? pauseDraining
-                      ? '暂停收尾中'
-                      : '暂停中'
-                    : t.status === 'completed' && t.databaseRecoveryRecords?.length
-                      ? '部分完成'
-                      : t.status === 'completed' && resourceMissing
-                        ? '已完成 · 资源缺失'
-                        : STATUS_LABEL[t.status]}
+          {transfer?.label ??
+            (saving
+              ? '保存中'
+              : t.databaseRecovery
+                ? '等待处理'
+                : t.networkPaused
+                  ? '省流量模式已暂停'
+                  : t.isFinalizing
+                    ? '收尾中'
+                    : t.status === 'paused' && t.partialReady
+                      ? '已收尾'
+                      : t.status === 'paused' && !t.canResume
+                        ? pauseDraining
+                          ? '暂停收尾中'
+                          : '暂停中'
+                        : t.status === 'completed' && t.databaseRecoveryRecords?.length
+                          ? '部分完成'
+                          : t.status === 'completed' && resourceMissing
+                            ? '已完成 · 资源缺失'
+                            : STATUS_LABEL[t.status])}
         </span>
-        <strong className="weq-exp-detail-overall">
-          <span className="weq-number weq-number-inherit">{overall}</span>%
-        </strong>
+        {overall !== undefined ? (
+          <strong className="weq-exp-detail-overall">
+            <span className="weq-number weq-number-inherit">{overall}</span>%
+          </strong>
+        ) : null}
       </header>
       <TaskQuickActions
         variant="detail"
@@ -573,8 +589,13 @@ function TaskDetail({
       <TaskProgressBar
         value={overall}
         label={`${taskTitle(t)}总进度`}
-        status={t.networkPaused ? 'paused' : t.status}
+        status={t.networkPaused ? 'paused' : saving ? 'running' : t.status}
       />
+      {transfer?.detail ? (
+        <p>
+          <NumericText>{transfer.detail}</NumericText>
+        </p>
+      ) : null}
       {t.databaseRecovery && onDatabaseRecovery && (
         <DatabaseRecoveryPanel
           key={t.databaseRecovery.id}

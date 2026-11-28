@@ -10,4 +10,11 @@ export type MediaSaveSource =
       fwdKind?: 'c2c' | 'group';
       fwdResId?: string;
     }
-  | { kind: 'group-file'; groupCode: string; fileId: string; fileName: string; busId?: number };
+  | {
+      kind: 'group-file';
+      groupCode: string;
+      fileId: string;
+      fileName: string;
+      busId?: number;
+      folderId?: string;
+    };

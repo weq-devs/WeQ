@@ -554,10 +554,16 @@ export class QQMailService {
     );
   }
 
-  async download(id: string, path: string, signal?: AbortSignal, maxBytes?: number): Promise<void> {
+  async download(
+    id: string,
+    path: string,
+    signal?: AbortSignal,
+    maxBytes?: number,
+    onProgress?: (received: number, total?: number) => void,
+  ): Promise<void> {
     await this.transfer(
       (auth, active) =>
-        downloadMailFile(auth, this.attachments, id, path, active, undefined, maxBytes),
+        downloadMailFile(auth, this.attachments, id, path, active, undefined, maxBytes, onProgress),
       signal,
     );
   }

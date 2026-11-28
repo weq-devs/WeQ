@@ -50,6 +50,10 @@ const videoExportInput = exportAccountBindingInput.required().extend({
         id: z.string().regex(/^[a-zA-Z0-9_-]{1,256}$/),
         name: z.string().min(1),
         video: z.boolean().optional(),
+        tid: z
+          .string()
+          .regex(/^[a-zA-Z0-9_-]{1,128}$/)
+          .optional(),
         url: z
           .string()
           .url()
@@ -498,6 +502,11 @@ export const qzoneRouter = router({
     return services.exportManager.startResourceExport({
       kind: 'media',
       resume,
+      source: {
+        kind: 'qzone-videos',
+        uin: input.hostUin,
+        tid: items.length === 1 ? items[0]?.tid : undefined,
+      },
       name: single?.output.name ?? 'QQ 空间视频',
       transferTarget: [
         transferTarget('qzone-videos', input.hostUin),

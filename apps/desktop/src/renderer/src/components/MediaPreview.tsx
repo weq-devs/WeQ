@@ -428,11 +428,22 @@ function MediaPreviewItemBody({
     if (width && height) setIntrinsic({ key, width, height });
   }, []);
   const startOriginal = useCallback(
-    (key: string, source: string, automatic: boolean, pageId?: string) => {
+    (
+      key: string,
+      source: string,
+      automatic: boolean,
+      pageId?: string,
+      messageSource?: PreviewMedia['messageSource'],
+    ) => {
       const id = crypto.randomUUID();
       const url = new URL(source, document.baseURI);
       url.searchParams.set('transferId', id);
       if (pageId) url.searchParams.set('pageId', pageId);
+      if (messageSource && pageId) {
+        url.searchParams.set('taskConv', messageSource.conv);
+        url.searchParams.set('taskPeer', messageSource.conversationKind);
+        url.searchParams.set('taskMsgId', messageSource.msgId);
+      }
       if (automatic) {
         url.searchParams.set('autoOriginal', '1');
         url.searchParams.delete('ds');
@@ -490,7 +501,7 @@ function MediaPreviewItemBody({
     }
   };
   const viewOriginal = async (key: string, src: string) => {
-    startOriginal(key, src, false, await taskPage());
+    startOriginal(key, src, false, await taskPage(), item.messageSource);
   };
   const originalMiB = original?.bytes ? original.bytes / 1024 ** 2 : undefined;
   const originalSize = originalMiB
@@ -577,6 +588,7 @@ function MediaPreviewItemBody({
               item.saveSource) ? (
               <MediaSourceSave
                 key={`${item.key}:${source}`}
+                messageSource={item.messageSource}
                 source={
                   originalSource || !item.saveSource
                     ? {

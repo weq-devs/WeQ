@@ -560,6 +560,11 @@ export function QzoneView({
     [selfUin, nickname, profilesByUin, ownerNames, names, namePriority, request],
   );
   const [albumRequests, setAlbumRequests] = useState<Record<string, QzoneAlbumRequest>>({});
+  const [mediaListRequest, setMediaListRequest] = useState<{
+    uin: string;
+    pane: 'albums' | 'videos';
+    revision: string;
+  }>();
   const [postRequests, setPostRequests] = usePageState(
     'linked-posts',
     {},
@@ -688,6 +693,8 @@ export function QzoneView({
     }
     const target = spaceRequest.target;
     openSpace(spaceRequest.uin, spaceRequest.nickname, requestedOwnerTab(spaceRequest));
+    if (target?.kind === 'media-list')
+      setMediaListRequest({ uin: target.uin, pane: target.pane, revision: spaceRequest.revision });
     if (target?.kind === 'album')
       setAlbumRequests((current) => ({
         ...current,
@@ -990,6 +997,7 @@ export function QzoneView({
             hostUin={selfUin}
             nickname={nickname}
             albumRequest={albumRequests[selfUin]}
+            mediaListRequest={mediaListRequest?.uin === selfUin ? mediaListRequest : undefined}
             publication={publication}
             onSpace={openSpace}
             onOwnerNickname={rememberOwnerName}
@@ -1004,6 +1012,7 @@ export function QzoneView({
             hostUin={uin}
             nickname={spaceNickname(uin)}
             albumRequest={albumRequests[uin]}
+            mediaListRequest={mediaListRequest?.uin === uin ? mediaListRequest : undefined}
             onSpace={openSpace}
             onOwnerNickname={rememberOwnerName}
           />
@@ -1129,6 +1138,7 @@ function SpaceContent({
   hostUin,
   nickname,
   albumRequest,
+  mediaListRequest,
   publication = null,
   onSpace,
   onOwnerNickname,
@@ -1139,6 +1149,7 @@ function SpaceContent({
   hostUin: string;
   nickname: string;
   albumRequest?: QzoneAlbumRequest;
+  mediaListRequest?: { pane: 'albums' | 'videos'; revision: string };
   publication?: QzonePublication | null;
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
@@ -1165,6 +1176,7 @@ function SpaceContent({
   const openProfile = useContext(QzoneProfileContext);
   const openAlbum = useContext(QzoneAlbumNavigationContext);
   const handledAlbum = useRef<string | null>(null);
+  const handledMediaList = useRef<string | null>(null);
   type Pane = 'home' | 'posts' | 'blogs' | 'albums' | QzoneMorePane;
   const [pane, setPane] = useState<Pane>(publication ? 'posts' : 'home');
   const [shownPublication, setShownPublication] = useState(publication);
@@ -1271,6 +1283,12 @@ function SpaceContent({
     handledAlbum.current = albumRequest.revision;
     openPane('albums');
   }, [albumRequest, hostUin, openPane]);
+  useEffect(() => {
+    if (!active || !mediaListRequest || handledMediaList.current === mediaListRequest.revision)
+      return;
+    handledMediaList.current = mediaListRequest.revision;
+    openPane(mediaListRequest.pane);
+  }, [mediaListRequest, openPane, active]);
   const previousRefresh = useRef(refreshKey);
   useEffect(() => {
     if (previousRefresh.current === refreshKey) return;

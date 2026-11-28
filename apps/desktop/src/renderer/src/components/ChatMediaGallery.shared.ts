@@ -144,6 +144,12 @@ export function galleryMedia(
         msgSeq: message.msgSeq ?? '0',
         sendTime: String(message.sendTime),
       });
+    const messageSource = {
+      kind: 'conversation' as const,
+      conversationKind: kind,
+      conv,
+      msgId: message.msgId,
+    };
     let mediaIndex = 0;
     return message.elements.flatMap((raw): PreviewMedia[] => {
       if (!raw || typeof raw !== 'object') return [];
@@ -167,7 +173,9 @@ export function galleryMedia(
             ? { fwdMsgId: message.msgId, fwdKind: carrier.kind, fwdResId: carrier.resId }
             : {}),
         });
-        return video ? [{ key, order, kind: 'video', title: String(data.fileName), ...video }] : [];
+        return video
+          ? [{ key, order, messageSource, kind: 'video', title: String(data.fileName), ...video }]
+          : [];
       }
       const token = String(data.fileToken ?? '');
       if (element.type === 'pic' && !isChatGalleryImage(data)) return [];
@@ -207,6 +215,7 @@ export function galleryMedia(
         {
           key,
           order,
+          messageSource,
           kind: image ? 'image' : 'video',
           progressTarget: messageTransferTarget(
             image ? 'pic' : 'video',

@@ -19,6 +19,7 @@ export function scopedQzoneRequest(request: QzoneSpaceRequest | null, source: st
 
 export type QzoneCardTarget =
   | { kind: 'space'; uin: string }
+  | { kind: 'media-list'; uin: string; pane: 'albums' | 'videos' }
   | { kind: 'unlocated-post'; uin: string }
   | {
       kind: 'post';

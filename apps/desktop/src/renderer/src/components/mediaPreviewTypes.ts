@@ -1,3 +1,4 @@
+import type { ExportMessageSource } from '@weq/service';
 import type { ReactNode } from 'react';
 import type { MediaSaveSource } from '../../../shared/media_save';
 
@@ -24,6 +25,7 @@ export interface PreviewMedia {
   saveSource?: MediaSaveSource | null;
   saveLabel?: string;
   progressTarget?: string;
+  messageSource?: ExportMessageSource;
   ocr?: PreviewOcrContext | null;
   order?: { time: number; messageId: string; rawId?: string; element: number; sequence?: string };
 }

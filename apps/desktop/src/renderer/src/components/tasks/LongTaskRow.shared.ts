@@ -21,6 +21,7 @@ export interface LongTaskItem {
   progress?: number;
   outgoingTransfer?: import('../../../../shared/background_task').BackgroundTask['outgoingTransfer'];
   transfer?: boolean;
+  exportTransferId?: string;
   note?: string;
   metrics?: string;
   icon: ReactNode;

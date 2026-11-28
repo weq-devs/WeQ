@@ -7,7 +7,8 @@ import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { IS_WEB } from '../lib/target.shared';
 import { useRenderDocument } from '../lib/renderDocument';
 import { useToast } from './Toast.shared';
-import { taskNotificationSource } from '../lib/notificationNavigation.shared';
+import type { ExportMessageSource } from '@weq/service';
+import { taskNotificationSource, useTaskMessageSource } from '../lib/notificationNavigation.shared';
 import { exportTaskResult } from '../../../shared/export_task_result';
 import { taskNotificationForeground } from '../lib/taskNotificationPresentation';
 import { rememberTaskCreated } from '../lib/taskNotifications';
@@ -50,10 +51,13 @@ type MediaSaveOwner = { released: boolean; tasks: Map<string, MediaSaveRecord> }
 export function useMediaSave({
   foreground = false,
   ownerKey,
+  messageSource,
 }: {
   foreground?: boolean;
   ownerKey?: string;
+  messageSource?: ExportMessageSource;
 } = {}) {
+  const inheritedMessage = useTaskMessageSource();
   const utils = trpc.useUtils();
   const transfers = useTransferActivity();
   const save = useExportSavePolicy(),
@@ -199,6 +203,7 @@ export function useMediaSave({
         op.taskId = await client.account.mediaSave.save.mutate({
           ...op.expected,
           source: selected,
+          messageSource: messageSource ?? inheritedMessage,
           ...(IS_WEB ? { browserOutput: true } : { savePolicy: save.policy }),
           ...(foreground ? { foreground: true } : {}),
         });

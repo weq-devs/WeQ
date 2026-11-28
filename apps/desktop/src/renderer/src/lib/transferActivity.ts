@@ -5,7 +5,12 @@ import {
   type TransferProgress,
 } from '../../../shared/transfer_progress';
 import type { BackgroundTask } from '../../../shared/background_task';
-import { outgoingTransferProgress, transferDetail, transferLabel } from './transferPresentation';
+import {
+  exportTransferReadout,
+  outgoingTransferProgress,
+  transferDetail,
+  transferLabel,
+} from './transferPresentation';
 
 function equal(a: TransferProgress | undefined, b: TransferProgress) {
   return (
@@ -13,7 +18,9 @@ function equal(a: TransferProgress | undefined, b: TransferProgress) {
     a.received === b.received &&
     a.total === b.total &&
     a.processed === b.processed &&
-    a.items === b.items
+    a.items === b.items &&
+    a.itemTransfer === b.itemTransfer &&
+    a.paused === b.paused
   );
 }
 
@@ -87,6 +94,11 @@ function useTransferValue<T>(
 const identity = (progress: TransferProgress | undefined) => progress;
 export const useTransferProgress = (key?: string) => useTransferValue(key, identity);
 export const useTransferActive = (key?: string) => useTransferValue(key, Boolean);
+
+export function useExportTransferProgress(id?: string) {
+  const progress = useTransferProgress(id);
+  return progress ? exportTransferReadout(progress) : undefined;
+}
 
 export function useOutgoingTaskProgress(
   task: Pick<BackgroundTask, 'outgoingTransfer' | 'statusLabel'>,

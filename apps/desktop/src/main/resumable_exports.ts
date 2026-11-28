@@ -210,7 +210,13 @@ export async function runResumableExport(
         if (space.bavail * space.bsize < request.size + 64 * 1024 * 1024)
           throw new MailFailure('business', '目标磁盘空间不足。');
         try {
-          await services.mail.download(matches[0]!.id, path, context.signal);
+          await services.mail.download(
+            matches[0]!.id,
+            path,
+            context.signal,
+            undefined,
+            context.transferProgress,
+          );
         } catch (error) {
           if (error instanceof MailFailure) throw error;
           throw new MailFailure('business', '邮箱附件下载失败，请稍后重试。');

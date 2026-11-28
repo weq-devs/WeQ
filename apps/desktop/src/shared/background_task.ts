@@ -1,3 +1,4 @@
+import type { GroupMemberSort, GroupMemberSortView } from './group_member_order';
 import type { TaskDisplay } from '@weq/service/task-display';
 
 export type BackgroundTaskKind =
@@ -36,7 +37,12 @@ export interface BackgroundTask {
   /** 增强包后台自动更新仅在失败或需要继续时提醒。 */
   automaticUpdate?: boolean;
   outgoingTransfer?: { id?: string; toHost: boolean; inConversation: boolean };
-  destination?: 'db-checkup' | 'enhancement-packs' | 'group-intersection';
+  destination?:
+    | 'db-checkup'
+    | 'enhancement-packs'
+    | 'group-intersection'
+    | 'resource-cleanup'
+    | 'intent-model-resources';
   status: BackgroundTaskStatus;
   statusLabel?: string;
   needsConfirmation?: boolean;
@@ -60,7 +66,13 @@ export interface BackgroundTask {
     seq?: string;
   }[];
   qzonePost?: { uin: string; tid: string };
-  messageTarget?: { conversationKind: 'c2c' | 'group' | 'dataline'; conv: string; msgId: string };
+  messageTarget?: {
+    conversationKind: 'c2c' | 'group' | 'dataline';
+    conv: string;
+    msgId: string;
+    seq?: string;
+  };
+  groupMemberOrder?: { groupCode: string; sort: GroupMemberSort } & GroupMemberSortView;
   clonePersonaId?: string;
   actions: { id: string; label: string }[];
   startedAt: number;
@@ -168,6 +180,8 @@ export class BackgroundTaskRegistry {
       | 'foreground'
       | 'automaticUpdate'
       | 'groupAlbum'
+      | 'messageTarget'
+      | 'groupMemberOrder'
     > &
       TaskPatch,
   ) {

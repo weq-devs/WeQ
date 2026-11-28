@@ -267,6 +267,7 @@ import { outgoingMediaSend, useOutgoingTransferTasks } from '../hooks/useOutgoin
 import { newOutgoingRequestId, useOutgoingReceipts } from '../hooks/useOutgoingReceipts';
 import { useTransferActivity } from '../lib/transferActivity';
 import { TransferActivityProvider } from '../components/TransferActivityProvider';
+import { openRosterSort } from '../lib/groupMemberRosterOrder';
 import { readVideoMeta } from '../im-template/template/composerMedia';
 import { releaseObjectUrl, retainObjectUrl } from '../lib/objectUrl';
 import { useDismissUnsentOutgoing } from '../hooks/useDismissUnsentOutgoing';
@@ -2137,6 +2138,11 @@ function MainWorkspace(): ReactElement {
     draft: MfDraft;
     senderMode: 'conversation' | 'global';
     members: MfPerson[];
+  } | null>(null);
+  const [taskFlashShare, setTaskFlashShare] = useState<{
+    scope: string;
+    filesetId: string;
+    name: string;
   } | null>(null);
   const [forwardedConversations, setForwardedConversations] =
     useState<ForwardedConversations | null>(null);
@@ -11096,6 +11102,8 @@ function MainWorkspace(): ReactElement {
             undefined,
             target.msgId,
           );
+        } else if (target.kind === 'flash-share') {
+          setTaskFlashShare({ ...target, scope: messageScope });
         } else if (target.kind === 'mail') {
           setMailOpenTarget({
             id: target.mailId,
@@ -11151,6 +11159,15 @@ function MainWorkspace(): ReactElement {
             shell.switchView('agentlab');
           }
         } else if (target.kind === 'group') {
+          if (target.memberSort) {
+            const binding = sharedAccountBinding();
+            if (binding)
+              openRosterSort(
+                `${binding.expectedAccountUin}:${binding.expectedAccountConfigId}`,
+                target.id,
+                target.memberSort,
+              );
+          }
           const group = contactDirectoryConversations.find(
             (conversation) => conversation.type === 'group' && conversation.id === target.id,
           );
@@ -12512,9 +12529,20 @@ function MainWorkspace(): ReactElement {
               onForward={forwardMergeDraft}
             />
           ) : null}
+          {taskFlashShare?.scope === messageScope && !interactionViewportLocked ? (
+            <Suspense fallback={null}>
+              <SearchFlashTransferViewer
+                key={taskFlashShare.filesetId}
+                filesetId={taskFlashShare.filesetId}
+                title={taskFlashShare.name}
+                onClose={() => setTaskFlashShare(null)}
+              />
+            </Suspense>
+          ) : null}
           {forwardedConversations && !interactionViewportLocked ? (
             <ForwardedConversationsDialog
               targets={forwardedConversations.targets}
+              title={forwardedConversations.title}
               onOpenTarget={(target) =>
                 openNotificationTarget({ ...forwardedConversations, targets: [target] })
               }

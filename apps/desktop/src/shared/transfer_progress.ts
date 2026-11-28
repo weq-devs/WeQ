@@ -6,6 +6,9 @@ export type TransferPhase =
   | 'upload'
   | 'download'
   | 'confirming'
+  | 'checking-output'
+  | 'copying-output'
+  | 'verifying-output'
   | 'failed';
 
 export interface TransferProgress {
@@ -15,6 +18,7 @@ export interface TransferProgress {
   paused?: boolean;
   processed?: number;
   items?: number;
+  itemTransfer?: boolean;
 }
 
 export interface ActiveTransfer extends TransferProgress {

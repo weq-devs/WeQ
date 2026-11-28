@@ -1,3 +1,4 @@
+import { useTaskMessageSource } from '../lib/notificationNavigation.shared';
 import * as timeFormat from '@weq/time';
 /**
  * Renderers for QQ rich-media message elements: image, video, file, voice
@@ -225,6 +226,7 @@ export function QqImage({
   gridTile?: boolean;
   preferLocal?: boolean;
 }) {
+  const messageSource = useTaskMessageSource();
   const limited = useDataSaver((state) => state.enabled);
   const behavior = useDataSaver((state) => state.behavior);
   const [requested, setRequested] = useState(false);
@@ -383,6 +385,7 @@ export function QqImage({
                         title: name || '[闪照]',
                         ocr: ocrContext,
                         progressTarget,
+                        messageSource,
                       },
                     ],
                     ownerDocument: event.currentTarget.ownerDocument,
@@ -453,6 +456,7 @@ export function QqImage({
                       title: name || (isAnimatedEmoji ? '[表情]' : '[图片]'),
                       ocr: ocrContext,
                       progressTarget,
+                      messageSource,
                       fallbackSources: preview
                         ? displayedFallback
                         : [
@@ -546,6 +550,7 @@ export function QqVideo({
   interactive?: boolean;
   attachment?: ChatVideoAttachment;
 }) {
+  const messageSource = useTaskMessageSource();
   useDataSaver((state) => state.behavior.dataSaverVideoCovers);
   const browse = useContext(MediaBrowseContext);
   const galleryOpen = useChatMediaOpen();
@@ -686,6 +691,7 @@ export function QqVideo({
             poster: coverSrc,
             title: name,
             progressTarget,
+            messageSource,
             saveSource: attachment?.saveSource,
           },
         ],

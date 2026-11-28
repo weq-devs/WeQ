@@ -5305,6 +5305,8 @@ export const accountRouter = router({
       exportAccountBindingInput.required().extend({
         groupCode: z.string().regex(/^[1-9]\d{0,9}$/),
         sort: z.enum(GROUP_MEMBER_ONLINE_SORTS),
+        descending: z.boolean().optional(),
+        prioritizeAdmins: z.boolean().optional(),
         pageId: z.string().uuid().optional(),
       }),
     )
@@ -5326,6 +5328,8 @@ export const accountRouter = router({
         input.sort,
         checkAccount,
         input.pageId,
+        undefined,
+        { descending: input.descending, prioritizeAdmins: input.prioritizeAdmins },
       );
     }),
 
@@ -8816,6 +8820,7 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'qzone-albums',
         resume,
+        source: { kind: 'qzone-album', uin: selected.hostUin, topicId: selected.topicId },
         name: selected.name,
         transferTarget: qzoneBatchTransferTarget(selected.hostUin),
         display: {

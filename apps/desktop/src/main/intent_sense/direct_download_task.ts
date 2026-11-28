@@ -39,6 +39,7 @@ function storeForHost() {
 function presentation({ modelId }: DownloadInput) {
   return {
     kind: 'model' as const,
+    destination: 'intent-model-resources' as const,
     name: `本地意图模型 · ${modelId ?? 'auto'}`,
     display: { action: '下载意图模型', subject: modelId === 'auto' ? undefined : modelId },
   };
@@ -104,10 +105,24 @@ export async function startDirectIntentDownload(input: DownloadInput, existingId
   backgroundTasks.resume(id);
   backgroundTasks.setActions(id, []);
   const notify = (progress: IntentSenseModelProgress) => {
+    const bytes =
+      progress.total > 0 ? Math.min(99, (100 * progress.received) / progress.total) : undefined;
+    const mib = (value: number) => (value / 1048576).toFixed(1);
     backgroundTasks.update(id, {
       progress:
-        progress.filesTotal > 0 ? (progress.filesDone / progress.filesTotal) * 100 : undefined,
-      note: `${progress.filesDone} / ${progress.filesTotal} 个文件${progress.currentFile ? ` · ${progress.currentFile}` : ''}`,
+        bytes ??
+        (progress.filesTotal > 0 ? (progress.filesDone / progress.filesTotal) * 100 : undefined),
+      note: [
+        `${progress.filesDone} / ${progress.filesTotal} 个文件`,
+        progress.total > 0
+          ? `${mib(progress.received)} / ${mib(progress.total)} MiB`
+          : progress.received > 0
+            ? `已下载 ${mib(progress.received)} MiB`
+            : undefined,
+        progress.currentFile,
+      ]
+        .filter(Boolean)
+        .join(' · '),
     });
     for (const listener of intentDownloadListeners) {
       try {

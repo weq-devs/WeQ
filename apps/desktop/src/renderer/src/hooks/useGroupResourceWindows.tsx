@@ -39,6 +39,7 @@ export function GroupResourceWindow({ entry, onClose }: { entry: Entry; onClose:
     >
       {request.kind === 'albums' ? (
         <GroupAlbumDialog
+          key={entry.locationRevision}
           embedded
           standalone
           groupCode={request.groupCode}
@@ -48,6 +49,7 @@ export function GroupResourceWindow({ entry, onClose }: { entry: Entry; onClose:
         />
       ) : (
         <GroupFileDialog
+          key={entry.locationRevision}
           embedded
           standalone
           groupCode={request.groupCode}

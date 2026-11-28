@@ -1,3 +1,5 @@
+import { taskMessageSourceInput } from './task_message_source';
+import { GROUP_MEMBER_SORTS, type GroupMemberSort } from '../shared/group_member_order';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { z } from 'zod/v3';
@@ -36,6 +38,7 @@ const receiptSchema = downloadTaskReceipt.extend({
   qzonePost: z.object({ uin: z.string(), tid: z.string() }).optional(),
   needsConfirmation: z.boolean().optional(),
   request: z.unknown().optional(),
+  messageSource: taskMessageSourceInput.optional(),
 });
 type Receipt = z.infer<typeof receiptSchema>;
 const stores = new Map<string, JsonStore<Receipt[]>>();
@@ -83,9 +86,14 @@ export function recordAccountTask(taskId: string, scope?: BackgroundTaskScope, r
     )
       return;
     const { store, session } = owner;
+    const messageSource = taskMessageSourceInput.safeParse({
+      kind: 'conversation',
+      ...task.messageTarget,
+    }).data;
     const receipt: Receipt = {
       ...downloadTaskSnapshot(task),
       kind: task.kind,
+      messageSource,
       name: task.name,
       display: task.display,
       details: task.details?.slice(0, 1000),
@@ -221,7 +229,7 @@ export function restoreRecordedTasks(
     if (!retryShare && receipt.kind === 'qzone-share') continue;
     if (ids.has(receipt.id)) continue;
     ids.add(receipt.id);
-    const { request, ...saved } = receipt;
+    const { request, messageSource, ...saved } = receipt;
     const committed = saved.kind === 'clone' && verifiedClone(receipt);
     const abandoned = saved.status === 'running' && !committed;
     const video =
@@ -438,9 +446,34 @@ export function restoreRecordedTasks(
           recordAccountTask(saved.id, scope, video)();
         },
       });
+    const order =
+      saved.kind === 'contacts' &&
+      request &&
+      typeof request === 'object' &&
+      'groupCode' in request &&
+      typeof request.groupCode === 'string' &&
+      'sort' in request &&
+      typeof request.sort === 'string' &&
+      Object.hasOwn(GROUP_MEMBER_SORTS, request.sort)
+        ? {
+            groupCode: request.groupCode,
+            sort: request.sort as GroupMemberSort,
+            descending:
+              'descending' in request && typeof request.descending === 'boolean'
+                ? request.descending
+                : undefined,
+            prioritizeAdmins:
+              'prioritizeAdmins' in request && typeof request.prioritizeAdmins === 'boolean'
+                ? request.prioritizeAdmins
+                : undefined,
+          }
+        : undefined;
     backgroundTasks.project(
       {
         ...saved,
+        messageTarget: messageSource,
+        groupMemberOrder: order,
+        ...(cleanupReady ? { destination: 'resource-cleanup' as const } : {}),
         ...(video
           ? {
               ownerId: video.requestId,

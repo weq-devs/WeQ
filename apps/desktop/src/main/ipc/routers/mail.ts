@@ -201,11 +201,12 @@ export const mailRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'mail-attachment',
         resume,
+        source: attachment.mailId ? { kind: 'mail', mailId: attachment.mailId } : undefined,
         networkTransfer: { bytes: attachment.size },
         name,
         output,
         savePolicy: input.savePolicy,
-        run: async ({ directory, signal, checkpoint }) => {
+        run: async ({ directory, signal, checkpoint, transferProgress }) => {
           const download = async () => {
             check();
             signal.throwIfAborted();
@@ -221,7 +222,7 @@ export const mailRouter = router({
                 await runResumableExport(
                   services,
                   resume,
-                  { directory, signal, progress() {} },
+                  { directory, signal, progress() {}, transferProgress },
                   check,
                 );
                 return;
@@ -232,7 +233,13 @@ export const mailRouter = router({
             if (space.bavail * space.bsize < attachment.size + 64 * 1024 * 1024)
               throw new MailFailure('business', '目标磁盘空间不足。');
             try {
-              await mail.download(input.id, join(directory, fileName), signal);
+              await mail.download(
+                input.id,
+                join(directory, fileName),
+                signal,
+                undefined,
+                transferProgress,
+              );
             } catch (error) {
               throw safeError(error);
             }

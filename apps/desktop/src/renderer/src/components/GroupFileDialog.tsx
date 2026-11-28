@@ -110,6 +110,7 @@ function GroupFileDialogBody({
     kind: 'group-file' as const,
     groupCode,
     fileId: file.fileId,
+    folderId: current.id,
     fileName: file.fileName,
     busId: file.busId,
   });
