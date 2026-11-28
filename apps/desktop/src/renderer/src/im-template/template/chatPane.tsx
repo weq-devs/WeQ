@@ -333,6 +333,8 @@ import { useGroupMemberUnmute } from '../../hooks/useGroupMemberUnmute';
 import { ReactionPicker } from './reactionPicker';
 import { useReactionFeedback } from '../../hooks/useReactionFeedback';
 import type { MessageContextMenuState, MessageDetailsSelection } from './messageContextMenu';
+import { messageCardElements } from './messageContextMenu.shared';
+import { isForceClick, runForceClick } from '../../lib/forceClick';
 import type { MessageRecordEdited } from '../../components/MessageDetails';
 import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
@@ -6535,7 +6537,34 @@ function ChatPaneContent({
         multi.rootProps.onPointerDownCapture();
         handleReadGesture(event);
       }}
-      onClickCapture={handleReadGesture}
+      onClickCapture={(event) => {
+        if (!isForceClick(event.nativeEvent)) {
+          handleReadGesture(event);
+          return;
+        }
+        const row = event.target as HTMLElement;
+        if (
+          messageScrollRef.current?.contains(row) &&
+          runForceClick(event.nativeEvent, 'message', (target) => {
+            if (selectionMode) return false;
+            const message = visibleMessages.find(({ id }) => id === row.dataset.messageId);
+            if (!message) return false;
+            openMessageDetails({
+              message,
+              cardElements: messageCardElements({
+                message,
+                originElement: row,
+                forwardTarget: messageForwardTarget(message, target),
+                mediaTarget: messageMediaTarget(message, target),
+              }),
+            });
+            setContextMenu(null);
+            return true;
+          })
+        ) {
+          event.stopPropagation();
+        }
+      }}
       onWheelCapture={(event) => {
         if (event.deltaY < 0 && (event.target as Element).closest('.message-scroll')) leaveBottom();
         handleReadGesture(event);

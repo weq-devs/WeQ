@@ -6,6 +6,7 @@ import {
 } from './profileCardMotion';
 import { POKE_PRESS_MS, pressProfileAvatar, profileAvatarAtClick } from './profilePokeMotion';
 import { topSurface } from './surfaceEscape';
+import { runForceClick } from './forceClick';
 
 const PROFILE_DOUBLE_CLICK_MS = 300;
 const MOUSE_RADIUS = 4;
@@ -71,10 +72,28 @@ export function activateProfile(
   shortcut?: ProfileShortcut,
 ) {
   const document = event.currentTarget.ownerDocument;
+  const click = 'key' in event ? undefined : event;
+  if (
+    runForceClick(event.nativeEvent, 'profile', () => {
+      if (
+        !shortcut?.landscape ||
+        !document.defaultView?.matchMedia('(orientation: landscape)').matches
+      )
+        return false;
+      pendingClicks.get(document)?.();
+      const current = topSurface(document, false);
+      if (current && ownsProfileCard(current, event.currentTarget, click?.nativeEvent))
+        dismissProfileCard(current);
+      shortcut.landscape();
+      return true;
+    })
+  ) {
+    event.stopPropagation();
+    return;
+  }
   pendingClicks.get(document)?.();
   const view = document.defaultView;
   const previous = topSurface(document, false);
-  const click = 'key' in event ? undefined : event;
   const closesCard = previous && ownsProfileCard(previous, event.currentTarget, click?.nativeEvent);
   if (view && click && click.detail > 0 && plainPrimaryClick(click.nativeEvent)) {
     const pointer = clickPointer(click.nativeEvent, document, view);

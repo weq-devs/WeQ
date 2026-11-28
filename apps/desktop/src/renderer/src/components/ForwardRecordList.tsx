@@ -32,6 +32,8 @@ import {
   type MessageContextMenuState,
   type MessageDetailsSelection,
 } from '../im-template/template/messageContextMenu';
+import { messageCardElements } from '../im-template/template/messageContextMenu.shared';
+import { runForceClick } from '../lib/forceClick';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
 import { MessageTimeDivider } from '../im-template/template/messageTime';
 import { useMessageMarquee } from '../hooks/useMessageMarquee';
@@ -279,6 +281,19 @@ export function ForwardRecordList({
       detail: cause instanceof Error ? cause.message : String(cause),
     });
 
+  function messageTarget(entry: ForwardEntry, origin: HTMLElement, target: EventTarget | null) {
+    const message = forwardMessage(win, entry);
+    return {
+      message,
+      originElement: origin,
+      forwardTarget: messageForwardTarget(message, target),
+      mediaTarget: messageMediaTarget(message, target instanceof Element ? target : null, {
+        carrier: { kind: win.kind, msgId: win.rootMsgId, resId: win.resId },
+        conv: win.conv,
+      }),
+    };
+  }
+
   function openMenu(
     entry: ForwardEntry,
     origin: HTMLElement,
@@ -287,7 +302,7 @@ export function ForwardRecordList({
     variant: 'desktop' | 'mobile',
   ) {
     useForwardStore.getState().bringToFront(win.id);
-    const message = forwardMessage(win, entry);
+    const state = messageTarget(entry, origin, target);
     const selection = origin.ownerDocument.getSelection();
     const selected =
       selection?.rangeCount && selection.getRangeAt(0).intersectsNode(origin)
@@ -295,10 +310,7 @@ export function ForwardRecordList({
         : null;
     const element = target instanceof Element ? target : null;
     const quote = element?.closest('.qq-reply-quote');
-    const mediaTarget = messageMediaTarget(message, element, {
-      carrier: { kind: win.kind, msgId: win.rootMsgId, resId: win.resId },
-      conv: win.conv,
-    });
+    const { mediaTarget } = state;
     const imageUrl =
       target instanceof HTMLImageElement &&
       (quote || ['pic', 'emoji', 'mface'].includes(mediaTarget?.kind ?? ''))
@@ -308,12 +320,9 @@ export function ForwardRecordList({
     setMenu({
       entry,
       state: {
-        message,
+        ...state,
         ...point,
         variant,
-        originElement: origin,
-        forwardTarget: messageForwardTarget(message, target),
-        mediaTarget,
         favoriteEmojiUrl: mediaTarget?.favoriteUrl,
         imageUrl,
         clipboard: selected ?? (quote && !imageUrl ? messageNodeClipboard(quote) : undefined),
@@ -600,6 +609,24 @@ export function ForwardRecordList({
               onPointerUp={endPress}
               onPointerCancel={endPress}
               onClickCapture={(event) => {
+                if (
+                  runForceClick(event.nativeEvent, 'message', (target) => {
+                    if (mode) return false;
+                    const state = messageTarget(entry, event.currentTarget, target);
+                    closeMenu();
+                    setDetails({
+                      entry,
+                      selection: {
+                        message: state.message,
+                        cardElements: messageCardElements(state),
+                      },
+                    });
+                    return true;
+                  })
+                ) {
+                  event.stopPropagation();
+                  return;
+                }
                 if (!mode && !suppressTouchClick.current) return;
                 event.preventDefault();
                 event.stopPropagation();

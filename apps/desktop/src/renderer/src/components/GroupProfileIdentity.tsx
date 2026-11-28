@@ -36,6 +36,7 @@ export function GroupProfileIdentity({
         type="button"
         className="weq-profile-avatar-button weq-identity-link"
         aria-label={`查看 ${name || code} 的群名片`}
+        data-weq-force-click="profile"
         title={`查看 ${name || code} 的群名片`}
         onClick={(event) => {
           event.stopPropagation();

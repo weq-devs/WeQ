@@ -479,6 +479,7 @@ function NoticeGroupName({
       className="notice-group-name"
       title={`查看 ${name} 的群名片`}
       aria-label={`查看 ${name} 的群名片`}
+      data-weq-force-click="profile"
       onClick={(event) => {
         event.stopPropagation();
         const anchor = event.currentTarget;
@@ -523,6 +524,7 @@ function NoticeAvatar({
     <button
       type="button"
       className="notice-avatar-button notice-identity"
+      data-weq-force-click="profile"
       title={`查看 ${name} 的名片`}
       aria-label={`查看 ${name} 的名片`}
       onClick={(event) => {

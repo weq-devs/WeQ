@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { macForceClickAsset } from './src/main/macos/force_click_build';
 import { developmentWeb, prepareWebAssets } from '../../scripts/dev-web.mjs';
 import { buildRevision } from '../../scripts/build-revision.mjs';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
@@ -93,6 +94,7 @@ export default defineConfig({
       ...mainLogging.plugins,
       retainDevelopmentMainChunks(),
       successfulDevelopmentReload('main', developmentReload),
+      macForceClickAsset(resolve(import.meta.dirname, 'src/main/macos/force_click.m')),
       {
         name: 'weq-remote-web-assets',
         async buildStart() {

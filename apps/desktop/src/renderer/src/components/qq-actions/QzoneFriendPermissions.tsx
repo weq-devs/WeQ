@@ -36,6 +36,7 @@ function PermissionProfile({ uin, name }: { uin: string; name: string }) {
       title={`${nickname}（${uin}）`}
       aria-label={`查看${nickname}的名片`}
       disabled={!navigate}
+      data-weq-force-click="profile"
       onClick={(event) => {
         const user = profileTargetUser({ identity: profile.data?.uid || uin, uin, name: nickname });
         if (!user || !navigate) return;

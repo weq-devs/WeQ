@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
 import { activateProfile } from '../../lib/profileClick';
+import { runForceClick } from '../../lib/forceClick';
 import { NumericText } from '../../components/NumericText';
 import { TimeLabel } from '../../components/TimeLabel';
 import { ReminderCount, ReminderDot } from '../../components/ReminderBadge';
@@ -912,6 +913,11 @@ export function ConversationList({
               <button
                 key={conversation.id}
                 data-conversation-id={conversation.id}
+                data-weq-force-click={
+                  !selectionMode && conversation.type !== 'merged' && directory?.onPreview
+                    ? 'conversation'
+                    : undefined
+                }
                 className={cn(
                   listRowClass(
                     !selectionMode && (active || contextTargetIds.has(conversation.id)),
@@ -953,7 +959,19 @@ export function ConversationList({
                     y: rect.top + 20,
                   });
                 }}
-                onClick={(e) => selectConversation(conversation.id, e)}
+                onClick={(event) => {
+                  if (
+                    runForceClick(event.nativeEvent, 'conversation', () => {
+                      if (selectionMode || conversation.type === 'merged' || !directory?.onPreview)
+                        return false;
+                      setActionMenu(null);
+                      directory.onPreview(conversation);
+                      return true;
+                    })
+                  )
+                    return;
+                  selectConversation(conversation.id, event);
+                }}
               >
                 {locateHighlight?.id === conversation.id ? (
                   <span
@@ -1762,6 +1780,7 @@ function GroupNotificationSection({
               <button
                 type="button"
                 key={conversation.id}
+                data-weq-force-click={selection.selectionMode ? undefined : 'profile'}
                 className={cn(
                   listRowClass(
                     !selection.selectionMode && conversation.id === activeConversationId,
@@ -1919,6 +1938,7 @@ const ContactDirectoryRow = memo(function ContactDirectoryRow({
           selected && 'is-multiselected',
         )}
         aria-pressed={selectionMode ? selected : undefined}
+        data-weq-force-click={selectionMode ? undefined : 'profile'}
         {...events.selection(selectionId)}
         onPointerDownCapture={(event) => events.selection(selectionId).onPointerDownCapture(event)}
         onClickCapture={(event) => events.selection(selectionId).onClickCapture(event)}

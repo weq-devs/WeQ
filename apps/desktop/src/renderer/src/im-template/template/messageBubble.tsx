@@ -660,6 +660,7 @@ function MessageBubbleBody({
       {...(onAvatarClick
         ? {
             type: 'button',
+            'data-weq-force-click': 'profile',
             title: '查看资料',
             'aria-label': `查看 ${senderName} 的资料`,
             onClick: handleAvatarClick,
@@ -710,6 +711,7 @@ function MessageBubbleBody({
           <button
             type="button"
             className="weq-message-name-profile"
+            data-weq-force-click="profile"
             title="查看资料"
             aria-label={`查看 ${senderName} 的名片`}
             onClick={(event) => {

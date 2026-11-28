@@ -66,6 +66,7 @@ export function SourceGroup({
           className="weq-friend-source-group"
           type="button"
           title="查看来源群名片"
+          data-weq-force-click="profile"
           aria-label="查看来源群名片"
           data-privacy-sensitive
           onClick={(event) => {

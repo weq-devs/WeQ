@@ -30,6 +30,7 @@ export function ProfileAvatar({
     <button
       type="button"
       className={`weq-profile-avatar-button${className ? ` ${className}` : ''}`}
+      data-weq-force-click="profile"
       title={label}
       aria-label={label}
       onPointerDown={(event) => event.stopPropagation()}

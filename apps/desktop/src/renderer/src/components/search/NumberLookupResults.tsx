@@ -50,6 +50,7 @@ export function NumberLookupResults({
                   title={`查看${label}名片`}
                   aria-label={`查看${label}名片`}
                   disabled={!onOpenProfile}
+                  data-weq-force-click="profile"
                   onClick={(event) => {
                     const profile = result.data;
                     if (!profile || !onOpenProfile) return;

@@ -51,6 +51,7 @@ export function ConversationMenuTarget({
         <button
           type="button"
           className="weq-conversation-menu-avatar"
+          data-weq-force-click={onOpenChat ? 'profile' : undefined}
           title="查看名片"
           aria-label={`查看${name}的名片`}
           tabIndex={-1}
@@ -69,6 +70,7 @@ export function ConversationMenuTarget({
             aria-haspopup="dialog"
             aria-label={`查看${name}的名片`}
             className="weq-conversation-menu-profile"
+            data-weq-force-click={onOpenChat ? 'profile' : undefined}
             onClick={activate}
           >
             {heading}

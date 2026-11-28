@@ -63,6 +63,7 @@ export function QzonePersonButton({
       style={style}
       aria-label={showProfile ? `查看 ${label} 的资料` : `进入 ${label} 的空间`}
       disabled={showProfile ? !openProfile : !openSpace}
+      data-weq-force-click={showProfile ? 'profile' : undefined}
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();

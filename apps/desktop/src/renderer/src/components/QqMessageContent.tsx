@@ -394,6 +394,7 @@ function MentionNode({ data = {} }: { data?: Record<string, unknown> }) {
       data-weq-at-uin={uin || undefined}
       title={`UID: ${uid || 'unknown'}`}
       role={clickable ? 'button' : undefined}
+      data-weq-force-click={clickable ? 'profile' : undefined}
       tabIndex={clickable ? 0 : undefined}
       aria-label={clickable ? `查看 ${user?.displayName} 的名片` : undefined}
       onClick={clickable ? openProfile : undefined}

@@ -170,6 +170,7 @@ function GroupWorkspace({
                 <button
                   type="button"
                   className="weq-profile-group-link"
+                  data-weq-force-click="profile"
                   title="查看群名片"
                   aria-label="查看群名片"
                   onClick={(event) => {

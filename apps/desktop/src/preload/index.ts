@@ -25,6 +25,12 @@ import { groupVideoBridge } from './group_video';
 import type { LongTermAuthorizationBridge } from '../shared/long_term_authorization';
 import { rendererRecoveryBridge } from './renderer_recovery';
 import { windowChromeBridge } from './window_chrome';
+import {
+  FORCE_CLICK_CHANNEL,
+  FORCE_CLICK_RESULT_CHANNEL,
+  type ForceClickBridge,
+  type ForceClickRequest,
+} from '../shared/force_click';
 import type { AccountInstanceBridge } from '../shared/account_instances';
 import {
   MESSAGE_IMAGE_CHANNEL,
@@ -56,6 +62,19 @@ ipcRenderer.on('edit:undo', () => {
 });
 ipcRenderer.send('edit:undo-ready');
 
+const onForceClick: ForceClickBridge = (handler) => {
+  const listener = (_event: unknown, request: ForceClickRequest) => {
+    let handled = false;
+    try {
+      handled = handler(request) === true;
+    } finally {
+      ipcRenderer.send(FORCE_CLICK_RESULT_CHANNEL, request.id, handled);
+    }
+  };
+  ipcRenderer.on(FORCE_CLICK_CHANNEL, listener);
+  return () => ipcRenderer.removeListener(FORCE_CLICK_CHANNEL, listener);
+};
+
 const weqBridge = {
   accountInstances: {
     list: () => ipcRenderer.invoke('account-instances:list'),
@@ -63,6 +82,7 @@ const weqBridge = {
     newWindow: () => ipcRenderer.invoke('account-instances:new-window'),
   } satisfies AccountInstanceBridge,
   windowChrome: windowChromeBridge,
+  onForceClick: process.platform === 'darwin' ? onForceClick : undefined,
   rendererRecovery: rendererRecoveryBridge,
   authorization: {
     status: () => ipcRenderer.invoke('authorization:status'),

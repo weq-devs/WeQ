@@ -256,6 +256,7 @@ export function GroupMemberPreview({
             type="button"
             title={displayUserName(member)}
             aria-label={`查看 ${displayUserName(member)} 的资料`}
+            data-weq-force-click="profile"
             onClick={(event) => {
               const rect = event.currentTarget.getBoundingClientRect();
               const anchor = { x: rect.right, y: rect.bottom, trigger: event.currentTarget };

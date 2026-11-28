@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Scan } from 'lucide-react';
 import { usePrivacyStore } from '../../state/privacy';
 import { drawPersonGlyph } from '../../lib/canvasAvatar';
+import { isForceClick } from '../../lib/forceClick';
 import { communityColor, graphNodeLabel } from './graphModel';
 import type { BuiltGraph, GNode } from './types';
 import { fitGraphView, type GraphView } from './graphLayout';
@@ -514,13 +515,18 @@ export function GraphCanvas({
     <div
       ref={wrapRef}
       className="weq-graph-canvas-wrap"
+      data-weq-force-click="profile"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onClick={(event) => {
-        const node = clickedNode.current;
-        clickedNode.current = undefined;
-        if (node === undefined) return;
         const element = event.currentTarget;
+        const force = isForceClick(event.nativeEvent);
+        const rect = force ? element.getBoundingClientRect() : undefined;
+        const node = rect
+          ? nodeAt(event.clientX - rect.left, event.clientY - rect.top)
+          : clickedNode.current;
+        clickedNode.current = undefined;
+        if (node === undefined || (force && !node)) return;
         const trigger = node
           ? {
               element,
