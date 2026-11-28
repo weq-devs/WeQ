@@ -42,7 +42,7 @@ export interface VirtualConversation {
   updatedAt?: number;
   /** 最近一条消息的纯文本预览（来自最近的克隆会话）。 */
   preview?: string;
-  /** 最近一条消息的时间（unix 秒），用于插入会话列表的正确位置。 */
+  /** 预览所用消息的时间（Unix 秒，保留毫秒精度）。 */
   lastMessageTime?: number;
   /** 最近一条消息是不是自己发的（决定预览要不要加昵称前缀）。 */
   previewMine?: boolean;
@@ -167,7 +167,7 @@ export function virtualConversationTime(item: VirtualConversation): number {
 
 export function virtualConversationRow(item: VirtualConversation): Conversation {
   const seconds = virtualConversationTime(item);
-  const updatedAt = seconds > 0 ? new Date(seconds * 1000).toISOString() : '';
+  const updatedAt = seconds > 0 ? new Date(Math.round(seconds * 1000)).toISOString() : '';
   return {
     id: item.id,
     directoryKind: item.kind === 'persona' ? 'persona' : 'cloneGroup',

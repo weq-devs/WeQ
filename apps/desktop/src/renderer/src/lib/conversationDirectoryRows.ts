@@ -126,12 +126,16 @@ export function assistantConversationRow(item: {
   id: string;
   title: string;
   updatedAt: number;
+  lastMessageTime?: number;
   running?: boolean;
   preview?: string;
   draftPreview?: string;
   unreadCount?: number;
   directoryRead?: Conversation['directoryRead'];
 }): Conversation {
+  const updatedAt = new Date(
+    item.lastMessageTime ? Math.round(item.lastMessageTime * 1000) : item.updatedAt,
+  ).toISOString();
   return {
     id: `assistant:${item.id}`,
     directoryKind: 'assistant',
@@ -148,7 +152,7 @@ export function assistantConversationRow(item: {
     },
     group: null,
     members: [],
-    updatedAt: new Date(item.updatedAt).toISOString(),
+    updatedAt,
     preference: { pinned: false, muted: false, blocked: false },
     unreadCount: item.unreadCount ?? 0,
     directoryRead: item.directoryRead,
@@ -156,7 +160,7 @@ export function assistantConversationRow(item: {
       id: `assistant:${item.id}:preview`,
       senderId: null,
       body: item.preview || (item.running ? '正在回答…' : null),
-      createdAt: new Date(item.updatedAt).toISOString(),
+      createdAt: item.preview ? updatedAt : undefined,
     },
   };
 }
@@ -164,15 +168,21 @@ export function generatedAggregateRow(
   kind: 'clone' | 'assistant',
   rows: readonly Conversation[],
 ): Conversation {
-  const latest = rows.reduce<Conversation | null>(
-    (previous, row) =>
-      !previous || Date.parse(row.updatedAt) > Date.parse(previous.updatedAt) ? row : previous,
-    null,
-  );
-  const latestPreview = rows.reduce<Conversation | null>((previous, row) => {
-    if (!row.lastMessage?.body) return previous;
-    return !previous || Date.parse(row.updatedAt) > Date.parse(previous.updatedAt) ? row : previous;
-  }, null);
+  let latest: { title: string; body: string; createdAt: string } | undefined;
+  let latestTime = -Infinity;
+  for (const row of rows) {
+    const message = row.lastMessage;
+    if (row.type !== 'direct' || !message?.body || !message.createdAt) continue;
+    const time = Date.parse(message.createdAt);
+    if (time > latestTime) {
+      latestTime = time;
+      latest = {
+        title: row.otherUser.displayName,
+        body: message.body,
+        createdAt: message.createdAt,
+      };
+    }
+  }
   return {
     id: `merged:${kind}`,
     type: 'merged',
@@ -182,17 +192,16 @@ export function generatedAggregateRow(
     otherUser: null,
     group: null,
     members: [],
-    updatedAt: latest?.updatedAt ?? '',
+    updatedAt: latest?.createdAt ?? '',
     preference: { pinned: false, muted: false, blocked: false },
     unreadCount: rows.reduce((count, row) => count + (row.unreadCount ?? 0), 0),
-    lastMessage:
-      latestPreview?.type === 'direct'
-        ? {
-            id: `merged:${kind}:preview`,
-            senderId: null,
-            body: `${latestPreview.otherUser.displayName} · ${latestPreview.lastMessage?.body}`,
-            createdAt: latestPreview.updatedAt,
-          }
-        : null,
+    lastMessage: latest
+      ? {
+          id: `merged:${kind}:preview`,
+          senderId: null,
+          body: `${latest.title} · ${latest.body}`,
+          createdAt: latest.createdAt,
+        }
+      : null,
   };
 }
