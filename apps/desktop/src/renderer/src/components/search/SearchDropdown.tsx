@@ -4,7 +4,7 @@ import { ToolbarLabel } from '../CompactToolbar';
 import { observeCompactToolbar } from '../CompactToolbar.shared';
 import { EmptyState } from '../EmptyState';
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
-import { Layers, RefreshCw, Settings2, SearchX } from 'lucide-react';
+import { History, Layers, RefreshCw, Settings2, SearchX } from 'lucide-react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { isLookupNumber } from '../../hooks/useNumberLookup';
 import { NumberLookupResults, type OpenNumberProfile } from './NumberLookupResults';
@@ -82,6 +82,8 @@ export function SearchDropdown({
   sources,
   onSourcesChange,
   onFilterQQMessages,
+  includeHistoricalNames = false,
+  onIncludeHistoricalNamesChange,
 }: {
   keyword: string;
   numberLookupKeyword?: string;
@@ -108,6 +110,8 @@ export function SearchDropdown({
   sources?: readonly SearchSource[];
   onSourcesChange?: (sources: SearchSource[]) => void;
   onFilterQQMessages?: () => void;
+  includeHistoricalNames?: boolean;
+  onIncludeHistoricalNamesChange?: (enabled: boolean) => void;
 }): ReactElement {
   const hasKeyword = keyword.trim().length > 0;
   const developmentDressTools = useDevelopmentDressTools();
@@ -425,6 +429,21 @@ export function SearchDropdown({
                 {option.label}
               </button>
             ))}
+          </div>
+        ) : null}
+        {onIncludeHistoricalNamesChange &&
+        activeSources.includes('qq') &&
+        categories.includes('contact') ? (
+          <div className="weq-search-scope" role="group" aria-label="联系人选项">
+            <span className="weq-search-filter-label">联系人</span>
+            <button
+              type="button"
+              aria-pressed={includeHistoricalNames}
+              onClick={() => onIncludeHistoricalNamesChange(!includeHistoricalNames)}
+            >
+              <History size={14} aria-hidden />
+              包含历史称呼
+            </button>
           </div>
         ) : null}
       </div>

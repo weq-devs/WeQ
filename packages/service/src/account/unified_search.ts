@@ -178,7 +178,6 @@ export interface ConversationRecordHit {
   senderUin: string;
   /** Sender display name (group card/nick, '' when unknown). */
   senderName: string;
-  senderAtTime?: GroupMsg['senderAtTime'];
   sendTime: string;
   /**
    * Rendered display text: the original message's elements flattened to text,
@@ -447,6 +446,7 @@ export class UnifiedSearchService {
     categories?: readonly SearchCategory[],
     scope: ConversationScope = 'all',
     sources?: readonly SearchSource[],
+    includeHistoricalNames = false,
   ): Promise<QuickSearchResult> {
     const needle = keyword.trim();
     if (!needle) return { conversations: [], friends: [], groupMembers: [] };
@@ -463,7 +463,13 @@ export class UnifiedSearchService {
         ? this.session.groupMembers.searchMembers(needle, limit, 0)
         : { items: [] },
       categories?.includes('contact')
-        ? this.directorySearch('contact', needle, directoryScope, selected, limit + 1)
+        ? this.directorySearch(
+            'contact',
+            needle,
+            directoryScope,
+            selected,
+            includeHistoricalNames ? limit + 1 : 0,
+          )
         : undefined,
       categories?.includes('group')
         ? this.directorySearch('group', needle, directoryScope, selected)
@@ -474,7 +480,9 @@ export class UnifiedSearchService {
     return {
       ...(contacts
         ? {
-            ...(this.session.groupMsgs?.senderNamesPending ? { contactHistoryPending: true } : {}),
+            ...(includeHistoricalNames && this.session.groupMsgs?.senderNamesPending
+              ? { contactHistoryPending: true }
+              : {}),
             contacts: contacts
               .filter((hit): hit is ContactSearchHit => hit.category === 'contact')
               .slice(0, limit),
@@ -702,6 +710,7 @@ export class UnifiedSearchService {
     scope: ConversationScope = 'all',
     sources?: readonly SearchSource[],
     recordFilter?: GlobalChatRecordFilter,
+    includeHistoricalNames = false,
   ): Promise<MoreSearchResult> {
     const needle = keyword.trim();
     const selected = this.selectedSources(scope, sources);
@@ -748,12 +757,14 @@ export class UnifiedSearchService {
           needle,
           directoryScope,
           selected,
-          offset + page + 1,
+          includeHistoricalNames ? offset + page + 1 : 0,
         );
         const items = ranked.slice(offset, offset + page);
         return {
           category,
-          ...(category === 'contact' && this.session.groupMsgs?.senderNamesPending
+          ...(category === 'contact' &&
+          includeHistoricalNames &&
+          this.session.groupMsgs?.senderNamesPending
             ? { contactHistoryPending: true }
             : {}),
           items,
@@ -1002,7 +1013,6 @@ export class UnifiedSearchService {
           ? {
               elements: rendered!,
               setEmojiList: source === 'group' ? (orig as GroupMsg).setEmojiList : undefined,
-              senderAtTime: source === 'group' ? (orig as GroupMsg).senderAtTime : undefined,
               decoration: orig.decoration,
             }
           : undefined,
@@ -1721,7 +1731,6 @@ function rowToRecordHit(
   content = h.content,
   original?: {
     elements: RenderElement[];
-    senderAtTime?: GroupMsg['senderAtTime'];
     setEmojiList?: SetEmojiItem[];
     decoration?: MsgDecoration;
   },
@@ -1737,7 +1746,6 @@ function rowToRecordHit(
     ...(original
       ? {
           elements: original.elements,
-          ...(original.senderAtTime ? { senderAtTime: original.senderAtTime } : {}),
           ...(original.setEmojiList ? { setEmojiList: original.setEmojiList } : {}),
           ...(original.decoration ? { decoration: original.decoration } : {}),
         }

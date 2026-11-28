@@ -335,12 +335,13 @@ export async function openAccount(
 
   const groupMsgs = new GroupMsgDb(nt, {
     dbPath: msgDbPath,
-    senderNameIndexPath: join(
-      platform.appDataRoot(),
-      'cache',
-      'group-sender-names',
-      `${createHash('sha256').update(msgDbPath).digest('hex')}.sqlite`,
-    ),
+    senderNameIndexPath: () =>
+      join(
+        platform.appDataRoot(),
+        'cache',
+        'group-sender-names',
+        `${createHash('sha256').update(msgDbPath).digest('hex')}.sqlite`,
+      ),
     key: ctx.dbKey,
     algo: a(msgDbPath),
   });

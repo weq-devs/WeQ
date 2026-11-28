@@ -48,12 +48,14 @@ export function RecordSenderPicker({
   const [query, setQuery] = useState('');
   const needle = query.trim().slice(0, 128).toLocaleLowerCase();
   const [historyKeyword, setHistoryKeyword] = useState('');
+  const [includeHistoricalNames, setIncludeHistoricalNames] = useState(false);
   useEffect(() => {
+    if (!includeHistoricalNames) return;
     const timer = setTimeout(() => setHistoryKeyword(needle), 200);
     return () => clearTimeout(timer);
-  }, [needle]);
+  }, [needle, includeHistoricalNames]);
   const historyEnabled = Boolean(
-    binding && groupCode && historyKeyword && needle === historyKeyword,
+    includeHistoricalNames && binding && groupCode && historyKeyword && needle === historyKeyword,
   );
   const history = useQuery<Awaited<ReturnType<typeof client.account.groupSenderNames.query>>>({
     ...PROFILE_QUERY_OPTIONS,
@@ -131,7 +133,8 @@ export function RecordSenderPicker({
   const activeIds = new Set(selected.map(({ id }) => id));
   const loadingRoster = canReadRoster && roster.isInitialLoading;
   const loadingHistory = Boolean(
-    groupCode &&
+    includeHistoricalNames &&
+      groupCode &&
       binding &&
       needle &&
       (!historyEnabled || history.isInitialLoading || history.data?.indexPending),
@@ -158,7 +161,7 @@ export function RecordSenderPicker({
           <input
             type="search"
             aria-label="查找发送者"
-            placeholder={groupCode ? '昵称、历史称呼或 QQ 号' : '昵称、备注或 QQ 号'}
+            placeholder={includeHistoricalNames ? '昵称、历史称呼或 QQ 号' : '昵称、备注或 QQ 号'}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             data-weq-autofocus
@@ -174,6 +177,11 @@ export function RecordSenderPicker({
             </button>
           ) : null}
         </div>
+        {canReadRoster ? (
+          <CheckPill checked={includeHistoricalNames} onChange={setIncludeHistoricalNames}>
+            <span>包含历史称呼</span>
+          </CheckPill>
+        ) : null}
         <CheckPill checked={!selected.length} onChange={() => onChange([])}>
           <span className="weq-record-sender-placeholder">
             <RecordSenderAvatar />

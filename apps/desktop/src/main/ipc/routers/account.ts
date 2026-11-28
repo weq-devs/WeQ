@@ -4331,6 +4331,7 @@ export const accountRouter = router({
   replyMedia: procedure
     .input(
       convInput.merge(exportAccountBindingInput).extend({
+        includeHistoricalNames: z.boolean().optional(),
         readWindow: messageReadWindowInput.optional(),
         msgIds: z
           .array(z.string().regex(/^-?\d{1,20}$/))
@@ -4342,9 +4343,13 @@ export const accountRouter = router({
       readMessageScope(
         input,
         async () =>
-          (await requireServices().msgs.getReplyMedia(input.kind, input.msgIds.map(BigInt))).map(
-            replyMediaToWire,
-          ),
+          (
+            await requireServices().msgs.getReplyMedia(
+              input.kind,
+              input.msgIds.map(BigInt),
+              input.includeHistoricalNames,
+            )
+          ).map(replyMediaToWire),
         'background',
       ),
     ),
@@ -5166,6 +5171,31 @@ export const accountRouter = router({
       return info ? groupMemberLevelInfoToWire(info) : null;
     }),
 
+  recordedGroupSenderNames: procedure
+    .input(
+      exportAccountBindingInput.required().extend({
+        groupCode: z.string().regex(/^[1-9]\d{0,19}$/),
+        msgIds: z
+          .array(z.string().regex(/^-?\d{1,20}$/))
+          .min(1)
+          .max(200),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const rows = await withDatabasePriority('background', () =>
+        services.msgs.recordedGroupSenderNames(input.groupCode, input.msgIds),
+      );
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
+      return rows;
+    }),
+
   groupSenderNames: procedure
     .input(
       exportAccountBindingInput
@@ -5204,7 +5234,7 @@ export const accountRouter = router({
         throw new Error('账号或数据源已切换');
       return {
         rows: rows.slice(0, 50),
-        indexPending: services.msgs.groupSenderNamesPending,
+        indexPending: !input.groupCode && services.msgs.groupSenderNamesPending,
         nextOffset: rows.length > 50 ? input.offset + 50 : undefined,
       };
     }),
@@ -5685,6 +5715,7 @@ export const accountRouter = router({
         categories: z.array(z.enum(SEARCH_CATEGORIES)).optional(),
         conversationScope: z.enum(['all', 'real', 'virtual', 'guild']).default('all'),
         sources: z.array(z.enum(SEARCH_SOURCES)).optional(),
+        includeHistoricalNames: z.boolean().optional(),
       }),
     )
     .query(async ({ input }) => {
@@ -5697,6 +5728,7 @@ export const accountRouter = router({
             input.categories,
             input.conversationScope,
             input.sources,
+            input.includeHistoricalNames,
           ),
         'interactive',
       );
@@ -5756,6 +5788,7 @@ export const accountRouter = router({
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
         recordFilter: globalRecordFilterInput,
+        includeHistoricalNames: z.boolean().optional(),
         ...sidebarSearchBinding.shape,
       }),
     )
@@ -5772,6 +5805,7 @@ export const accountRouter = router({
               input.conversationScope,
               input.sources,
               input.recordFilter,
+              input.includeHistoricalNames,
             ),
           ),
         'interactive',

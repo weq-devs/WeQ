@@ -44,6 +44,7 @@ import type { MessageRenderer } from '../../im-template/template/messageRenderer
 import type { Conversation, GroupMember, Message, User } from '../../im-template/template/types';
 import '../../styles/qzone.css';
 import '../../styles/chat-records.css';
+import { useRecordedSenderNames } from '../../hooks/useRecordedSenderNames';
 import { useShowHistoricalNames } from '../../lib/clientPreferences';
 import { createReplyPreviewIndex } from '../../lib/replyPreview';
 import { enrichReplyElements } from '../../views/workspace/messageProjection';
@@ -192,6 +193,11 @@ export function ChatRecordsModal({
   const showHistorical = useShowHistoricalNames(
     isGroup && !localSource ? selected.targetUid : undefined,
   );
+  const recordedSenderNames = useRecordedSenderNames(
+    showHistorical && !suspended ? selected.targetUid : undefined,
+    accountBinding,
+    messages,
+  );
   const members = useMemo(
     () => (isGroup && !localSource ? groupMembers?.(selected.targetUid) : undefined),
     [isGroup, localSource, groupMembers, selected.targetUid],
@@ -289,9 +295,15 @@ export function ChatRecordsModal({
       createReplyPreviewIndex(
         messages
           .filter((row) => row.elements?.length)
-          .map((row) => ({ ...row, elements: row.elements! })),
+          .map((row) => ({
+            ...row,
+            elements: row.elements!,
+            ...(recordedSenderNames
+              ? { senderAtTime: recordedSenderNames.get(row.msgId) ?? undefined }
+              : {}),
+          })),
       ),
-    [messages],
+    [messages, recordedSenderNames],
   );
 
   // A minimal conversation view for the selected hit — enough for MessageBubble.
@@ -835,9 +847,7 @@ export function ChatRecordsModal({
                               {fixed ? <RecordDayHeading day={day} /> : null}
                               {rows.map((msg) => {
                                 const elements = msg.elements;
-                                const senderAtTime = showHistorical
-                                  ? msg.senderAtTime?.name
-                                  : undefined;
+                                const senderAtTime = recordedSenderNames?.get(msg.msgId)?.name;
                                 if (elements?.length && conversation) {
                                   const message =
                                     localSource?.messages.find(

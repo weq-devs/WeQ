@@ -13,6 +13,7 @@ import {
 const BATCH = 8192;
 const RECONCILE_MS = 24 * 60 * 60 * 1000;
 const CHECK_MS = 10_000;
+const READER_IDLE_MS = 5000;
 
 type Checkpoint = {
   source: string;
@@ -28,6 +29,8 @@ export class GroupSenderNameIndex {
   private db?: DatabaseSync;
   private running?: Promise<void>;
   private checkAfter = 0;
+  private readerUntil = 0;
+  private readonly searchReaders = new Map<AbortSignal, number>();
   private error?: unknown;
   private readonly stop = new AbortController();
   pending = false;
@@ -92,9 +95,19 @@ export class GroupSenderNameIndex {
     return JSON.stringify([1, sourceFile.dev, sourceFile.ino, sourceFile.birthtimeMs]);
   }
 
+  private hasReader() {
+    const now = Date.now();
+    for (const [signal, until] of this.searchReaders)
+      if (signal.aborted || until <= now) this.searchReaders.delete(signal);
+    return this.readerUntil > now || this.searchReaders.size > 0;
+  }
+
   async search(filter: GroupSenderNameFilter) {
     this.stop.signal.throwIfAborted();
     filter.signal?.throwIfAborted();
+    const until = Date.now() + READER_IDLE_MS;
+    if (filter.signal) this.searchReaders.set(filter.signal, until);
+    else this.readerUntil = until;
     if (!this.running && Date.now() >= this.checkAfter) {
       this.error = undefined;
       this.running = this.scan()
@@ -104,7 +117,7 @@ export class GroupSenderNameIndex {
         .finally(() => {
           this.running = undefined;
           this.pending = false;
-          this.checkAfter = Date.now() + CHECK_MS;
+          this.checkAfter = this.hasReader() ? Date.now() + CHECK_MS : 0;
         });
     }
     const db = this.database();
@@ -164,7 +177,7 @@ export class GroupSenderNameIndex {
       withDatabasePriority('background', () => this.source.query(sql, params), signal);
     const schema = await this.source.tableColumns('group_msg_table');
     signal.throwIfAborted();
-    if (!SENDER_NAME_COLUMNS.some((column) => schema.has(column))) return;
+    if (!this.hasReader() || !SENDER_NAME_COLUMNS.some((column) => schema.has(column))) return;
     const nameFields = SENDER_NAME_COLUMNS.map((column, i) =>
       schema.has(column) ? `trim("${column}") AS n${i}` : `NULL AS n${i}`,
     );
@@ -212,7 +225,7 @@ export class GroupSenderNameIndex {
         last=CASE WHEN excluded.generation=names.generation THEN max(names.last,excluded.last) ELSE excluded.last END,
         generation=excluded.generation
     `);
-    for (;;) {
+    while (this.hasReader()) {
       signal.throwIfAborted();
       previous = this.checkpoint(db);
       if (!previous) return;

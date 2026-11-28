@@ -303,7 +303,6 @@ export interface ChatMsgWire {
   /** Conversation key: peer uid (c2c) or group code (group). */
   conv: string;
   senderUid: string;
-  senderAtTime?: RenderGroupMsg['senderAtTime'];
   senderUin: string;
   sendTime: string;
   elements: unknown[];
@@ -447,7 +446,6 @@ export function groupMsgToWire(m: RenderGroupMsg): ChatMsgWire {
     msgRandom: (m.msgRandom ?? 0n).toString(),
     conv: m.targetGroupCode,
     senderUid: m.senderUid,
-    ...(m.senderAtTime ? { senderAtTime: m.senderAtTime } : {}),
     senderUin: m.senderUin.toString(),
     sendTime: m.sendTime.toString(),
     elements: sanitize(m.elements),

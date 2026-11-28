@@ -260,6 +260,10 @@ export class MsgService {
     return row ? { db, row } : null;
   }
 
+  recordedGroupSenderNames(conv: string, ids: readonly string[]) {
+    return this.session.groupMsgs.recordedSenderNames(conv, ids);
+  }
+
   get groupSenderNamesPending() {
     return this.session.groupMsgs.senderNamesPending;
   }
@@ -1726,12 +1730,12 @@ export class MsgService {
   }
 
   /** 正文已显示后按页读取引用快照中的媒体和发送者称呼。 */
-  async getReplyMedia(kind: 'c2c' | 'group', ids: bigint[]) {
+  async getReplyMedia(kind: 'c2c' | 'group', ids: bigint[], includeHistoricalNames = false) {
     const caches = await this.session.forwardMsgs.listForMessages(kind, ids);
     return [...caches].flatMap(([id, records]) => {
       if (records.length !== 1) return [];
       const record = records[0]!;
-      const name = kind === 'group' ? record.sendNick?.trim() : undefined;
+      const name = kind === 'group' && includeHistoricalNames ? record.sendNick?.trim() : undefined;
       const quotedSender = name
         ? {
             name,

@@ -1,7 +1,18 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { SqlValue } from '@weq/native';
 import type { QqDb } from '../qq_db';
 import { withDatabasePriority } from '../query_schedule';
 import type { SenderNameAtTime } from './types';
+
+const recordedNames = new AsyncLocalStorage<true>();
+
+export function withRecordedGroupSenderNames<T>(read: () => T): T {
+  return recordedNames.run(true, read);
+}
+
+export function wantsRecordedGroupSenderNames() {
+  return recordedNames.getStore() === true;
+}
 
 export const SENDER_NAME_COLUMNS = ['40090', '40093'] as const;
 

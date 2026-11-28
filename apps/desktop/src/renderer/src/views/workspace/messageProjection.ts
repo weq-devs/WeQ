@@ -37,7 +37,6 @@ export function toMessageWire(w: ChatMsgWire): MessageWire {
     msgRandom: w.msgRandom ?? '',
     clientSeq: w.clientSeq,
     senderUid: w.senderUid,
-    senderAtTime: w.senderAtTime,
     senderUin: w.senderUin,
     sendTime: w.sendTime,
     elements: w.elements,

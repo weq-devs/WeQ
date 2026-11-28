@@ -155,7 +155,6 @@ export type ChatMsgWire = {
   /** 列 40005（发送方本地 client sequence，仅私聊）—— 私聊引用要发它。 */
   clientSeq?: string;
   senderUid: string;
-  senderAtTime?: { name: string; kind: 'display' | 'nickname' };
   senderUin: string;
   sendTime: string;
   elements: unknown[];

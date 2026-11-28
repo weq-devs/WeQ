@@ -92,7 +92,12 @@ import {
   watchTransferPolicy,
 } from '../../common/transfer_policy';
 import { MessageJournal } from './message_journal';
-import { beginQqFileWrite, isLikelyCorruptionError, withDatabaseWorkload } from '@weq/db';
+import {
+  beginQqFileWrite,
+  isLikelyCorruptionError,
+  withDatabaseWorkload,
+  withRecordedGroupSenderNames,
+} from '@weq/db';
 import {
   DatabaseRecoveryGate,
   DatabaseRecoveryStopped,
@@ -2775,7 +2780,13 @@ export class ExportTaskManager extends EventEmitter {
     });
   }
 
-  private async runTask(id: string): Promise<void> {
+  private runTask(id: string): Promise<void> {
+    return this.tasks.get(id)?.useRecordedSenderName
+      ? withRecordedGroupSenderNames(() => this.runTaskInScope(id))
+      : this.runTaskInScope(id);
+  }
+
+  private async runTaskInScope(id: string): Promise<void> {
     if (this.deferForNetwork(id)) return;
     const task = this.tasks.get(id);
     if (!task || task.status === 'cancelled') return;

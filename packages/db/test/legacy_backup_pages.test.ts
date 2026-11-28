@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 import { GroupMsgDb } from '../src/msg/group';
+import { withRecordedGroupSenderNames } from '../src/msg/group_sender_history';
 import { GroupMemberDb } from '../src/group_info/member';
 import { GroupEssenceDb } from '../src/group_info/essence';
 import { GroupExtDb } from '../src/group_info/ext';
@@ -140,11 +141,28 @@ it.each([false, true])('群消息历史称呼与旧表兼容（有历史字段 %
     (9007199254740996,0,4,2,0,'u_b','777',22222,21,NULL,NULL,NULL,'旧称呼',NULL),
     (9007199254740997,0,5,2,0,'u_a','888',11111,24,NULL,NULL,NULL,'另一个群的称呼',NULL),
     (9007199254740998,0,6,5,0,'u_a','777',11111,25,NULL,NULL,NULL,'灰条上的名字',NULL);`);
-  const db = new GroupMsgDb(nt, opts);
+  const statements: string[] = [];
+  const db = new GroupMsgDb(
+    {
+      ...nt,
+      async executeSql(...args) {
+        statements.push(args[1]);
+        return nt.executeSql(...args);
+      },
+    },
+    opts,
+  );
   try {
-    expect((await db.listByMsgIds([9007199254740993n]))[0]?.senderAtTime).toEqual(
-      hasNames ? { name: '旧称呼', kind: 'display' } : undefined,
+    expect((await db.listByMsgIds([9007199254740993n]))[0]?.senderAtTime).toBeUndefined();
+    await db.listNewestHistory('777', 10);
+    await db.browse('777', {});
+    await db.exportSourceRows('777', ['9007199254740993'], false);
+    expect(statements.length).toBeGreaterThan(0);
+    expect(statements.every((sql) => !/40090|40093|pragma_table_info/.test(sql))).toBe(true);
+    expect(await db.recordedSenderNames('777', ['9007199254740993'])).toEqual(
+      hasNames ? [{ msgId: '9007199254740993', sender: { name: '旧称呼', kind: 'display' } }] : [],
     );
+    expect(await db.recordedSenderNames('888', ['9007199254740993'])).toEqual([]);
     const matches = await db.senderNames({
       groupCode: '777',
       keyword: '旧称呼',
@@ -167,8 +185,16 @@ it.each([false, true])('群消息历史称呼与旧表兼容（有历史字段 %
       ['777', 'nickname', '旧昵称'],
       ['777', 'display', '旧称呼'],
     ]);
-    const exported = await db.exportSourceRows('777', ['9007199254740995'], false);
+    const exported = await withRecordedGroupSenderNames(() =>
+      db.exportSourceRows('777', ['9007199254740995'], false),
+    );
     expect(exported[0]?.message.senderAtTime).toEqual({ name: '旧昵称', kind: 'nickname' });
+    const [regular, historical] = await Promise.all([
+      db.listAfter('777', 1n),
+      withRecordedGroupSenderNames(() => db.listAfter('777', 1n)),
+    ]);
+    expect(regular.every((row) => row.senderAtTime === undefined)).toBe(true);
+    expect(historical[0]?.senderAtTime?.name).toBe('旧称呼');
   } finally {
     db.close();
   }
@@ -180,10 +206,26 @@ it('历史称呼索引先返回可用结果，索引可以复用并接续新增�
     "40001" INTEGER PRIMARY KEY, "40003" INTEGER, "40011" INTEGER,
     "40020" TEXT, "40027" TEXT, "40033" INTEGER, "40050" INTEGER, "40090" TEXT, "40093" TEXT);
     INSERT INTO group_msg_table VALUES (1,1,2,'u_speaker','777',10001,10,'旧称呼',NULL);`);
-  const config = { ...opts, senderNameIndexPath: opts.dbPath + '.names.sqlite' };
+  let indexPathReads = 0;
+  const config = {
+    ...opts,
+    senderNameIndexPath: () => {
+      indexPathReads++;
+      return opts.dbPath + '.names.sqlite';
+    },
+  };
   const filter = { keyword: '称呼', distinctSenders: true, limit: 10 };
   const first = new GroupMsgDb(nt, config);
   try {
+    expect(await first.senderNames({ ...filter, groupCode: '777' })).toMatchObject([
+      { name: '旧称呼' },
+    ]);
+    expect(indexPathReads).toBe(0);
+    const reader = new AbortController();
+    const request = first.senderNames({ ...filter, signal: reader.signal });
+    reader.abort();
+    await expect(request).resolves.toEqual([]);
+    await expect.poll(() => first.senderNamesPending).toBe(false);
     expect(await first.senderNames(filter)).toEqual([]);
     expect(first.senderNamesPending).toBe(true);
     await expect.poll(() => first.senderNamesPending).toBe(false);

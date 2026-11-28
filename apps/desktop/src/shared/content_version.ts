@@ -53,7 +53,6 @@ export function comparableMessages<
     msgSeq: string;
     senderUid: string;
     senderUin: string;
-    senderAtTime?: unknown;
     sendTime: string;
     elements: unknown[];
     localSent?: boolean;
@@ -85,7 +84,6 @@ export function comparableMessages<
       row.msgSeq,
       row.senderUid,
       row.senderUin,
-      row.senderAtTime,
       row.sendTime,
       row.elements,
       row.localSent,

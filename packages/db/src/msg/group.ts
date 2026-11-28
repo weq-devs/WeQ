@@ -68,7 +68,12 @@ import { groupDirectoryTimes, recentGroupDirectoryTimes } from './directory_time
 import { listDeletedRefs } from './deleted_refs';
 import { readMessageSourceRows } from './export_source';
 import { GroupSenderNameIndex } from './group_sender_name_index';
-import { groupSenderNames, senderNameAtTime, SENDER_NAME_COLUMNS } from './group_sender_history';
+import {
+  groupSenderNames,
+  senderNameAtTime,
+  SENDER_NAME_COLUMNS,
+  wantsRecordedGroupSenderNames,
+} from './group_sender_history';
 
 // 保持旧行映射的顺序。40002 是发送请求、回执和落库对账使用的客户端随机数。
 // 历史称呼是可选列，读取时追加在固定列之后。
@@ -131,7 +136,7 @@ export function isSenderUid(uid: string | null | undefined): boolean {
 }
 
 export interface GroupMsgDbOptions {
-  senderNameIndexPath?: string;
+  senderNameIndexPath?: string | (() => string);
   /** Absolute path to nt_msg.db. */
   dbPath: string;
   /** SQLCipher key. (omit for plain decrypted). */
@@ -142,17 +147,40 @@ export interface GroupMsgDbOptions {
 
 export class GroupMsgDb {
   private readonly qq: QqDb;
-  private readonly senderNameIndex?: GroupSenderNameIndex;
+  private readonly senderNameIndexPath: GroupMsgDbOptions['senderNameIndexPath'];
+  private senderNameIndex?: GroupSenderNameIndex;
 
   constructor(nt: NtHelperBinding, opts: GroupMsgDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
-    if (opts.senderNameIndexPath)
-      this.senderNameIndex = new GroupSenderNameIndex(this.qq, opts.senderNameIndexPath);
+    this.senderNameIndexPath = opts.senderNameIndexPath;
   }
   async senderNames(filter: Parameters<typeof groupSenderNames>[1]) {
-    return this.senderNameIndex
-      ? this.senderNameIndex.search(filter)
-      : groupSenderNames(this.qq, filter);
+    if (filter.groupCode || !this.senderNameIndexPath) return groupSenderNames(this.qq, filter);
+    this.senderNameIndex ??= new GroupSenderNameIndex(
+      this.qq,
+      typeof this.senderNameIndexPath === 'function'
+        ? this.senderNameIndexPath()
+        : this.senderNameIndexPath,
+    );
+    return this.senderNameIndex.search(filter);
+  }
+
+  async recordedSenderNames(conversation: string, ids: readonly string[]) {
+    if (!ids.length) return [];
+    const columns = await this.qq.tableColumns('group_msg_table');
+    if (!SENDER_NAME_COLUMNS.some((column) => columns.has(column))) return [];
+    const names = SENDER_NAME_COLUMNS.map((column) =>
+      columns.has(column) ? `"${column}"` : 'NULL',
+    );
+    const rows = await this.qq.query(
+      `SELECT "40001",${names.join(',')} FROM group_msg_table
+       WHERE "40027"=? AND "40001" IN (SELECT CAST(value AS INTEGER) FROM json_each(?))`,
+      [conversation, JSON.stringify(ids)],
+    );
+    return rows.flatMap(([id, display, nickname]) => {
+      const sender = senderNameAtTime(display, nickname);
+      return sender ? [{ msgId: String(id), sender }] : [];
+    });
   }
 
   get senderNamesPending() {
@@ -176,24 +204,27 @@ export class GroupMsgDb {
     return recentGroupDirectoryTimes(this.qq, groupCodes, selfUid, selfUin);
   }
   async exportSourceRows(conversation: string, ids: readonly string[], full = true) {
-    const columns = full ? undefined : await this.qq.tableColumns('group_msg_table');
+    const includeNames = wantsRecordedGroupSenderNames();
+    const columns =
+      !full && includeNames ? await this.qq.tableColumns('group_msg_table') : undefined;
+    const fieldNames = includeNames
+      ? [...SELECT_COLUMN_NAMES, ...SENDER_NAME_COLUMNS]
+      : SELECT_COLUMN_NAMES;
     const rows = await readMessageSourceRows(
       this.qq,
       'group_msg_table',
       '40027',
       conversation,
       ids,
-      columns
-        ? [...SELECT_COLUMN_NAMES, ...SENDER_NAME_COLUMNS.filter((column) => columns.has(column))]
-        : undefined,
+      full
+        ? undefined
+        : columns
+          ? [...SELECT_COLUMN_NAMES, ...SENDER_NAME_COLUMNS.filter((column) => columns.has(column))]
+          : SELECT_COLUMN_NAMES,
     );
     return rows.map((source) => ({
       ...source,
-      message: rowToGroupMsg(
-        [...SELECT_COLUMN_NAMES, ...SENDER_NAME_COLUMNS].map(
-          (column) => source.columns[column] ?? null,
-        ),
-      ),
+      message: rowToGroupMsg(fieldNames.map((column) => source.columns[column] ?? null)),
     }));
   }
 
@@ -222,13 +253,12 @@ export class GroupMsgDb {
     const rows = await queryBrowsePage(
       this.qq,
       'group_msg_table',
-      [...SELECT_COLUMN_NAMES, ...SENDER_NAME_COLUMNS],
+      SELECT_COLUMN_NAMES,
       { clause: '"40027"=?', value: conv },
       filter,
       cursor,
       limit,
       direction,
-      await this.qq.tableColumns('group_msg_table'),
     );
     const timeIndex = SELECT_COLUMN_NAMES.indexOf('40050');
     const bodyIndex = SELECT_COLUMN_NAMES.indexOf('40800');
@@ -249,7 +279,7 @@ export class GroupMsgDb {
   /** Newest N messages in one group, newest-first (DESC by seq). */
   async listLatest(targetGroupCode: string, limit = 50): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${await this.messageFields()} FROM group_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ?
         ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
@@ -262,7 +292,7 @@ export class GroupMsgDb {
     const rows = await newestHistoryPage(
       this.qq,
       'group_msg_table',
-      await this.messageFields(),
+      SELECT_COLUMNS,
       { clause: '"40027"=?', value: targetGroupCode },
       limit,
       before,
@@ -284,7 +314,7 @@ export class GroupMsgDb {
     const cursor = nativeHistoryCursor(options.cursor, options.descending);
     const direction = options.descending ? 'DESC' : 'ASC';
     const rows = await this.qq.query(
-      `SELECT ${await this.messageFields()} FROM group_msg_table WHERE "40027" = ? AND "40003" BETWEEN ? AND ?
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table WHERE "40027" = ? AND "40003" BETWEEN ? AND ?
        ${cursor ? `AND ("40003","40050","40001") ${options.descending ? '<' : '>'} (?,?,?)` : ''}
        ORDER BY "40003" ${direction}, "40050" ${direction}, "40001" ${direction} LIMIT ?`,
       [
@@ -301,7 +331,7 @@ export class GroupMsgDb {
   /** The page of messages just older than `beforeSeq` (exclusive), newest-first. */
   async listBefore(targetGroupCode: string, beforeSeq: bigint, limit = 50): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${await this.messageFields()} FROM group_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ? AND "40003" < ?
         ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
@@ -313,7 +343,7 @@ export class GroupMsgDb {
   /** The page of messages just newer than `afterSeq` (exclusive), oldest-first. */
   async listAfter(targetGroupCode: string, afterSeq: bigint, limit = 50): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${await this.messageFields()} FROM group_msg_table
+      `SELECT ${wantsRecordedGroupSenderNames() ? await this.messageFields() : SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ? AND "40003" > ?
         ${ORDER_OLDEST_FIRST}
         LIMIT ?`,
@@ -345,7 +375,7 @@ export class GroupMsgDb {
       params.push(BigInt(endTime));
     }
     const rows = await this.qq.query(
-      `SELECT ${await this.messageFields()} FROM group_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE ${conditions.join(' AND ')}
         ${ORDER_OLDEST_FIRST}
         LIMIT ?`,
@@ -369,7 +399,7 @@ export class GroupMsgDb {
     limit = 50,
   ): Promise<Array<GroupMsg & { rowId: bigint }>> {
     const rows = await this.qq.query(
-      `SELECT rowid, ${await this.messageFields()} FROM group_msg_table
+      `SELECT rowid, ${wantsRecordedGroupSenderNames() ? await this.messageFields() : SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ? AND rowid > ? AND ("40003" = 0 OR "40003" IS NULL)
         ORDER BY rowid ASC
         LIMIT ?`,
@@ -385,7 +415,7 @@ export class GroupMsgDb {
    */
   async listFrom(targetGroupCode: string, sinceSeq: bigint, limit = 500): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${await this.messageFields()} FROM group_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ? AND "40003" >= ?
         ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
@@ -397,7 +427,7 @@ export class GroupMsgDb {
   /** Most recent N messages across all groups, newest first. Useful for "test dump". */
   async listRecent(limit = 50, offset = 0): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${await this.messageFields()} FROM group_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         ORDER BY "40001" DESC
         LIMIT ? OFFSET ?`,
       [BigInt(limit), BigInt(offset)],
@@ -510,7 +540,7 @@ export class GroupMsgDb {
   ): AsyncGenerator<GroupMsg[]> {
     const hi = opts.hi ?? (await this.maxSeq(targetGroupCode));
     if (hi <= afterSeq) return;
-    const sql = `SELECT "40003", ${await this.messageFields()} FROM group_msg_table
+    const sql = `SELECT "40003", ${wantsRecordedGroupSenderNames() ? await this.messageFields() : SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ? AND "40003" > ? AND "40003" <= ?
         ORDER BY "40003" ASC`;
     for await (const rows of this.qq.scanWindows(
@@ -539,7 +569,7 @@ export class GroupMsgDb {
   ): AsyncGenerator<Array<GroupMsg & { rowId: bigint }>> {
     const hi = opts.hi ?? (await this.latestRowId());
     if (hi <= afterRowId) return;
-    const sql = `SELECT rowid, ${await this.messageFields()} FROM group_msg_table
+    const sql = `SELECT rowid, ${wantsRecordedGroupSenderNames() ? await this.messageFields() : SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ? AND rowid > ? AND rowid <= ?
           AND ("40003" = 0 OR "40003" IS NULL)
         ORDER BY rowid ASC`;
@@ -568,7 +598,7 @@ export class GroupMsgDb {
    */
   async listSinceRowId(sinceRowId: bigint, limit = 500): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${await this.messageFields()} FROM group_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE rowid > ?
         ORDER BY rowid ASC
         LIMIT ?`,
@@ -663,7 +693,7 @@ export class GroupMsgDb {
     if (msgIds.length === 0) return [];
     const placeholders = msgIds.map(() => '?').join(',');
     const rows = await this.qq.query(
-      `SELECT ${await this.messageFields()} FROM group_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40001" IN (${placeholders})
         ${ORDER_NEWEST_FIRST}`,
       msgIds,
@@ -682,7 +712,7 @@ export class GroupMsgDb {
     if (seqs.length === 0) return [];
     const placeholders = seqs.map(() => '?').join(',');
     const rows = await this.qq.query(
-      `SELECT ${await this.messageFields()} FROM group_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ? AND "40003" IN (${placeholders})
         ${ORDER_NEWEST_FIRST}`,
       [targetGroupCode, ...seqs],
@@ -718,7 +748,7 @@ export class GroupMsgDb {
       originalFileId && originalFileId !== fileId ? [fileId, originalFileId] : [fileId];
     const bodyMatches = fileIds.map(() => 'instr("40800", ?) > 0').join(' OR ');
     const rows = await this.qq.query(
-      `SELECT ${await this.messageFields()} FROM group_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ? AND "40003" > 0
         AND (${bodyMatches})
         ${before ? 'AND ("40003", "40050", "40001") < (?, ?, ?)' : ''}
@@ -753,7 +783,7 @@ export class GroupMsgDb {
    */
   async listDeletedByConv(targetGroupCode: string, limit = 200): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${await this.messageFields()} FROM group_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ? AND "40011" = 1 AND "40012" = 1
         ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
@@ -1564,8 +1594,7 @@ function weekStartDate(seconds: number): string {
 }
 
 function rowToGroupMsg(row: SqlRow): GroupMsg {
-  const senderAtTime = senderNameAtTime(row[12], row[13]);
-  return {
+  const message: GroupMsg = {
     msgId: toBigint(row[0]),
     senderUid: toStr(row[1]),
     targetGroupCode: toStr(row[2]),
@@ -1578,8 +1607,12 @@ function rowToGroupMsg(row: SqlRow): GroupMsg {
     subType: toBigint(row[9]),
     decoration: decodeDress(row[10]),
     msgRandom: toBigint(row[11]),
-    ...(senderAtTime ? { senderAtTime } : {}),
   };
+  if (row.length > SELECT_COLUMN_NAMES.length) {
+    const sender = senderNameAtTime(row[12], row[13]);
+    if (sender) message.senderAtTime = sender;
+  }
+  return message;
 }
 
 /** As {@link rowToGroupMsg} but for a `SELECT rowid, …` row (indices shifted +1). */

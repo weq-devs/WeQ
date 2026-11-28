@@ -52,6 +52,7 @@ export function SearchMoreResults({
   onSnapshot,
   conversationScope = 'all',
   sources,
+  includeHistoricalNames = false,
   recordFilter,
   filters,
   accountBinding,
@@ -66,6 +67,7 @@ export function SearchMoreResults({
   onSnapshot?: (snapshot: SearchMoreSnapshot) => void;
   conversationScope?: ConversationScope;
   sources?: readonly SearchSource[];
+  includeHistoricalNames?: boolean;
   recordFilter?: GlobalChatRecordFilter;
   filters?: ReactNode;
   accountBinding?: QQWriteBinding;
@@ -104,6 +106,7 @@ export function SearchMoreResults({
   const expectedAccountUin = accountBinding?.expectedAccountUin;
   const expectedAccountConfigId = accountBinding?.expectedAccountConfigId;
   const relevantFilter = category === 'chatRecord' ? recordFilter : undefined;
+  const searchHistoricalNames = category === 'contact' && includeHistoricalNames;
   const isQQMessageSearch = Boolean(filters);
   const heading = isQQMessageSearch ? '筛选 QQ 消息' : `${CATEGORY_META[category].label}搜索`;
   useLayoutEffect(() => {
@@ -114,6 +117,7 @@ export function SearchMoreResults({
     keyword,
     sources ?? conversationScope,
     relevantFilter,
+    searchHistoricalNames,
   ]);
   const restoredRequest = useRef(
     restored.current
@@ -122,6 +126,7 @@ export function SearchMoreResults({
           restored.current.keyword,
           sources ?? conversationScope,
           relevantFilter,
+          searchHistoricalNames,
         ])
       : null,
   );
@@ -145,6 +150,7 @@ export function SearchMoreResults({
             conversationScope: sources ? 'all' : conversationScope,
             ...(relevantFilter ? { sources: ['qq'] } : sources ? { sources: [...sources] } : {}),
             recordFilter: relevantFilter,
+            ...(searchHistoricalNames ? { includeHistoricalNames: true } : {}),
             expectedAccountUin,
             expectedAccountConfigId,
             searchWindow: { owner, generation: request.generation },
@@ -184,6 +190,7 @@ export function SearchMoreResults({
       conversationScope,
       sources,
       relevantFilter,
+      searchHistoricalNames,
       expectedAccountUin,
       expectedAccountConfigId,
       owner,

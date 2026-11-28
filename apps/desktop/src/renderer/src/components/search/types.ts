@@ -170,7 +170,6 @@ export interface ConversationRecordHit {
   senderUin: string;
   /** Sender display name (group card/nick, '' when unknown). */
   senderName: string;
-  senderAtTime?: { name: string; kind: 'display' | 'nickname' };
   sendTime: string;
   /**
    * 展示文本：原消息元素压平后的文本；找不到原消息行时是 FTS 纯文本。

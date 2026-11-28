@@ -322,6 +322,7 @@ import {
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { conversationWindowKey } from '../lib/conversationWindowCache';
 import { firstPageKey } from '../lib/conversationFirstPage';
+import { useRecordedSenderNames } from '../hooks/useRecordedSenderNames';
 import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
 import { messageTemplateContext } from '../lib/messageTemplateContext';
 import { useRecentContactHeadRefresh } from '../hooks/useRecentContactHeadRefresh';
@@ -4942,20 +4943,43 @@ function MainWorkspace(): ReactElement {
       sendAccess.data.attachEnabled &&
       sendAccess.data.ssoReady === true,
   );
-  // 原行负责定位、撤回和对账，补拉只提供正文。窗口刷新也能继续使用已补回的元素。
-  const loadedMessageWires = useMemo(
-    () =>
-      mergeUnsequencedInteractionRows(
-        loaded.map((row) => {
-          const base = replyMediaRows.get(row) ?? row;
-          const patch = messageElementPatches[row.msgId];
-          if (!patch || !messageFallbackKind(row)) return base;
-          return { ...base, elements: patch.elements, sourceFormat: patch.sourceFormat };
-        }),
-        unsequencedInteractions,
-      ),
-    [loaded, replyMediaRows, replyMediaRevision, messageElementPatches, unsequencedInteractions],
+  const showHistoricalNames = useShowHistoricalNames(
+    selectedConversation?.type === 'group' ? selectedConversation.id : undefined,
   );
+  const recordedSenderNames = useRecordedSenderNames(
+    showHistoricalNames && messagesTabActive ? selectedConversation?.id : undefined,
+    pinSession.binding,
+    loaded,
+  );
+  const attemptedReplyNames = useMemo(
+    () => (showHistoricalNames ? new WeakSet<MessageWire>() : undefined),
+    [showHistoricalNames, selectedUid, messageScope],
+  );
+  // 原行负责定位、撤回和对账，补拉只提供正文。窗口刷新也能继续使用已补回的元素。
+  const loadedMessageWires = useMemo(() => {
+    const wires = mergeUnsequencedInteractionRows(
+      loaded.map((row) => {
+        const base = replyMediaRows.get(row) ?? row;
+        const patch = messageElementPatches[row.msgId];
+        if (!patch || !messageFallbackKind(row)) return base;
+        return { ...base, elements: patch.elements, sourceFormat: patch.sourceFormat };
+      }),
+      unsequencedInteractions,
+    );
+    return recordedSenderNames
+      ? wires.map((row) => {
+          const senderAtTime = recordedSenderNames.get(row.msgId);
+          return senderAtTime ? { ...row, senderAtTime } : row;
+        })
+      : wires;
+  }, [
+    loaded,
+    replyMediaRows,
+    replyMediaRevision,
+    messageElementPatches,
+    unsequencedInteractions,
+    recordedSenderNames,
+  ]);
   const messageReplyIndex = useMemo(
     () => createReplyPreviewIndex(loadedMessageWires),
     [loadedMessageWires],
@@ -5408,9 +5432,6 @@ function MainWorkspace(): ReactElement {
   const messageIdentityRevision = useMemo(
     () => Symbol(),
     [messageGroupMembers, botUids, profileByUid],
-  );
-  const showHistoricalNames = useShowHistoricalNames(
-    selectedConversation?.type === 'group' ? selectedConversation.id : undefined,
   );
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
@@ -6569,12 +6590,16 @@ function MainWorkspace(): ReactElement {
     const binding = messageBindingRef.current;
     const scope = messageScopeRef.current;
     if (!selection || !binding || !scope || !messagesTabActive) return;
+    const attempted = attemptedReplyNames ?? attemptedReplyMedia;
     const pending = loaded.filter(
-      (row) => needsReplyMedia(row, showHistoricalNames) && !attemptedReplyMedia.has(row),
+      (row) => needsReplyMedia(row, showHistoricalNames) && !attempted.has(row),
     );
     if (!pending.length) return;
-    for (const row of pending) attemptedReplyMedia.add(row);
-    const current = () => messageScopeRef.current === scope && selectionRef.current === selection;
+    for (const row of pending) attempted.add(row);
+    let active = true;
+    let completed = 0;
+    const current = () =>
+      active && messageScopeRef.current === scope && selectionRef.current === selection;
     void (async () => {
       for (let offset = 0; offset < pending.length && current(); offset += 200) {
         const page = pending.slice(offset, offset + 200);
@@ -6584,9 +6609,11 @@ function MainWorkspace(): ReactElement {
             kind: selection.kind === 'group' ? 'group' : 'c2c',
             conv: selection.id,
             readWindow: selection.readWindow,
+            ...(showHistoricalNames ? { includeHistoricalNames: true } : {}),
             msgIds: page.map((row) => row.msgId),
           });
           if (!current()) return;
+          completed = offset + page.length;
           const originals = new Map(page.map((row) => [row.msgId, row]));
           const rows = loadedRef.current;
           const next = applyReplyMedia(rows, originals, patches);
@@ -6601,12 +6628,18 @@ function MainWorkspace(): ReactElement {
         }
       }
     })();
+    if (showHistoricalNames)
+      return () => {
+        active = false;
+        for (const row of pending.slice(completed)) attempted.delete(row);
+      };
   }, [
     loaded,
     messageScope,
     messagesTabActive,
     selectedUid,
     attemptedReplyMedia,
+    attemptedReplyNames,
     showHistoricalNames,
     replyMediaRows,
     selectionRef,
@@ -7083,6 +7116,7 @@ function MainWorkspace(): ReactElement {
   );
 
   const searchQuery = shell.query.trim();
+  const [includeHistoricalContactNames, setIncludeHistoricalContactNames] = useState(false);
   const searchAccountKey = noticeAccountKey || openedUin;
   const [searchResourceGroup, setSearchResourceGroup] = useState<{
     accountKey: string;
@@ -7099,6 +7133,9 @@ function MainWorkspace(): ReactElement {
     searchCategories,
     searchAccountKey,
     searchSources,
+    undefined,
+    undefined,
+    !searchDismissed && includeHistoricalContactNames,
   );
   const searchReturn = useSearchReturn(
     searchAccountKey,
@@ -11546,6 +11583,11 @@ function MainWorkspace(): ReactElement {
                   categoryStates={globalSearch.categoryStates}
                   categories={searchCategories}
                   onCategoriesChange={setSearchCategories}
+                  includeHistoricalNames={includeHistoricalContactNames}
+                  onIncludeHistoricalNamesChange={(next) => {
+                    searchReturn.clear();
+                    setIncludeHistoricalContactNames(next);
+                  }}
                   sources={searchSources}
                   accountBinding={pinSession.binding ?? undefined}
                   onSourcesChange={setSearchSources}

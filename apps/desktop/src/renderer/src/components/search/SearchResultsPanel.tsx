@@ -109,6 +109,7 @@ export function SearchResultsPanel({
         category={navigation.category}
         keyword={props.keyword}
         sources={props.sources}
+        includeHistoricalNames={props.includeHistoricalNames}
         recordFilter={refinement?.filter}
         filters={
           refinement ? (

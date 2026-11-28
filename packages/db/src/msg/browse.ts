@@ -93,7 +93,6 @@ export function queryBrowsePage(
   cursor: BrowseCursor | undefined,
   limit: number,
   direction: BrowseDirection,
-  availableColumns?: ReadonlySet<string>,
 ) {
   // 日期范围已排除 NULL，直接排序发送时间即可复用普通时间索引。
   const time = filter.start !== undefined || filter.end !== undefined ? '"40050"' : BROWSE_TIME;
@@ -106,9 +105,7 @@ export function queryBrowsePage(
     time,
   );
   const order = direction === 'older' ? 'DESC' : 'ASC';
-  const fields = columns
-    .map((column) => (!availableColumns || availableColumns.has(column) ? `m."${column}"` : 'NULL'))
-    .join(',');
+  const fields = columns.map((column) => `m."${column}"`).join(',');
   return qq.query(
     `WITH page AS MATERIALIZED (
        SELECT rowid AS id,${time} AS send_time FROM ${table} WHERE ${query.clause}
