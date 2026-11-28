@@ -353,8 +353,11 @@ export class ClientStateStore {
       if (!key || key.length > 1024 || ['__proto__', 'constructor', 'prototype'].includes(key))
         throw new Error('无效的状态标识');
       if (namespace === 'conversationDisplay') {
-        if (!/^[1-9]\d{0,19}$/.test(key) || (value !== true && value !== null))
-          throw new Error('无效的群聊显示设置');
+        if (
+          (!/^[1-9]\d{0,19}$/.test(key) && !(key.startsWith('c2c:') && key.length > 4)) ||
+          (value !== true && value !== null)
+        )
+          throw new Error('无效的会话显示设置');
         if (value === null) delete rows[key];
         else rows[key] = value;
         continue;

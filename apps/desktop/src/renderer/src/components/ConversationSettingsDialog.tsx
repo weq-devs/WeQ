@@ -11,6 +11,7 @@
  * 消息提醒在本会话内单独设置，全局通知方式在「通用 → 通知与提醒」。
  */
 
+import { conversationDisplayKey } from '@weq/service/client-preferences';
 import { useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   accountBinding,
@@ -152,13 +153,15 @@ export function ConversationSettingsDialog({
   const notifyHere = status.data?.notifyTargets.includes(`${kind}:${conv}`) ?? false;
 
   const groupKeywords = kind === 'group';
-  const showHistorical = useShowHistoricalNames(kind === 'group' ? conv : undefined);
+  const displayKey = kind === 'dataline' ? undefined : conversationDisplayKey(kind, conv);
+  const showHistorical = useShowHistoricalNames(displayKey);
   const [savingHistorical, setSavingHistorical] = useState(false);
 
   async function toggleHistorical(next: boolean) {
+    if (!displayKey) return;
     setSavingHistorical(true);
     try {
-      await patchAccountRecords('conversationDisplay', { [conv]: next ? true : null });
+      await patchAccountRecords('conversationDisplay', { [displayKey]: next ? true : null });
     } catch (error) {
       showError('保存称呼显示设置失败', errMsg(error));
     } finally {
@@ -300,11 +303,15 @@ export function ConversationSettingsDialog({
         </div>
       ) : (section === 'qq' || section === 'group-management') && kind !== 'dataline' ? (
         <div className="weq-cvs-body-scroll">
-          {kind === 'group' && section === 'qq' ? (
+          {displayKey && section === 'qq' ? (
             <Card title="消息显示" icon={<MessageSquareText size={15} strokeWidth={1.9} />}>
               <Row
                 label="显示当时称呼"
-                desc="优先显示消息里保存的群内称呼或昵称。没有保存时，显示当前称呼。"
+                desc={
+                  kind === 'group'
+                    ? '优先显示消息里保存的群内称呼或昵称。没有保存时，显示当前称呼。'
+                    : '在保存了昵称的消息上显示当时昵称。引用和聊天记录也优先使用当时昵称。'
+                }
                 control={
                   <Toggle
                     label="显示当时称呼"

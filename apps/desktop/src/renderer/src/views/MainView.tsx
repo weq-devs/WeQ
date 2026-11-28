@@ -324,7 +324,6 @@ import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSessi
 import { conversationWindowKey } from '../lib/conversationWindowCache';
 import { firstPageKey } from '../lib/conversationFirstPage';
 import { useRecordedSenderNames } from '../hooks/useRecordedSenderNames';
-import { conversationDisplayKey } from '@weq/service/client-preferences';
 import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
 import { messageTemplateContext } from '../lib/messageTemplateContext';
 import { useRecentContactHeadRefresh } from '../hooks/useRecentContactHeadRefresh';
@@ -484,7 +483,11 @@ import {
   readonlyConversationKind,
 } from '../lib/conversationActions';
 import { fetchMissingContext } from '../lib/missingMessageFetch';
-import { generatedMuteKey, preferenceDefaults } from '@weq/service/client-preferences';
+import {
+  conversationDisplayKey,
+  generatedMuteKey,
+  preferenceDefaults,
+} from '@weq/service/client-preferences';
 import { createMediaId } from '../im-template/template/composerMedia';
 import type {
   ChatRecordSearchHit,
@@ -4951,7 +4954,11 @@ function MainWorkspace(): ReactElement {
       sendAccess.data.ssoReady === true,
   );
   const historicalNameTarget =
-    messageElementTarget && !isDatalineUid(messageElementTarget.conv) ? messageElementTarget : null;
+    messageElementTarget &&
+    !selectedConversation?.generated &&
+    !isDatalineUid(messageElementTarget.conv)
+      ? messageElementTarget
+      : null;
   const showHistoricalNames = useShowHistoricalNames(
     historicalNameTarget
       ? conversationDisplayKey(historicalNameTarget.kind, historicalNameTarget.conv)

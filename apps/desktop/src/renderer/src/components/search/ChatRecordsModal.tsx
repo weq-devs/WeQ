@@ -22,6 +22,7 @@ import { useRecordContextMenu } from './useRecordContextMenu';
 import { daySeconds, pickCalendarRange } from '../../lib/messageCalendar';
 import { RecordDayHeading } from './recordDays';
 import { recordDay, groupRecordDays } from './recordDays.shared';
+import { conversationDisplayKey } from '@weq/service/client-preferences';
 import { matchesConversationRecordType } from '@weq/service/message-filter';
 import { Modal } from '../Dialog';
 import { LoadingIndicator } from '../LoadingIndicator';
@@ -190,11 +191,12 @@ export function ChatRecordsModal({
     savedScrollTop.current = null;
   }, []);
   const isGroup = selected.source === 'group';
+  const kind = isGroup ? 'group' : 'c2c';
   const showHistorical = useShowHistoricalNames(
-    isGroup && !localSource ? selected.targetUid : undefined,
+    localSource ? undefined : conversationDisplayKey(kind, selected.targetUid),
   );
   const recordedSenderNames = useRecordedSenderNames(
-    showHistorical && !suspended ? selected.targetUid : undefined,
+    showHistorical && !suspended ? { kind, conv: selected.targetUid } : null,
     accountBinding,
     messages,
   );

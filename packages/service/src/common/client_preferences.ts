@@ -284,6 +284,10 @@ export function messageReadCursor(position: string) {
   return { msgSeq: msgSeq!, sendTime: sendTime!, msgId: msgId! };
 }
 
+export function conversationDisplayKey(kind: 'c2c' | 'group', conv: string) {
+  return kind === 'group' ? conv : `c2c:${conv}`;
+}
+
 export type StateNamespace =
   | 'pins'
   | 'tasks'

@@ -264,6 +264,10 @@ export class MsgService {
     return this.session.groupMsgs.recordedSenderNames(conv, ids);
   }
 
+  recordedC2cSenderNames(conv: string, ids: readonly string[]) {
+    return this.session.c2cMsgs.recordedSenderNames(conv, ids);
+  }
+
   get groupSenderNamesPending() {
     return this.session.groupMsgs.senderNamesPending;
   }

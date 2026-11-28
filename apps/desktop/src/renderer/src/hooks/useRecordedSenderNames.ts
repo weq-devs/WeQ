@@ -10,19 +10,21 @@ type Snapshot = { scope: string; names: ReadonlyMap<string, StoredName | null> }
 const EMPTY_ROWS: readonly WindowRow[] = [];
 
 export function useRecordedSenderNames(
-  groupCode: string | undefined,
+  target: { kind: 'group' | 'c2c'; conv: string } | null,
   binding: QQWriteBinding | null | undefined,
   rows: readonly WindowRow[],
 ) {
   const uin = binding?.expectedAccountUin;
   const configId = binding?.expectedAccountConfigId;
-  const scope = groupCode && uin && configId ? JSON.stringify([uin, configId, groupCode]) : '';
+  const kind = target?.kind;
+  const conv = target?.conv;
+  const scope = kind && conv && uin && configId ? JSON.stringify([uin, configId, kind, conv]) : '';
   const activeRows = scope ? rows : EMPTY_ROWS;
   const cache = useRef<Snapshot>(undefined);
   const [snapshot, setSnapshot] = useState<Snapshot>();
 
   useEffect(() => {
-    if (!scope || !groupCode || !uin || !configId) {
+    if (!scope || !kind || !conv || !uin || !configId) {
       if (cache.current) {
         cache.current = undefined;
         setSnapshot(undefined);
@@ -48,15 +50,22 @@ export function useRecordedSenderNames(
     const read = async () => {
       for (let offset = 0; offset < missing.length; offset += 200) {
         const batch = missing.slice(offset, offset + 200);
-        const result = await client.account.recordedGroupSenderNames.query(
-          {
-            expectedAccountUin: uin,
-            expectedAccountConfigId: configId,
-            groupCode,
-            msgIds: batch,
-          },
-          { signal: controller.signal },
-        );
+        const input = {
+          expectedAccountUin: uin,
+          expectedAccountConfigId: configId,
+          msgIds: batch,
+        };
+        const options = { signal: controller.signal };
+        const result =
+          kind === 'group'
+            ? await client.account.recordedGroupSenderNames.query(
+                { ...input, groupCode: conv },
+                options,
+              )
+            : await client.account.recordedC2cSenderNames.query(
+                { ...input, peerUid: conv },
+                options,
+              );
         if (controller.signal.aborted) return;
         for (const id of batch) names.set(id, null);
         for (const { msgId, sender } of result) names.set(msgId, sender);
@@ -68,7 +77,7 @@ export function useRecordedSenderNames(
       if (!controller.signal.aborted) console.warn('[消息] 读取历史称呼失败', error);
     });
     return () => controller.abort();
-  }, [scope, groupCode, uin, configId, activeRows]);
+  }, [scope, kind, conv, uin, configId, activeRows]);
 
   return scope && snapshot?.scope === scope ? snapshot.names : undefined;
 }

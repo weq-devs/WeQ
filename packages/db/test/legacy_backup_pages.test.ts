@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
+import { C2cMsgDb } from '../src/msg/c2c';
 import { GroupMsgDb } from '../src/msg/group';
 import { withRecordedGroupSenderNames } from '../src/msg/group_sender_history';
 import { GroupMemberDb } from '../src/group_info/member';
@@ -199,6 +200,42 @@ it.each([false, true])('群消息历史称呼与旧表兼容（有历史字段 %
     db.close();
   }
 });
+
+it.each([true, false])(
+  '私聊按原消息读取历史昵称，兼容缺列的备份（昵称列 %s）',
+  async (hasNickname) => {
+    const { sql, nt, opts } = fixture();
+    sql.exec(`CREATE TABLE c2c_msg_table (
+    "40001" INTEGER PRIMARY KEY, "40021" TEXT, "40090" TEXT${hasNickname ? ', "40093" TEXT' : ''});
+    INSERT INTO c2c_msg_table ("40001","40021","40090") VALUES
+      (9007199254740993,'u_peer','另一种名称'),
+      (9007199254740994,'u_peer','另一种名称'),
+      (9007199254740995,'u_other','另一种名称'),
+      (9007199254740996,'u_peer','另一种名称');`);
+    if (hasNickname) {
+      sql.exec(`UPDATE c2c_msg_table SET "40093" = ' 旧昵称 ' WHERE "40001"=9007199254740993;
+      UPDATE c2c_msg_table SET "40093" = '   ' WHERE "40001"=9007199254740994;
+      UPDATE c2c_msg_table SET "40093" = '另一个会话的昵称' WHERE "40001"=9007199254740995;`);
+    }
+    const db = new C2cMsgDb(nt, opts);
+    try {
+      expect(
+        await db.recordedSenderNames('u_peer', [
+          '9007199254740993',
+          '9007199254740994',
+          '9007199254740995',
+          '9007199254740996',
+        ]),
+      ).toEqual(
+        hasNickname
+          ? [{ msgId: '9007199254740993', sender: { name: '旧昵称', kind: 'nickname' } }]
+          : [],
+      );
+    } finally {
+      db.close();
+    }
+  },
+);
 
 it('历史称呼索引先返回可用结果，索引可以复用并接续新增消息', async () => {
   const { sql, nt, opts } = fixture();

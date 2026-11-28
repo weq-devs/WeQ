@@ -5199,7 +5199,7 @@ export const accountRouter = router({
     .query(({ input }) => recordedSenderNames(input, 'group', input.groupCode)),
 
   recordedC2cSenderNames: procedure
-    .input(recordedSenderNamesInput.extend({ peerUid: z.string().min(1).max(1019) }))
+    .input(recordedSenderNamesInput.extend({ peerUid: z.string().min(1) }))
     .query(({ input }) => recordedSenderNames(input, 'c2c', input.peerUid)),
 
   groupSenderNames: procedure
