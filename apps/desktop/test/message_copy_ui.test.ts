@@ -215,17 +215,21 @@ describe('聊天内容复制交互', () => {
       await act(async () => vi.dynamicImportSettled());
       const window = document.querySelector('.weq-message-detail')!;
       expect(window).not.toBeNull();
-      const structureTab = [...window.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
-        (button) => button.textContent === '结构化数据',
-      );
-      await act(async () => structureTab!.click());
-      const copy = [...window.querySelectorAll<HTMLButtonElement>('button')].find(
-        (button) => button.textContent?.trim() === '复制卡片 JSON',
-      );
-      await act(async () => copy!.click());
+      const button = (label: string) =>
+        [...window.querySelectorAll<HTMLButtonElement>('button')].find(
+          (item) => item.textContent?.trim() === label,
+        )!;
+      const currentSection = () => window.querySelector('nav [aria-current="true"]');
+      await act(async () => button('结构化数据').click());
+      expect(currentSection()).toBe(button('消息元素'));
+      await act(async () => button('卡片载荷').click());
+      await act(async () => button('复制卡片 JSON').click());
       expect(write).toHaveBeenCalledTimes(1);
       expect(JSON.parse(write.mock.calls[0]![0])).toEqual(expected);
       expect(copied).not.toHaveBeenCalled();
+      await act(async () => button('正文').click());
+      await act(async () => button('结构化数据').click());
+      expect(currentSection()).toBe(button('消息元素'));
     } finally {
       f.close();
     }
