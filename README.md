@@ -78,20 +78,11 @@
   </tr>
 </table>
 
-> [!TIP]
-> 微信聊天记录的导出和分析可使用 [WeChatDataAnalysis](https://github.com/LifeArchiveProject/WeChatDataAnalysis)。
-
 ## 快速开始
 
-1. 从 [Releases](https://github.com/weq-devs/WeQ/releases) 下载适合你电脑的安装包并启动 WeQ。
+1. 从 [Releases](https://github.com/weq-devs/WeQ/releases) 下载适合你电脑的安装包并启动 WeQ（支持 **Windows x64**、**macOS Apple 芯片 / Intel**、**Linux x64 / arm64**，Arch Linux 亦可通过 [AUR](https://weq-devs.github.io/WeqDocs/guide/arch-install) 安装）。
 2. 在账号主页选择「添加本机 QQ 账号」或「导入 QQ 备份」。
 3. 按提示打开账号，在消息列表里选择一个会话即可开始浏览。
-
-| 平台 | 架构 | 安装包 |
-| --- | --- | --- |
-| **Windows** | x64 | `weQ-<版本>-setup.exe` |
-| **macOS** | Apple 芯片 / Intel | `weQ-<版本>-mac-arm64.dmg` / `weQ-<版本>-mac-x64.dmg` |
-| **Linux** | x64 / arm64 | `weQ-<版本>-linux-*.AppImage`、`tar.gz`，或 [AUR](https://weq-devs.github.io/WeqDocs/guide/arch-install) |
 
 > [!NOTE]
 > - macOS 首次打开需在「隐私与安全性」中放行，详见 [macOS 安装](https://weq-devs.github.io/WeqDocs/guide/macos-install)。
@@ -120,6 +111,7 @@ pnpm dev
 ## 社区与致谢
 
 - **项目链接**：[问题反馈](https://github.com/weq-devs/WeQ/issues) · [QQ 交流群](https://qm.qq.com/q/ysMZoAcC1a) · [更新日志](./CHANGELOG.md) · [免责声明与使用说明](https://weq-devs.github.io/WeqDocs/guide/disclaimer) · [许可协议](./LICENSE)
+- **相关项目**：微信聊天记录的导出和分析可使用 [WeChatDataAnalysis](https://github.com/LifeArchiveProject/WeChatDataAnalysis)。
 - **致谢**：感谢 [NapNeko 团队](https://github.com/NapNeko)、[webark-im-template](https://github.com/dogxii/webark-im-template)、[QQBackup](https://github.com/QQBackup) 和所有 [WeQ 贡献者](https://github.com/weq-devs/WeQ/graphs/contributors)提供的实现参考、聊天界面模板和资料。
 
 ---
