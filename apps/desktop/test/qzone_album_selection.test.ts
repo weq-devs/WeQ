@@ -110,7 +110,7 @@ it('Remote 相册在页面恢复读取后能取得首页', async () => {
     expect(read.access).not.toHaveBeenCalled();
     expect(read.page).not.toHaveBeenCalled();
     await render(true, 1);
-    expect(host.querySelector('[aria-label="选择相册 甲"]')).not.toBeNull();
+    expect(host.textContent).toContain('甲');
     expect(read.access).toHaveBeenCalledOnce();
     expect(read.page).toHaveBeenCalledOnce();
     expect(read.page).toHaveBeenCalledWith(
@@ -131,7 +131,7 @@ it('在线检查失败后可以在相册页重试', async () => {
     const retry = host.querySelector<HTMLButtonElement>('.weq-retry-button');
     expect(retry).not.toBeNull();
     await act(async () => retry!.click());
-    expect(host.querySelector('[aria-label="选择相册 甲"]')).not.toBeNull();
+    expect(host.textContent).toContain('甲');
     expect(read.page).toHaveBeenCalledOnce();
   } finally {
     await close();
@@ -207,6 +207,8 @@ it('整本相册与照片共用选择和唯一导出入口，返回列表不丢�
     await act(async () =>
       root.render(createElement(ContentSelectionProvider, null, createElement(Probe))),
     );
+    expect(host.querySelector('[aria-label="选择相册 甲"]')).toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="多选"]')!.click());
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="选择相册 甲"]')!.click(),
     );
@@ -231,6 +233,16 @@ it('整本相册与照片共用选择和唯一导出入口，返回列表不丢�
     expect(host.querySelector('[aria-label="选择相册 甲"]')?.getAttribute('aria-pressed')).toBe(
       'true',
     );
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="退出多选"]')!.click(),
+    );
+    expect(host.querySelector('[aria-label="选择相册 甲"]')).toBeNull();
+    await act(async () =>
+      host.querySelectorAll<HTMLButtonElement>('.weq-qzal-album-open')[1]!.click(),
+    );
+    expect(host.querySelector('[aria-label="选择"]')).toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="多选"]')!.click());
+    expect(host.querySelector('[aria-label="选择"]')).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
   }

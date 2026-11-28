@@ -230,7 +230,7 @@ export function QzoneVideoGrid({
               }
               selected={selectedIds.has(tile.id)}
               sensitiveName
-              onSelect={available ? () => multi.toggle(tile.id) : undefined}
+              onSelect={selectionMode && available ? () => multi.toggle(tile.id) : undefined}
               onOpen={available ? () => setPreviewKey(tile.id) : undefined}
               selectionProps={multi.itemProps(tile.id, !available)}
             />

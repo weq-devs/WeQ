@@ -1026,7 +1026,7 @@ export function AlbumGridView({
                 </>
               }
               selected={selection.selectedIds.has(key)}
-              onSelect={() => multi.toggle(key)}
+              onSelect={selection.selectionMode ? () => multi.toggle(key) : undefined}
               onOpen={() => onOpen(album)}
               selectionProps={multi.itemProps(key)}
             />
@@ -1348,7 +1348,7 @@ export function MediaView({
                   className={`weq-qzal-media-card${photo.isVideo ? ' is-video' : ''}${checked ? ' is-checked' : ''}`}
                   {...handlers?.(row)}
                 >
-                  {onJumpToAlbum ? null : (
+                  {!onJumpToAlbum && sharedSelection.selectionMode ? (
                     <button
                       type="button"
                       className={`weq-qzal-media-check${checked ? ' is-on' : ''}`}
@@ -1359,7 +1359,7 @@ export function MediaView({
                     >
                       {checked ? <Check size={12} strokeWidth={2.6} /> : null}
                     </button>
-                  )}
+                  ) : null}
                   <QzoneAlbumMediaButton
                     photo={photo}
                     onOpen={(src) => openMedia(photo, src)}
