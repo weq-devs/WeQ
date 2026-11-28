@@ -56,6 +56,7 @@ it('资源任务不伪装为 JSON 消息导出，部分下载失败仍展示缺�
   document.body.append(host);
   const root = createRoot(host);
   const noop = vi.fn();
+  const onShowFailures = vi.fn();
   const task: UiTask = {
     id: 'resource',
     kind: 'c2c',
@@ -90,7 +91,7 @@ it('资源任务不伪装为 JSON 消息导出，部分下载失败仍展示缺�
           onCancel: noop,
           onDownload: noop,
           onDelete: noop,
-          onShowFailures: noop,
+          onShowFailures,
         }),
       ),
     );
@@ -98,12 +99,55 @@ it('资源任务不伪装为 JSON 消息导出，部分下载失败仍展示缺�
     expect(host.textContent).toContain('已完成 · 资源缺失');
     expect(host.textContent).toContain('个文件');
     expect(host.textContent).not.toContain('JSON');
+    expect(host.textContent).not.toContain('媒体补全');
+    act(() => host.querySelector<HTMLButtonElement>('[title="点击查看失败详情"]')?.click());
+    expect(onShowFailures).toHaveBeenCalledWith(task, task.stages![0]!.failures);
     expect(host.querySelector('[title="保存"]')).toBeNull();
     expect(host.querySelector('[title="保存结果"]')).toBeNull();
     expect(host.querySelector('[title="重试保存"]')).toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();
+  }
+});
+it.each([
+  [false, '补全文件', true],
+  [true, '导出相册', false],
+] as const)('空间任务标记 %s 时，%s 只显示对应阶段的统计', (isQzone, label, showsCompletion) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const noop = vi.fn();
+  const task: UiTask = {
+    id: 'fixture',
+    kind: 'c2c',
+    name: '测试导出',
+    format: 'json',
+    status: 'completed',
+    progress: 100,
+    current: 1,
+    total: 1,
+    isQzone,
+    stages: [{ key: 'file', label, status: 'completed', current: 1, total: 1 }],
+  };
+  try {
+    act(() =>
+      root.render(
+        h(TaskList, {
+          tasks: [task],
+          isExpanded: true,
+          onPause: noop,
+          onCancel: noop,
+          onDownload: noop,
+          onDelete: noop,
+          onShowFailures: noop,
+        }),
+      ),
+    );
+    expect(host.textContent).toContain(label);
+    expect(host.textContent?.includes('媒体补全')).toBe(showsCompletion);
+  } finally {
+    act(() => root.unmount());
   }
 });
 it('保存位置存在时提供打开与文件夹定位，另存失败仍能打开上次结果', () => {

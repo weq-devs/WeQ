@@ -81,7 +81,64 @@ const RESOURCE_ACTIONS = {
   media: '保存媒体文件',
 } satisfies Record<NonNullable<ExportTask['resource']>['kind'], string>;
 
+const MEDIA_SAVE_LABELS = {
+  file: { action: '保存文件', category: '文件' },
+  'chat-file': { action: '保存文件', category: '聊天文件' },
+  'group-file': { action: '保存群文件', category: '群文件' },
+  image: { action: '保存图片', category: '图片' },
+  video: { action: '保存视频', category: '视频' },
+  voice: { action: '保存语音', category: '语音消息' },
+  audio: { action: '保存音频', category: '音频' },
+  emoji: { action: '保存表情', category: '表情' },
+};
+
+export type MediaSaveKind = keyof typeof MEDIA_SAVE_LABELS;
+
+export function mediaSaveTaskDisplay(kind: MediaSaveKind, subject: string): TaskDisplay {
+  return { ...MEDIA_SAVE_LABELS[kind], subject, fileName: true };
+}
+
+export function mediaSaveKindFromProtocol(url: URL): MediaSaveKind | undefined {
+  if (url.protocol !== 'weq-media:') return;
+  switch (url.hostname) {
+    case 'file':
+      return 'chat-file';
+    case 'pic':
+      return url.searchParams.get('recv') === '1' ? 'emoji' : 'image';
+    case 'video':
+      return 'video';
+    case 'ptt':
+    case 'localfilevoice':
+      return 'voice';
+    case 'mface':
+      return 'emoji';
+  }
+}
+
+function legacyMediaSaveKind(task: DisplaySource): MediaSaveKind | undefined {
+  const resource = task.resource;
+  if (resource?.kind !== 'media' || task.display?.category) return;
+  if (resource.source?.kind === 'group-files' || task.display?.action === '保存群文件')
+    return 'group-file';
+  if (resource.sourceKey?.startsWith('["chat-file",')) return 'chat-file';
+  if (resource.resume?.type === 'media-file') {
+    const source = resource.resume.source;
+    if (source.kind !== 'url') return source.kind;
+    if (URL.canParse(source.url)) return mediaSaveKindFromProtocol(new URL(source.url)) ?? 'file';
+  }
+  // 旧任务只保留了散列的 URL 时，无法恢复资源类型。
+  if (resource.sourceKey?.startsWith('media-url:')) return 'file';
+}
+
 export function exportTaskDisplay(task: DisplaySource): TaskDisplay {
+  const mediaKind = legacyMediaSaveKind(task);
+  if (mediaKind) {
+    const output = task.resource?.output;
+    const subject =
+      task.display?.subject ??
+      (output ? `${output.name}${output.extension ? `.${output.extension}` : ''}` : task.name);
+    return mediaSaveTaskDisplay(mediaKind, subject);
+  }
   if (task.display) return task.display;
   if (task.resourceOnly)
     return {

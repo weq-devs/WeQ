@@ -345,8 +345,10 @@ function TaskDetail({
       : t.status === 'completed'
         ? 100
         : Math.min(100, Math.max(0, t.progress));
-  const completion = completionSummary(t.stages);
+  const completion = t.resource || t.isQzone ? undefined : completionSummary(t.stages);
   const resourceMissing = (t.generatedResources?.missing ?? t.resource?.failed ?? 0) > 0;
+  const statusLabel = t.resource && t.status === 'running' ? '处理中' : STATUS_LABEL[t.status];
+  const completedLabel = t.resource ? '结果已就绪' : '导出已完成';
   const saveLabel = taskSaveActionLabel(t);
   const pauseDraining =
     t.canResume === false &&
@@ -355,7 +357,6 @@ function TaskDetail({
     !t.isEmojiPack &&
     !t.isCollection &&
     !t.isGuild;
-  const hasCompletion = completion.ok > 0 || completion.failed > 0;
   const logs = t.logs ?? [];
   const stageLogs = (key: string): UiLogLine[] => logs.filter((l) => l.stage === key);
   const taskLogs = logs.filter((l) => l.stage === 'task');
@@ -564,7 +565,7 @@ function TaskDetail({
                           ? '部分完成'
                           : t.status === 'completed' && resourceMissing
                             ? '已完成 · 资源缺失'
-                            : STATUS_LABEL[t.status])}
+                            : statusLabel)}
         </span>
         {overall !== undefined ? (
           <strong className="weq-exp-detail-overall">
@@ -614,12 +615,14 @@ function TaskDetail({
           {t.save?.status === 'saved'
             ? `已保存：${t.save.path}`
             : t.save?.status === 'saving'
-              ? '导出已完成，正在保存并校验结果…'
+              ? `${completedLabel}，正在保存并校验结果…`
               : t.save?.status === 'failed' || t.save?.status === 'interrupted'
                 ? t.save.path
                   ? `本次另存未完成：${t.save.error}；上次保存：${t.save.path}`
-                  : `导出已完成，尚未保存：${t.save.error}`
-                : '导出已完成，结果保留在任务中，等待选择保存位置'}
+                  : `${completedLabel}，尚未保存：${t.save.error}`
+                : t.resource
+                  ? '结果已就绪，等待选择保存位置'
+                  : '导出已完成，结果保留在任务中，等待选择保存位置'}
         </p>
       ) : null}
 
@@ -662,7 +665,7 @@ function TaskDetail({
       {t.status === 'pending' ? (
         <div className="weq-exp-detail-queued">排队中：等待当前任务完成后再开始</div>
       ) : null}
-      {hasCompletion ? (
+      {completion && (completion.ok > 0 || completion.failed > 0) ? (
         completion.failed > 0 && completion.failures.length > 0 ? (
           <button
             type="button"
@@ -846,7 +849,7 @@ export function TaskList({
         {!isExpanded && hasTasks && runningCount > 0 ? (
           <span className="weq-exp-tasks-mini-status">
             <Loader2 size={12} className="weq-exp-spin" />
-            <span className="weq-number weq-number-inherit">{runningCount}</span> 个导出中…
+            <span className="weq-number weq-number-inherit">{runningCount}</span> 个任务进行中…
           </span>
         ) : !isExpanded && hasTasks && completedCount === tasks.length ? (
           <span className="weq-exp-tasks-mini-status is-done">

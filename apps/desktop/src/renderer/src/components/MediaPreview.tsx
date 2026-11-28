@@ -521,6 +521,7 @@ function MediaPreviewItemBody({
   }
   // 等待视频原片时不把封面或占位来源误挂到播放器。
   const waiting = Boolean(item.load && item.kind === 'video' && !resolvedItem);
+  const savingPreviewImage = usingThumbnail || (detailError && !resolvedItem);
   return (
     <MediaPreviewShell
       title={title}
@@ -595,16 +596,21 @@ function MediaPreviewItemBody({
                         kind: 'url',
                         url: originalSource ?? resolvedItem?.saveSrc ?? source,
                         name: item.title,
+                        mediaKind: savingPreviewImage ? 'image' : current.kind,
                         progressTarget: item.progressTarget,
                       }
-                    : item.saveSource.kind === 'url' && item.progressTarget
-                      ? { ...item.saveSource, progressTarget: item.progressTarget }
+                    : item.saveSource.kind === 'url'
+                      ? {
+                          ...item.saveSource,
+                          mediaKind: item.saveSource.mediaKind ?? current.kind,
+                          progressTarget: item.progressTarget ?? item.saveSource.progressTarget,
+                        }
                       : item.saveSource
                 }
                 className="weq-lightbox-action"
                 label={
                   item.saveLabel ??
-                  (usingThumbnail || (detailError && !resolvedItem)
+                  (savingPreviewImage
                     ? '保存预览图'
                     : current.kind === 'image'
                       ? '保存图片'

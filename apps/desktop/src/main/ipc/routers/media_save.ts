@@ -1,5 +1,6 @@
 import { z } from 'zod/v3';
 import { describeExportOutput, exportOutputFileName, getHost } from '@weq/service';
+import { mediaSaveTaskDisplay } from '@weq/service/task-display';
 import { getAppContext } from '../../context/app_context';
 import { taskMessageSourceInput } from '../../task_message_source';
 import { savedMediaSourceKey } from '../../message_media_local';
@@ -100,20 +101,7 @@ export const mediaSaveRouter = router({
       sourceKey: savedMediaSourceKey(selected.source),
       transferTarget: mediaTransferTarget(selected.source),
       name: output.name,
-      display: {
-        action:
-          selected.source.kind === 'group-file'
-            ? '保存群文件'
-            : /^(png|jpe?g|gif|webp|bmp|svg|apng|avif|heic)$/i.test(output.extension)
-              ? '保存图片'
-              : /^(mp4|mov|webm|mkv|avi)$/i.test(output.extension)
-                ? '保存视频'
-                : /^(wav|mp3|ogg|m4a|flac|silk|amr|aac)$/i.test(output.extension)
-                  ? '保存语音'
-                  : '保存文件',
-        subject: plan.fileName,
-        fileName: true,
-      },
+      display: mediaSaveTaskDisplay(plan.kind, plan.fileName),
       output,
       savePolicy: policy,
       run: (context) =>

@@ -10,6 +10,13 @@ import { cleanNtPath } from '../components/mergeForward/model';
 
 type ElementData = { type?: string; data?: Record<string, unknown> };
 const kinds = new Set(['pic', 'video', 'bubbleVideo', 'ptt', 'file', 'mface']);
+const SAVE_MEDIA_KIND = {
+  pic: 'image',
+  video: 'video',
+  ptt: 'voice',
+  emoji: 'emoji',
+  mface: 'emoji',
+} as const;
 
 export function messageMediaKey(element: ElementData): string {
   const data = element.data ?? {};
@@ -135,6 +142,7 @@ export function messageMediaSaveSource(target: MessageMediaTarget): MediaSaveSou
     kind: 'url',
     url: target.url,
     name: target.name || undefined,
+    mediaKind: SAVE_MEDIA_KIND[target.kind],
     ...(progressTarget ? { progressTarget } : {}),
   };
 }

@@ -931,7 +931,12 @@ it.each(['photoWall', 'qzone'] as const)('%s 缓存原有灯箱保存复用公�
     expect(state.save).toHaveBeenCalledWith({
       expectedAccountUin: '10001',
       expectedAccountConfigId: 'source-a',
-      source: { kind: 'url', url: localMediaUrl(kind, 'ab/photo'), name: 'photo' },
+      source: {
+        kind: 'url',
+        url: localMediaUrl(kind, 'ab/photo'),
+        name: 'photo',
+        mediaKind: 'image',
+      },
       savePolicy: { mode: 'preset', directory: '/saved' },
       foreground: true,
     });

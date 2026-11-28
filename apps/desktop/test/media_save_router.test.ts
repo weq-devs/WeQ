@@ -234,7 +234,24 @@ it('语音沿用播放协议返回的 WAV，不给解码后的字节套 AMR 后�
     }),
   );
   expect(task.resource?.output?.extension).toBe('wav');
+  expect(task.display).toMatchObject({ action: '保存语音', category: '语音消息' });
   expect(state.media.mock.calls[0]![0].url).toBe('weq-media://ptt?name=voice.amr');
+});
+it.each([
+  ['audio/webm', '保存音频'],
+  ['video/webm', '保存视频'],
+])('同为 WebM 的链接根据返回的 %s 显示任务类型', async (mime, action) => {
+  state.response = () =>
+    new Response(new Uint8Array(80).fill(1), { headers: { 'content-type': mime } });
+  const task = await completed(
+    await api().save({
+      ...binding,
+      source: { kind: 'url', url: 'https://synthetic.invalid/media.webm', name: 'media.webm' },
+      savePolicy: { mode: 'before', directory: root },
+    }),
+  );
+  expect(task.resource?.output?.extension).toBe('webm');
+  expect(task.display?.action).toBe(action);
 });
 it('视频按流复制，元数据探测不读完整视频，不调用 arrayBuffer', async () => {
   const pulls: number[] = [],
@@ -280,7 +297,7 @@ it('群文件取消位置不换链或建任务，实际下载固定 fileId 与 b
     kind: 'group-file' as const,
     groupCode: '123',
     fileId: 'selected-id',
-    fileName: 'report.txt',
+    fileName: 'music.flac',
     busId: 7,
   };
   expect(await api().save({ ...binding, source, savePolicy: { mode: 'before' } })).toBeNull();
@@ -290,7 +307,8 @@ it('群文件取消位置不换链或建任务，实际下载固定 fileId 与 b
   const task = await completed(
     await api().save({ ...binding, source, savePolicy: { mode: 'before', directory: root } }),
   );
-  expect(state.groupUrl).toHaveBeenCalledWith(123, 'selected-id', 7, 'report.txt');
+  expect(state.groupUrl).toHaveBeenCalledWith(123, 'selected-id', 7, 'music.flac');
+  expect(task.display).toMatchObject({ action: '保存群文件', subject: source.fileName });
   expect(readFileSync(task.filePath!, 'utf8')).toBe('raw-file');
 });
 it('单件媒体只在交接后进入当前任务，交接不重复下载且位置偏好保留', async () => {
@@ -367,22 +385,76 @@ it('中断的媒体保存继续使用原媒体和已选文件名', async () => {
   expect(result).toMatchObject({ ok: 1, failed: [], fileName });
   expect(readFileSync(join(root, fileName))).toEqual(Buffer.from(png));
 });
-it('本地文件只复制既有缓存，保留无后缀文件和原件，不要求在线换链', async () => {
-  const sourcePath = join(root, 'README');
+it.each([
+  ['README', ''],
+  ['music', 'flac'],
+  ['photo', 'jpg'],
+  ['clip', 'mp4'],
+])('聊天文件 %s（扩展名 %s）保留原名和文件类型，不要求在线换链', async (name, extension) => {
+  const fileName = extension ? `${name}.${extension}` : name;
+  const sourcePath = join(root, fileName);
   writeFileSync(sourcePath, 'personal-cache');
-  state.local = { fileName: 'README', localPath: `::NTOSFull::${sourcePath}` };
+  state.local = { fileName, localPath: `::NTOSFull::${sourcePath}` };
   const task = await completed(
     await api().save({
       ...binding,
-      source: { kind: 'chat-file', msgId: '42', name: 'README' },
+      source: { kind: 'chat-file', msgId: '42', name: fileName },
       savePolicy: { mode: 'before', directory: root },
     }),
   );
-  expect(task.resource?.output).toEqual({ kind: 'file', name: 'README', extension: '' });
+  expect(task.resource?.output).toEqual({ kind: 'file', name, extension });
+  expect(task.display).toMatchObject({
+    action: '保存文件',
+    subject: fileName,
+    category: '聊天文件',
+  });
   expect(readFileSync(task.filePath!, 'utf8')).toBe('personal-cache');
   expect(readFileSync(sourcePath, 'utf8')).toBe('personal-cache');
   expect(state.fileUrl).not.toHaveBeenCalled();
   expect(state.fetch).not.toHaveBeenCalled();
+});
+it('旧单文件任务按存下的来源恢复标题，不按扩展名猜测', () => {
+  const oldTask = {
+    kind: 'c2c',
+    name: 'song',
+    status: 'completed',
+    display: { action: '保存语音', subject: 'song.flac', fileName: true },
+  };
+  const cacheDir = join(root, 'legacy-tasks');
+  mkdirSync(cacheDir);
+  writeFileSync(
+    join(cacheDir, 'export_tasks.json'),
+    JSON.stringify([
+      {
+        ...oldTask,
+        id: 'legacy-file',
+        resource: { kind: 'media', sourceKey: '["chat-file","0","","group","fwd-res"]' },
+      },
+      {
+        ...oldTask,
+        id: 'legacy-voice',
+        resource: {
+          kind: 'media',
+          resume: {
+            type: 'media-file',
+            source: { kind: 'url', url: 'weq-media://ptt?msgId=42' },
+            fileName: 'voice.wav',
+          },
+        },
+      },
+      {
+        ...oldTask,
+        id: 'legacy-url',
+        resource: { kind: 'media', sourceKey: 'media-url:synthetic' },
+      },
+    ]),
+  );
+  const restored = new ExportTaskManager({} as MsgService, cacheDir);
+  expect(restored.listTasks().map(({ id, display }) => [id, display?.category])).toEqual([
+    ['legacy-file', '聊天文件'],
+    ['legacy-voice', '语音消息'],
+    ['legacy-url', '文件'],
+  ]);
 });
 it.each([
   { headers: { 'content-length': '8' }, size: undefined, total: 8 },

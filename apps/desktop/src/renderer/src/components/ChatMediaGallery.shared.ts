@@ -110,7 +110,7 @@ export function chatVideoAttachment(
     !identity.msgId && !identity.fwdResId && typeof data.localPath === 'string' && data.localPath;
   if (path) {
     const src = localFileUrl(path);
-    const saveSource: MediaSaveSource = { kind: 'url', url: src, name };
+    const saveSource: MediaSaveSource = { kind: 'url', url: src, name, mediaKind: 'file' };
     return { src, saveSource, progressTarget: mediaTransferTarget(saveSource) };
   }
   const token = typeof data.fileToken === 'string' ? data.fileToken : '';

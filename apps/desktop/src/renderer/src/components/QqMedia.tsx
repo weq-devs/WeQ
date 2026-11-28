@@ -913,7 +913,7 @@ export function QqFile({
     ...fwd,
   });
   const source: MediaSaveSource = previewPath
-    ? { kind: 'url', url: localFileUrl(previewPath), name }
+    ? { kind: 'url', url: localFileUrl(previewPath), name, mediaKind: 'file' }
     : chatFile;
   const canOpenHere = IS_ELECTRON;
   const hasMessage = /^\d+$/.test(msgId) || Boolean(fwd?.fwdResId);

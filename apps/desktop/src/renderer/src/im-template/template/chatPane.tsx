@@ -6129,7 +6129,7 @@ function ChatPaneContent({
 
   function downloadMessageImage(url: string) {
     setContextMenu(null);
-    void mediaSave.run({ kind: 'url', url, name: imageFilenameFromUrl(url) });
+    void mediaSave.run({ kind: 'url', url, name: imageFilenameFromUrl(url), mediaKind: 'image' });
   }
 
   if (!conversation) {

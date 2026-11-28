@@ -5,6 +5,7 @@ import { open, unlink } from 'node:fs/promises';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { describeExportOutput, exportOutputFileName, getHost } from '@weq/service';
+import { mediaSaveKindFromProtocol, type MediaSaveKind } from '@weq/service/task-display';
 import {
   detectImageFormat,
   PIC_FORMAT_BMP,
@@ -18,7 +19,7 @@ import { findMediaElement, handleMediaRequest } from './media_protocol';
 import { handleResourceRequest } from './resource_protocol';
 import { fileResponse } from './file_response';
 import { toProtocolAssetUrl } from './protocol_asset_url';
-import type { MediaSaveSource } from '../shared/media_save';
+import { MEDIA_SAVE_URL_KINDS, type MediaSaveSource } from '../shared/media_save';
 import type { ResumableResourceRequest, ResourceExportRunContext } from '@weq/service';
 import { resolveRecordedChatFile } from './message_media_local';
 
@@ -38,6 +39,7 @@ export const mediaSaveSourceInput = z.discriminatedUnion('kind', [
     kind: z.literal('url'),
     url: z.string().min(1),
     name: z.string().optional(),
+    mediaKind: z.enum(MEDIA_SAVE_URL_KINDS).optional(),
     progressTarget: z
       .string()
       .regex(/^[a-f0-9]{16}$/)
@@ -82,7 +84,13 @@ const IMAGE_EXT = new Map([
   [PIC_FORMAT_BMP, 'bmp'],
   [PIC_FORMAT_JPEG, 'jpg'],
 ]);
-function mediaExtension(header: Uint8Array, mime: string) {
+function mediaFormat(
+  header: Uint8Array,
+  mime: string,
+): {
+  extension: string | undefined;
+  kind: 'image' | 'video' | 'audio' | undefined;
+} {
   const image = detectImageFormat(header);
   const detected =
     image.width > 0 && image.height > 0
@@ -93,7 +101,15 @@ function mediaExtension(header: Uint8Array, mime: string) {
   const extension = detected ?? MIME_EXT[mime];
   if (!extension && mime && mime !== 'application/octet-stream')
     throw new Error('返回内容不是可保存的媒体');
-  return extension;
+  const kind =
+    detected || mime.startsWith('image/')
+      ? 'image'
+      : mime.startsWith('video/')
+        ? 'video'
+        : mime.startsWith('audio/')
+          ? 'audio'
+          : undefined;
+  return { extension, kind };
 }
 async function closeResponse(response: Response): Promise<void> {
   if (response.body && !response.body.locked) await response.body.cancel().catch(() => {});
@@ -121,7 +137,7 @@ async function probeMedia(
   name: string | undefined,
   check: () => void,
   signal?: AbortSignal,
-): Promise<string> {
+) {
   const timeout = AbortSignal.timeout(120_000);
   const response = await openUrl(raw, signal ? AbortSignal.any([signal, timeout]) : timeout, check);
   try {
@@ -145,7 +161,7 @@ async function probeMedia(
     }
     if (!size) throw new Error('媒体内容为空');
     const header = Buffer.concat(chunks).subarray(0, 65536);
-    const extension = mediaExtension(header, mime);
+    const { extension, kind } = mediaFormat(header, mime);
     const url = new URL(toProtocolAssetUrl(raw) ?? raw);
     let candidate = name || url.searchParams.get('name') || '';
     if (!candidate) {
@@ -164,7 +180,7 @@ async function probeMedia(
     )
       candidate = `${old ? candidate.slice(0, -old.length) : candidate}.${extension}`;
     if (!extname(candidate)) candidate += `.${extension ?? 'bin'}`;
-    return candidate;
+    return { fileName: candidate, kind: mediaSaveKindFromProtocol(url) ?? kind };
   } finally {
     await closeResponse(response);
   }
@@ -172,6 +188,7 @@ async function probeMedia(
 
 type PlannedMedia = {
   fileName: string;
+  kind: MediaSaveKind;
   fileSize?: number;
   open: (signal: AbortSignal) => Promise<Response>;
 };
@@ -182,7 +199,8 @@ export async function planSource(
   check: () => void,
 ): Promise<PlannedMedia> {
   if (source.kind === 'url') {
-    return planUrlMedia(source.url, source.name, check);
+    const plan = await planUrlMedia(source.url, source.name, check);
+    return source.mediaKind ? { ...plan, kind: source.mediaKind } : plan;
   }
   return planFileMedia(services, source, check);
 }
@@ -196,6 +214,7 @@ export async function planFileMedia(
   if (source.kind === 'group-file')
     return {
       fileName: source.fileName,
+      kind: source.kind,
       open: async (signal: AbortSignal) => {
         check();
         const url = await services.mediaUrl.getGroupFileUrl(
@@ -239,6 +258,7 @@ export async function planFileMedia(
   const fileName = local?.name || source.name || selected?.element.fileName || '文件';
   return {
     fileName,
+    kind: source.kind,
     fileSize: selected?.element.fileSize,
     open: async (signal: AbortSignal) => {
       check();
@@ -298,7 +318,7 @@ async function copyResponse(
       checked = expectedExtension === undefined;
     const validate = () => {
       if (!size) throw new Error('媒体内容为空');
-      const extension = mediaExtension(
+      const { extension } = mediaFormat(
         Buffer.concat(chunks.map((part) => part.subarray(0, 65536))).subarray(0, 65536),
         mime,
       );
@@ -406,10 +426,10 @@ async function planUrlMedia(
   name: string | undefined,
   check: () => void,
   signal?: AbortSignal,
-) {
-  const fileName = await probeMedia(url, name, check, signal);
+): Promise<PlannedMedia> {
+  const { fileName, kind } = await probeMedia(url, name, check, signal);
   check();
-  return { fileName, open: (signal: AbortSignal) => openUrl(url, signal, check) };
+  return { fileName, kind: kind ?? 'file', open: (signal) => openUrl(url, signal, check) };
 }
 
 export async function planUrlMediaExport(

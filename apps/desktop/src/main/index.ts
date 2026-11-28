@@ -731,7 +731,7 @@ function registerMediaExportIpc(): void {
       try {
         if (input.mode !== 'clipboard') {
           const taskId = await mediaSaveRouter.createCaller({}).save({
-            source: { kind: 'url', url, name: input.name },
+            source: { kind: 'url', url, name: input.name, mediaKind: 'image' },
             savePolicy: input.savePolicy,
             expectedAccountUin: input.expectedAccountUin,
             expectedAccountConfigId: input.expectedAccountConfigId,

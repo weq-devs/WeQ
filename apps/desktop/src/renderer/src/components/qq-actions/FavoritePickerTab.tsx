@@ -281,7 +281,12 @@ function FavoritePickerTabBody({
               disabled: save.disabled || !menu.item.src,
               action: () => {
                 if (menu.item.src)
-                  void save.run({ kind: 'url', url: menu.item.src, name: menu.item.name });
+                  void save.run({
+                    kind: 'url',
+                    url: menu.item.src,
+                    name: menu.item.name,
+                    mediaKind: 'emoji',
+                  });
               },
             },
           ]}
