@@ -16,13 +16,14 @@
   overflow-anchor: none;
 }
 .weq-virtual-timeline-row {
+  --weq-timeline-row-gap: 18px;
   position: relative;
   flex: 0 0 auto;
   left: 0;
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--weq-timeline-row-gap);
   box-sizing: border-box;
 }
 .weq-virtual-timeline.is-windowed > .weq-virtual-timeline-row {

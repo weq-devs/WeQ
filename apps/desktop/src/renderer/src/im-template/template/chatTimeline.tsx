@@ -16,7 +16,11 @@ import { IS_ELECTRON } from '../../lib/target.shared';
 import { deletionIdentity } from '../../lib/messageDeletion';
 import type { Message } from './types';
 import { messageTimelineSpacing, type MessageGroupPosition } from './chatTimelineModel';
-import { timelineViewport, TIMELINE_MESSAGE_SELECTOR } from '../../lib/timelineViewport';
+import {
+  messageElement,
+  timelineViewport,
+  TIMELINE_MESSAGE_SELECTOR,
+} from '../../lib/timelineViewport';
 import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
 import { allowsLayoutMotion, RowLayoutMotion, visibleLayoutRows } from '../../lib/layoutMotion';
 import { MessageLayoutContext } from '../../lib/messageLayout';
@@ -46,6 +50,7 @@ type ChatTimelineProps = {
   deleted: ReadonlySet<string>;
   isHidden: (id: string) => boolean;
   unreadBoundary?: string;
+  unreadBoundaryClosing?: boolean;
   prewarmBudgetMiB?: number;
   ownSenderId: string;
   observeMessageVisibility: () => TimelineVisibility | undefined;
@@ -250,6 +255,20 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
     if (!changed.size && !edits) return null;
     const bounds = scroll.getBoundingClientRect();
     const rows = visibleLayoutRows(scroll, TIMELINE_MESSAGE_SELECTOR, timelineKey, bounds);
+    const firstUnread =
+      edits && !unreadBoundary && this.props.unreadBoundaryClosing && previous.unreadBoundary
+        ? messageElement(scroll, previous.unreadBoundary)
+        : undefined;
+    const firstUnreadRow = firstUnread && timelineRow(firstUnread);
+    const firstUnreadKey = firstUnreadRow?.dataset.weqMotionKey;
+    const dismissal =
+      firstUnread && firstUnreadRow && firstUnreadKey !== undefined
+        ? {
+            key: firstUnreadKey,
+            top: firstUnread.getBoundingClientRect().top - bounds.top,
+            rowTop: firstUnreadRow.getBoundingClientRect().top - bounds.top,
+          }
+        : undefined;
     const states = new Map(
       [...rows].map(([key, { element }]) => [key, timelineRow(element)?.dataset.weqMotionState]),
     );
@@ -299,6 +318,7 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
       removed,
       changed,
       removedVisibleGap,
+      dismissal,
       tail,
       revision: viewport?.scrollRevision?.(),
       atEnd,
@@ -322,6 +342,7 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
     )
       this.motion.stop();
     if (!snapshot || !scroll) return;
+    const { dismissal } = snapshot;
     const viewport = timelineViewport(scroll);
     const mounted = new Map<string, HTMLElement>();
     const affectedRows = new Set<HTMLDivElement>();
@@ -389,10 +410,13 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
       }
     }
     if (reflow) {
-      const anchor = [...snapshot.rows].find(([key]) => mounted.has(key));
+      const anchor =
+        dismissal && mounted.has(dismissal.key)
+          ? ([dismissal.key, dismissal] as const)
+          : [...snapshot.rows].find(([key]) => mounted.has(key));
       const anchorElement = anchor && mounted.get(anchor[0]);
       // 同帧交付新行高，别等下一轮 ResizeObserver 才补偿阅读位置。
-      if (edited || unreadMoved) {
+      if (edited || (unreadMoved && !dismissal)) {
         for (const key of snapshot.rows.keys()) {
           const element = mounted.get(key);
           const wrapper = element && timelineRow(element);
@@ -402,7 +426,9 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
       const anchorRow = anchorElement && timelineRow(anchorElement);
       viewport?.measureRows?.(
         affectedRows,
-        !snapshot.atEnd && anchorElement && snapshot.changed.has(anchorElement.dataset.messageId!)
+        !snapshot.atEnd &&
+          anchorElement &&
+          (dismissal || snapshot.changed.has(anchorElement.dataset.messageId!))
           ? anchorRow
           : null,
       );
@@ -440,11 +466,27 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
         ? Math.max(72, Math.min(144, scroll.clientHeight / 4))
         : 72;
       let fadedAfterRemoval = 0;
+      if (dismissal && !tailKeys.size) {
+        const element = mounted.get(dismissal.key);
+        const row = element && timelineRow(element);
+        if (row) {
+          // 同行的时间和缺口在分界线上方，正文则与后续消息一起固定。
+          const shift =
+            dismissal.rowTop -
+            (row.getBoundingClientRect().top - scroll.getBoundingClientRect().top);
+          for (const child of row.children) {
+            if (child.classList.contains('weq-unread-divider')) break;
+            if (child instanceof HTMLElement) this.motion.shift(child, shift, shiftLimit);
+          }
+        }
+      }
       for (const [key, { element, top }] of visible) {
         const old = snapshot.rows.get(key);
         const hint = reveal.get(key);
         // 补回大段历史时不让旧消息滑过新内容，也不反复量动画中的行高。
-        if (
+        if (dismissal && old && old.top < dismissal.top && !tailKeys.size && !fillsGap) {
+          this.motion.shift(timelineRow(element)!, old.top - top, shiftLimit);
+        } else if (
           old &&
           !tailKeys.size &&
           !fillsGap &&

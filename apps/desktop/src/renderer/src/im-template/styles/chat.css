@@ -751,7 +751,7 @@ html[data-theme='dark'] .weq-qqshow-avatar {
   filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.55));
 }
 
-.weq-unread-divider {
+.weq-unread-divider-content {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -759,8 +759,8 @@ html[data-theme='dark'] .weq-qqshow-avatar {
   font-size: 12px;
 }
 
-.weq-unread-divider::before,
-.weq-unread-divider::after {
+.weq-unread-divider-content::before,
+.weq-unread-divider-content::after {
   content: '';
   flex: 1 1 0;
   height: 1px;
@@ -800,17 +800,28 @@ html[data-theme='dark'] .weq-qqshow-avatar {
 }
 
 .weq-unread-divider[data-closing] {
-  opacity: 0;
-  transform: translateY(-3px);
+  position: relative;
+  /* 保留淡出的画面，同时释放分界线和额外的行内间距。 */
+  margin-block-end: calc(-1 * var(--weq-timeline-row-gap));
   pointer-events: none;
 }
 
+.weq-unread-divider[data-closing] > .weq-unread-divider-content {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: var(--weq-timeline-row-gap);
+  opacity: 0;
+}
+
 @media (prefers-reduced-motion: no-preference) {
-  .weq-unread-divider-close-icon,
-  .weq-unread-divider[data-closing] {
+  .weq-unread-divider-close-icon {
     transition:
       opacity 160ms ease-out,
       transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .weq-unread-divider-content {
+    transition: opacity 160ms ease-out;
   }
 }
 

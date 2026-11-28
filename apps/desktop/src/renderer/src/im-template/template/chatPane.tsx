@@ -6478,7 +6478,9 @@ function ChatPaneContent({
                 />
                 {message.id === visibleUnreadBoundaryId ? (
                   <div className="weq-unread-divider" role="separator" aria-label="以下为未读消息">
-                    <span aria-hidden>以下为未读消息</span>
+                    <div className="weq-unread-divider-content" aria-hidden>
+                      以下为未读消息
+                    </div>
                   </div>
                 ) : null}
                 <MessageRow
@@ -6842,7 +6844,8 @@ function ChatPaneContent({
           jumpRevision={jumpRequest?.revision}
           deleted={deletedKeys}
           isHidden={isTimelineMessageHidden}
-          unreadBoundary={displayedUnreadBoundaryId}
+          unreadBoundary={visibleUnreadBoundaryId}
+          unreadBoundaryClosing={Boolean(displayedUnreadBoundaryId && unreadDividerDismissed)}
           prewarmBudgetMiB={mediaSettings.data?.chatMessagePrewarmMiB}
           ownSenderId={user.id}
           observeMessageVisibility={observeMessageVisibility}
@@ -6955,23 +6958,29 @@ function ChatPaneContent({
                             aria-hidden={unreadDividerDismissed || undefined}
                             data-closing={unreadDividerDismissed || undefined}
                           >
-                            <button
-                              className="weq-unread-divider-dismiss"
-                              type="button"
-                              aria-label="以下为未读消息，关闭未读分界线"
-                              disabled={unreadDividerDismissed}
-                              onClick={(event) => {
-                                if (event.detail === 0)
-                                  messageScrollRef.current?.focus({ preventScroll: true });
-                                setDismissedUnreadDivider({
-                                  scope: unreadDividerScope,
-                                  messageId: message.id,
-                                });
-                              }}
-                            >
-                              以下为未读消息
-                              <X className="weq-unread-divider-close-icon" size={12} aria-hidden />
-                            </button>
+                            <div className="weq-unread-divider-content">
+                              <button
+                                className="weq-unread-divider-dismiss"
+                                type="button"
+                                aria-label="以下为未读消息，关闭未读分界线"
+                                disabled={unreadDividerDismissed}
+                                onClick={(event) => {
+                                  if (event.detail === 0)
+                                    messageScrollRef.current?.focus({ preventScroll: true });
+                                  setDismissedUnreadDivider({
+                                    scope: unreadDividerScope,
+                                    messageId: message.id,
+                                  });
+                                }}
+                              >
+                                以下为未读消息
+                                <X
+                                  className="weq-unread-divider-close-icon"
+                                  size={12}
+                                  aria-hidden
+                                />
+                              </button>
+                            </div>
                           </div>
                         ) : null}
                         <MessageRow
