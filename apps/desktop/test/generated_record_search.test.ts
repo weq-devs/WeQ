@@ -35,31 +35,59 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it('会话搜索没有条件时不查历史，清空关键词会清除结果并中止查询', async () => {
+it('会话搜索默认浏览全部消息，清空关键词会中止旧搜索并回到全部消息', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const root = createRoot(document.createElement('div'));
   const pending = Promise.withResolvers<{ items: []; cursor: null; hasMore: false }>();
-  const browse = vi.fn().mockReturnValue(pending.promise);
-  nativeReads.mockImplementation((path: string, input: unknown, options: unknown) =>
-    path === 'account.browseConversation' ? browse(input, options) : undefined,
+  const browse = vi.fn(
+    (input: { filter: { keyword?: string } }, _options: { signal: AbortSignal }) =>
+      input.filter.keyword
+        ? pending.promise
+        : {
+            items: [
+              {
+                msgId: '1',
+                msgSeq: '1',
+                senderUid: 'fixture',
+                senderUin: '',
+                senderName: '成员',
+                sendTime: '1794528000',
+                content: '最近一条消息',
+              },
+            ],
+            cursor: null,
+            hasMore: false,
+          },
+  );
+  nativeReads.mockImplementation((path: string, ...args: Parameters<typeof browse>) =>
+    path === 'account.browseConversation' ? browse(...args) : undefined,
   );
   try {
     await act(async () => root.render(nativeRecords('')));
     const input = document.querySelector<HTMLInputElement>('[aria-label="搜索本会话"]')!;
     const results = () => document.querySelector<HTMLElement>('.weq-chatrecords-body');
+    expect(results()?.textContent).toContain('最近一条消息');
+    expect(browse.mock.calls[0]?.[0]).toMatchObject({
+      filter: { keyword: undefined, recordType: undefined },
+      cursor: undefined,
+      limit: 30,
+    });
     await act(async () => changeInput(input, '  '));
-    expect(results()).toBeNull();
-    expect(browse).not.toHaveBeenCalled();
+    expect(browse).toHaveBeenCalledOnce();
 
     await act(async () => changeInput(input, '合成'));
     expect(browse.mock.lastCall?.[0]).toMatchObject({ filter: { keyword: '合成' } });
     expect(results()?.querySelector('[role="status"]')).not.toBeNull();
 
     await act(async () => changeInput(input, ''));
-    expect(browse.mock.lastCall?.[1].signal.aborted).toBe(true);
+    expect(browse.mock.calls[1]?.[1].signal.aborted).toBe(true);
     await act(async () => pending.resolve({ items: [], cursor: null, hasMore: false }));
-    expect(results()).toBeNull();
-    expect(browse).toHaveBeenCalledOnce();
+    expect(results()?.textContent).toContain('最近一条消息');
+    expect(browse.mock.lastCall?.[0]).toMatchObject({
+      filter: { keyword: undefined, recordType: undefined },
+      cursor: undefined,
+    });
+    expect(browse).toHaveBeenCalledTimes(3);
   } finally {
     act(() => root.unmount());
   }
@@ -132,7 +160,7 @@ it('服务号搜索显示候选截断提示，消息定位保留服务号和消�
   }
 });
 
-it('克隆输入关键词后分页显示本地匹配消息，不查询原生 QQ 记录', async () => {
+it('克隆会话默认分页浏览本地消息，清空关键词恢复全部结果', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -148,7 +176,7 @@ it('克隆输入关键词后分页显示本地匹配消息，不查询原生 QQ 
   const messages = cloneChatMessages(
     Array.from({ length: 61 }, (_, index) => ({
       id: `row-${index}`,
-      text: `合成记录 ${index}`,
+      text: index === 60 ? '最新一条消息' : `合成记录 ${index}`,
       ts: index * 1000,
     })),
     conversation.id,
@@ -177,9 +205,8 @@ it('克隆输入关键词后分页显示本地匹配消息，不查询原生 QQ 
     );
     const input = document.querySelector<HTMLInputElement>('[aria-label="搜索本会话"]')!;
     const results = () => document.querySelector<HTMLElement>('.weq-chatrecords-msgs');
-    expect(results()).toBeNull();
-    await act(async () => changeInput(input, '合成'));
     expect(document.querySelectorAll('.weq-chatrecords-msg')).toHaveLength(30);
+    expect(results()?.textContent).toContain('最新一条消息');
     const list = results()!;
     Object.defineProperties(list, {
       clientHeight: { value: 300 },
@@ -190,8 +217,11 @@ it('克隆输入关键词后分页显示本地匹配消息，不查询原生 QQ 
     list.scrollTop = 700;
     act(() => list.dispatchEvent(new Event('scroll')));
     expect(document.querySelectorAll('.weq-chatrecords-msg')).toHaveLength(60);
+    await act(async () => changeInput(input, '合成记录 0'));
+    expect(document.querySelectorAll('.weq-chatrecords-msg')).toHaveLength(1);
+    expect(results()?.textContent).toContain('合成记录 0');
     await act(async () => changeInput(input, ''));
-    expect(results()).toBeNull();
+    expect(results()?.textContent).toContain('最新一条消息');
     expect(nativeReads).not.toHaveBeenCalled();
   } finally {
     act(() => root.unmount());
@@ -467,7 +497,7 @@ it('图片、视频封面及表情自动加载，可预览和定位原消息', a
   const root = createRoot(document.createElement('div'));
   const { props } = nativeRecords('');
   const jump = vi.fn();
-  const item = (recordType: string) => ({
+  const item = (recordType?: string) => ({
     msgId: '4',
     msgSeq: '4',
     senderUid: 'u_peer',
@@ -485,12 +515,12 @@ it('图片、视频封面及表情自动加载，可预览和定位原消息', a
           ? [{ type: 'mface', data: { emojiPackId: 123, marketEmoticonIdHex: 'abc' } }]
           : [{ type: 'file', data: { fileName: 'fixture-file.txt', fileToken: 'file-token' } }],
   });
-  const browse = vi.fn((input: { filter: { recordType: string } }) => ({
+  const browse = vi.fn((input: { filter: { recordType?: string } }) => ({
     items: [item(input.filter.recordType)],
     cursor: null,
     hasMore: false,
   }));
-  nativeReads.mockImplementation((path: string, input: { filter: { recordType: string } }) =>
+  nativeReads.mockImplementation((path: string, input: Parameters<typeof browse>[0]) =>
     path === 'account.browseConversation' ? browse(input) : undefined,
   );
   const tab = (label: string) =>
@@ -499,7 +529,6 @@ it('图片、视频封面及表情自动加载，可预览和定位原消息', a
     )!;
   try {
     await act(async () => root.render(h(ChatRecordsModal, { ...props, onJumpMessage: jump })));
-    expect(browse).not.toHaveBeenCalled();
     await act(async () => tab('图片/视频').click());
     const previews = [
       ...document.querySelectorAll<HTMLButtonElement>('button.weq-record-media-thumbnail'),
@@ -530,6 +559,7 @@ it('图片、视频封面及表情自动加载，可预览和定位原消息', a
     expect(document.querySelector('.weq-record-media-grid')).toBeNull();
     expect(document.querySelector('.weq-chatrecords-msg')).not.toBeNull();
     expect(browse.mock.calls.map(([input]) => input.filter.recordType)).toEqual([
+      undefined,
       'media',
       'emoji',
       'file',
@@ -645,9 +675,9 @@ it('群发送者打开即使用当前排序读取完整名单，按昵称筛选�
     await act(async () => segments[0]!.click());
     expect(options()).toHaveLength(0);
     await act(async () => changeInput(input, '昵称样本'));
-    expect(nativeReads.mock.calls.some(([path]) => path === 'account.browseConversation')).toBe(
-      false,
-    );
+    expect(
+      nativeReads.mock.calls.filter(([path]) => path === 'account.browseConversation'),
+    ).toHaveLength(1);
     await act(async () => options()[0]!.click());
     expect(nativeReads).toHaveBeenCalledWith(
       'account.browseConversation',

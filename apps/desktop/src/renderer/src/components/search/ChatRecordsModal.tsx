@@ -152,7 +152,7 @@ export function ChatRecordsModal({
     [senders, trimmedKeyword, category, startDay, endDay],
   );
   const refreshing = fixed && settledFilter !== filter;
-  const hasSearch = Boolean(filter.keyword || (fixed && (senders.length || category || startDay)));
+  const hasSearch = fixed || Boolean(filter.keyword);
   useEffect(() => {
     let active = true;
     if (localSource) {
@@ -681,7 +681,8 @@ export function ChatRecordsModal({
           onLocate={(day) => {
             setCalendarOpen(false);
             setDayNotice('');
-            if (!hasSearch || (startDay && (day < startDay || (endDay && day > endDay))))
+            const unfiltered = !trimmedKeyword && !senders.length && !category && !startDay;
+            if (unfiltered || (startDay && (day < startDay || (endDay && day > endDay))))
               setRange({ start: day, end: day });
             setLocateDay(day);
           }}
